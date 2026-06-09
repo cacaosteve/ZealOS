@@ -1,0 +1,903 @@
+// A small ZealOS-native trail survival prototype.
+
+#define ET_PARTY_START		24
+#define ET_DAY_LIMIT		42
+#define ET_GOAL_DISTANCE	420
+
+#define ET_SCENE_TRAIL		0
+#define ET_SCENE_CAMP		1
+#define ET_SCENE_FORAGE		2
+#define ET_SCENE_PRAY		3
+#define ET_SCENE_OASIS		4
+#define ET_SCENE_STORM		5
+#define ET_SCENE_TRADER		6
+#define ET_SCENE_WIN		7
+#define ET_SCENE_MARKET		8
+
+class ETGame
+{
+	I64 day, distance, food, water, linen, silver, health, morale, party;
+};
+
+U8  et_last_msg[160];
+I64 et_last_scene = ET_SCENE_TRAIL;
+
+U0 ETMsg(U8 *st)
+{
+	StrCopy(et_last_msg, st);
+}
+
+U0 ETCenter(CDC *dc, I64 y, U8 *st)
+{
+	I64 x = (Fs->pix_width - StrLen(st) * FONT_WIDTH) / 2;
+
+	if (x < 0)
+		x = 0;
+	GrPrint(dc, x, y, "%s", st);
+}
+
+U8 *ETPlace(ETGame *g)
+{
+	I64 i = g->distance * 6 / ET_GOAL_DISTANCE;
+
+	if (i < 0)
+		i = 0;
+	if (i > 6)
+		i = 6;
+	switch (i)
+	{
+		case 0: return "Succoth";
+		case 1: return "Etham";
+		case 2: return "Shur";
+		case 3: return "Marah";
+		case 4: return "Elim";
+		case 5: return "Sinai";
+	}
+	return "Canaan";
+}
+
+U0 ETBar(CDC *dc, I64 x, I64 y, I64 w, U8 *label, I64 val, I64 max, I64 color)
+{
+	I64 fill;
+
+	if (max <= 0)
+		max = 1;
+	fill = val * w / max;
+	if (fill < 0)
+		fill = 0;
+	if (fill > w)
+		fill = w;
+
+	dc->color = DKGRAY;
+	GrRect(dc, x, y + 10, w, 8);
+	if (fill > 0)
+	{
+		dc->color = color;
+		GrRect(dc, x, y + 10, fill, 8);
+	}
+	dc->color = WHITE;
+	GrPrint(dc, x, y, "%s:%d", label, val);
+}
+
+U0 ETDrawWagon(CDC *dc, I64 x, I64 y)
+{
+	dc->thick = 1;
+	dc->color = BROWN;
+	GrRect(dc, x - 18, y - 12, 36, 18);
+	dc->color = LTGRAY;
+	GrLine(dc, x - 22, y - 12, x - 12, y - 25);
+	GrLine(dc, x - 12, y - 25, x + 14, y - 25);
+	GrLine(dc, x + 14, y - 25, x + 22, y - 12);
+	dc->color = BLACK;
+	GrCircle(dc, x - 11, y + 8, 6);
+	GrCircle(dc, x + 12, y + 8, 6);
+}
+
+U0 ETDrawTent(CDC *dc, I64 x, I64 y, I64 color)
+{
+	dc->color = color;
+	dc->thick = 2;
+	GrLine(dc, x - 28, y + 18, x, y - 24);
+	GrLine(dc, x, y - 24, x + 28, y + 18);
+	GrLine(dc, x - 28, y + 18, x + 28, y + 18);
+	GrLine(dc, x, y - 24, x, y + 18);
+	dc->thick = 1;
+}
+
+U0 ETDrawPerson(CDC *dc, I64 x, I64 y, I64 color)
+{
+	dc->color = color;
+	GrCircle(dc, x, y - 12, 5);
+	GrLine(dc, x, y - 7, x, y + 12);
+	GrLine(dc, x - 8, y + 1, x + 8, y + 1);
+	GrLine(dc, x, y + 12, x - 7, y + 24);
+	GrLine(dc, x, y + 12, x + 7, y + 24);
+}
+
+U0 ETDrawBase(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height, horizon = h * 43 / 100;
+
+	dc->thick = 1;
+	DCFill(dc, LTBLUE);
+
+	dc->color = YELLOW;
+	GrCircle(dc, w - 72, 54, 24);
+	GrFloodFill(dc, w - 72, 54);
+
+	dc->color = DKGRAY;
+	GrLine(dc, 0, horizon, w / 5, horizon - 62);
+	GrLine(dc, w / 5, horizon - 62, w * 2 / 5, horizon);
+	GrLine(dc, w / 3, horizon, w * 3 / 5, horizon - 88);
+	GrLine(dc, w * 3 / 5, horizon - 88, w, horizon);
+
+	dc->color = BROWN;
+	GrRect(dc, 0, horizon, w, h - horizon);
+
+	dc->color = LTGRAY;
+	dc->thick = 5;
+	GrLine(dc, w / 2, horizon + 14, w / 7, h - 92);
+	GrLine(dc, w / 2, horizon + 14, w * 6 / 7, h - 92);
+	dc->thick = 1;
+}
+
+U0 ETDrawTrail(CDC *dc, ETGame *g)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+	I64 x = 65 + g->distance * (w - 130) / ET_GOAL_DISTANCE;
+	I64 y = h - 102 - g->distance * (h / 4) / ET_GOAL_DISTANCE;
+
+	if (x < 65)
+		x = 65;
+	if (x > w - 65)
+		x = w - 65;
+
+	ETDrawWagon(dc, x, y);
+	ETDrawPerson(dc, x - 36, y + 4, WHITE);
+	ETDrawPerson(dc, x + 41, y + 6, LTGRAY);
+}
+
+U0 ETDrawCamp(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	ETDrawTent(dc, w / 2 - 70, h * 2 / 3, WHITE);
+	ETDrawTent(dc, w / 2 + 45, h * 2 / 3 + 12, LTGRAY);
+	dc->color = RED;
+	GrLine(dc, w / 2 - 6, h * 2 / 3 + 35, w / 2 + 6, h * 2 / 3 + 35);
+	dc->color = YELLOW;
+	GrLine(dc, w / 2, h * 2 / 3 + 30, w / 2 - 6, h * 2 / 3 + 45);
+	GrLine(dc, w / 2, h * 2 / 3 + 30, w / 2 + 6, h * 2 / 3 + 45);
+}
+
+U0 ETDrawForage(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height, i, x;
+
+	dc->color = DKGRAY;
+	for (i = 0; i < 7; i++)
+	{
+		x = 90 + i * (w - 180) / 7;
+		GrCircle(dc, x, h * 2 / 3 + (i % 3) * 14, 10 + (i % 4) * 4);
+	}
+	dc->color = WHITE;
+	GrPrint(dc, w / 2 - 9 * FONT_WIDTH, h * 2 / 3 - 35, "searching ravines");
+}
+
+U0 ETDrawPrayer(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	ETDrawTent(dc, w / 2, h * 2 / 3, LTGRAY);
+	ETDrawPerson(dc, w / 2 - 54, h * 2 / 3 + 8, WHITE);
+	ETDrawPerson(dc, w / 2 + 55, h * 2 / 3 + 8, WHITE);
+	dc->color = WHITE;
+	GrPrint(dc, w / 2 - 11 * FONT_WIDTH, h * 2 / 3 - 70, "quiet counsel in camp");
+}
+
+U0 ETDrawOasis(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	dc->color = CYAN;
+	GrCircle(dc, w / 2, h * 2 / 3 + 28, 46);
+	GrFloodFill(dc, w / 2, h * 2 / 3 + 28);
+	dc->color = GREEN;
+	GrLine(dc, w / 2 - 70, h * 2 / 3, w / 2 - 52, h * 2 / 3 - 70);
+	GrLine(dc, w / 2 - 52, h * 2 / 3 - 70, w / 2 - 20, h * 2 / 3 - 50);
+	GrLine(dc, w / 2 - 52, h * 2 / 3 - 70, w / 2 - 88, h * 2 / 3 - 44);
+	GrLine(dc, w / 2 - 52, h * 2 / 3 - 70, w / 2 - 50, h * 2 / 3 - 30);
+}
+
+U0 ETDrawStorm(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height, i, x;
+
+	dc->color = DKGRAY;
+	GrRect(dc, 0, 0, w, h * 43 / 100);
+	dc->color = LTGRAY;
+	dc->thick = 3;
+	for (i = 0; i < 8; i++)
+	{
+		x = i * w / 8;
+		GrLine(dc, x, h / 3, x + w / 6, h / 2);
+	}
+	dc->thick = 1;
+	ETDrawWagon(dc, w / 2, h * 2 / 3);
+}
+
+U0 ETDrawTrader(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	ETDrawPerson(dc, w / 2 - 65, h * 2 / 3, WHITE);
+	ETDrawPerson(dc, w / 2 + 65, h * 2 / 3, YELLOW);
+	dc->color = LTGRAY;
+	GrRect(dc, w / 2 - 24, h * 2 / 3 + 8, 48, 24);
+	GrPrint(dc, w / 2 - 3 * FONT_WIDTH, h * 2 / 3 + 14, "grain");
+}
+
+U0 ETDrawMarket(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	ETDrawPerson(dc, w / 2 - 85, h * 2 / 3, WHITE);
+	ETDrawPerson(dc, w / 2 + 85, h * 2 / 3, YELLOW);
+	dc->color = LTGRAY;
+	GrRect(dc, w / 2 - 56, h * 2 / 3 + 2, 112, 34);
+	dc->color = BROWN;
+	GrRect(dc, w / 2 - 44, h * 2 / 3 - 18, 24, 20);
+	GrRect(dc, w / 2 - 8, h * 2 / 3 - 24, 24, 26);
+	GrRect(dc, w / 2 + 30, h * 2 / 3 - 14, 20, 16);
+	dc->color = WHITE;
+	GrPrint(dc, w / 2 - 6 * FONT_WIDTH, h * 2 / 3 + 12, "supplies");
+}
+
+U0 ETDrawWin(CDC *dc)
+{
+	I64 w = Fs->pix_width, h = Fs->pix_height;
+
+	dc->color = GREEN;
+	GrRect(dc, w / 2 - 95, h * 2 / 3 - 62, 190, 85);
+	dc->color = WHITE;
+	GrPrint(dc, w / 2 - 7 * FONT_WIDTH, h * 2 / 3 - 25, "CANAAN");
+	ETDrawPerson(dc, w / 2 - 120, h * 2 / 3 + 20, WHITE);
+	ETDrawPerson(dc, w / 2 + 120, h * 2 / 3 + 20, WHITE);
+}
+
+U0 ETDrawSceneArt(CDC *dc, ETGame *g, I64 scene)
+{
+	switch (scene)
+	{
+		case ET_SCENE_CAMP:
+			ETDrawCamp(dc);
+			break;
+		case ET_SCENE_FORAGE:
+			ETDrawForage(dc);
+			break;
+		case ET_SCENE_PRAY:
+			ETDrawPrayer(dc);
+			break;
+		case ET_SCENE_OASIS:
+			ETDrawOasis(dc);
+			break;
+		case ET_SCENE_STORM:
+			ETDrawStorm(dc);
+			break;
+		case ET_SCENE_TRADER:
+			ETDrawTrader(dc);
+			break;
+		case ET_SCENE_MARKET:
+			ETDrawMarket(dc);
+			break;
+		case ET_SCENE_WIN:
+			ETDrawWin(dc);
+			break;
+		default:
+			ETDrawTrail(dc, g);
+			break;
+	}
+}
+
+U0 ETDrawStatus(CDC *dc, ETGame *g)
+{
+	I64 w = Fs->pix_width;
+	I64 progress = g->distance * (w - 260) / ET_GOAL_DISTANCE;
+
+	if (progress < 0)
+		progress = 0;
+	if (progress > w - 260)
+		progress = w - 260;
+
+	dc->color = BLACK;
+	GrRect(dc, 8, 8, w - 16, 88);
+	dc->color = CYAN;
+	GrPrint(dc, 20, 18, "EXODUS TRAIL");
+	dc->color = WHITE;
+	GrPrint(dc, 20, 38, "Day %d/%d   Near %s   People %d",
+		g->day, ET_DAY_LIMIT, ETPlace(g), g->party);
+	GrPrint(dc, 20, 58, "Miles %d/%d", g->distance, ET_GOAL_DISTANCE);
+
+	dc->color = DKGRAY;
+	GrRect(dc, 150, 61, w - 260, 8);
+	dc->color = GREEN;
+	if (progress > 0)
+		GrRect(dc, 150, 61, progress, 8);
+	dc->color = WHITE;
+	GrPrint(dc, w - 100, 58, "Canaan");
+
+	ETBar(dc, 20, 105, 120, "Food", g->food, 220, GREEN);
+	ETBar(dc, 160, 105, 120, "Water", g->water, 180, CYAN);
+	ETBar(dc, 300, 105, 120, "Health", g->health, 100, RED);
+	ETBar(dc, 440, 105, 120, "Morale", g->morale, 100, YELLOW);
+	ETBar(dc, 580, 105, 110, "Silver", g->silver, 60, LTGRAY);
+}
+
+U0 ETDrawPrompt(CDC *dc)
+{
+	I64 h = Fs->pix_height, w = Fs->pix_width, y = h - 96;
+
+	if (y < 330)
+		y = 330;
+
+	dc->color = BLACK;
+	GrRect(dc, 8, y - 12, w - 16, 86);
+	dc->color = WHITE;
+	GrPrint(dc, 22, y, "1 Hard   2 Steady   3 Rest   4 Forage   5 Pray");
+	GrPrint(dc, 22, y + 18, "S Save   L Load     ESC Leave trail");
+	dc->color = YELLOW;
+	GrPrint(dc, 22, y + 48, "Choice:");
+}
+
+U0 ETDraw(ETGame *g, I64 scene, U8 *msg, Bool prompt)
+{
+	CDC *dc;
+	I64	 h;
+
+	DocClear;
+	dc = DCAlias;
+	h = Fs->pix_height;
+	ETDrawBase(dc);
+	ETDrawSceneArt(dc, g, scene);
+	ETDrawStatus(dc, g);
+
+	if (*msg)
+	{
+		dc->color = BLACK;
+		GrRect(dc, 8, h - 146, Fs->pix_width - 16, 30);
+		dc->color = WHITE;
+		GrPrint(dc, 22, h - 138, "%s", msg);
+	}
+	if (prompt)
+		ETDrawPrompt(dc);
+	else
+	{
+		dc->color = YELLOW;
+		ETCenter(dc, h - 55, "Press any key.");
+	}
+
+	DCDel(dc);
+}
+
+U0 ETDrawSupply(ETGame *g)
+{
+	CDC *dc;
+	I64	 w, h, y;
+
+	DocClear;
+	dc = DCAlias;
+	w = Fs->pix_width;
+	h = Fs->pix_height;
+	y = h - 164;
+	if (y < 305)
+		y = 305;
+
+	ETDrawBase(dc);
+	ETDrawSceneArt(dc, g, ET_SCENE_MARKET);
+	ETDrawStatus(dc, g);
+	dc->color = BLACK;
+	GrRect(dc, 8, y - 16, w - 16, 138);
+	dc->color = CYAN;
+	GrPrint(dc, 22, y, "SUPPLY MARKET");
+	dc->color = WHITE;
+	GrPrint(dc, 22, y + 20, "Silver left: %d", g->silver);
+	GrPrint(dc, 22, y + 42, "1 Food +40 costs 8     2 Water +35 costs 7");
+	GrPrint(dc, 22, y + 62, "3 Linen +8 costs 5     4 Medicine costs 6");
+	GrPrint(dc, 22, y + 82, "5 Encourage camp costs 4");
+	dc->color = YELLOW;
+	GrPrint(dc, 22, y + 106, "0 Begin trail");
+	DCDel(dc);
+}
+
+I64 ETTitle()
+{
+	CDC *dc;
+	I64	 w, h;
+
+	DocClear;
+	dc = DCAlias;
+	w = Fs->pix_width;
+	h = Fs->pix_height;
+	ETDrawBase(dc);
+	dc->color = BLACK;
+	GrRect(dc, 0, h / 2 - 80, w, 160);
+	dc->color = CYAN;
+	ETCenter(dc, h / 2 - 42, "EXODUS TRAIL");
+	dc->color = WHITE;
+	ETCenter(dc, h / 2 - 12, "A small ZealOS trail survival prototype");
+	dc->color = LTGRAY;
+	ETCenter(dc, h / 2 + 26, "Make choices, conserve food and water, reach Canaan.");
+	dc->color = YELLOW;
+	ETCenter(dc, h / 2 + 58, "N New journey     L Load saved journey");
+	DCDel(dc);
+	return ToUpper(CharGet(, FALSE));
+}
+
+U0 ETPause()
+{
+	PressAKey;
+}
+
+I64 ETChoice()
+{
+	I64 ch = ToUpper(CharGet(, FALSE));
+
+	return ch;
+}
+
+U0 ETClamp(ETGame *g)
+{
+	if (g->food < 0)
+		g->food = 0;
+	if (g->water < 0)
+		g->water = 0;
+	if (g->linen < 0)
+		g->linen = 0;
+	if (g->silver < 0)
+		g->silver = 0;
+	if (g->health < 0)
+		g->health = 0;
+	if (g->health > 100)
+		g->health = 100;
+	if (g->morale < 0)
+		g->morale = 0;
+	if (g->morale > 100)
+		g->morale = 100;
+	if (g->party < 0)
+		g->party = 0;
+	if (g->distance < 0)
+		g->distance = 0;
+	if (g->distance > ET_GOAL_DISTANCE)
+		g->distance = ET_GOAL_DISTANCE;
+}
+
+Bool ETSave(ETGame *g)
+{
+	ETClamp(g);
+	ETMsg("Save/load is disabled in this test build.");
+	et_last_scene = ET_SCENE_CAMP;
+	return FALSE;
+}
+
+Bool ETLoad(ETGame *g)
+{
+	ETClamp(g);
+	ETMsg("Save/load is disabled in this test build.");
+	et_last_scene = ET_SCENE_CAMP;
+	return FALSE;
+}
+
+U0 ETInit(ETGame *g)
+{
+	g->day = 1;
+	g->distance = 0;
+	g->food = 80;
+	g->water = 60;
+	g->linen = 10;
+	g->silver = 80;
+	g->health = 85;
+	g->morale = 70;
+	g->party = ET_PARTY_START;
+	et_last_scene = ET_SCENE_TRAIL;
+	ETMsg("The camp is ready. Choose how to begin.");
+}
+
+U0 ETBuy(ETGame *g, I64 cost, I64 food, I64 water, I64 linen, I64 health, I64 morale, U8 *msg)
+{
+	if (g->silver >= cost)
+	{
+		g->silver -= cost;
+		g->food += food;
+		g->water += water;
+		g->linen += linen;
+		g->health += health;
+		g->morale += morale;
+		ETClamp(g);
+		ETMsg(msg);
+	}
+	else
+		ETMsg("Not enough silver for that purchase.");
+}
+
+U0 ETSupply(ETGame *g)
+{
+	I64 ch;
+
+	et_last_scene = ET_SCENE_MARKET;
+	ETMsg("Buy supplies before leaving Succoth.");
+	while (TRUE)
+	{
+		ETDrawSupply(g);
+		ch = ToUpper(CharGet(, FALSE));
+		if (ch == '0')
+			break;
+		if (ch == CH_ESC)
+			break;
+		if (ch == CH_SHIFT_ESC)
+			break;
+
+		switch (ch)
+		{
+			case '1':
+				ETBuy(g, 8, 40, 0, 0, 0, 0, "Bought food for the road.");
+				break;
+			case '2':
+				ETBuy(g, 7, 0, 35, 0, 0, 0, "Filled more water skins.");
+				break;
+			case '3':
+				ETBuy(g, 5, 0, 0, 8, 0, 0, "Bought linen and repair cloth.");
+				break;
+			case '4':
+				ETBuy(g, 6, 0, 0, 0, 10, 0, "Bought medicine and salves.");
+				break;
+			case '5':
+				ETBuy(g, 4, 0, 0, 0, 0, 8, "The camp leaves with better courage.");
+				break;
+			default:
+				ETMsg("Choose 1-5, or 0 to begin.");
+				break;
+		}
+	}
+	et_last_scene = ET_SCENE_TRAIL;
+	ETMsg("The trail opens ahead.");
+}
+
+U0 ETDailyCost(ETGame *g, I64 pace)
+{
+	g->food -= g->party * (2 + pace) / 3;
+	g->water -= g->party * (2 + pace) / 4;
+	g->health -= pace;
+	g->morale -= pace / 2;
+
+	if (!g->food)
+	{
+		g->health -= 8;
+		g->morale -= 5;
+	}
+	if (!g->water)
+	{
+		g->health -= 12;
+		g->morale -= 8;
+	}
+}
+
+U0 ETRandomEvent(ETGame *g)
+{
+	I64 roll = RandU16;
+	I64 r;
+
+	if ((roll % 3) != 0)
+	{
+		ETClamp(g);
+		return;
+	}
+	r = RandU16 % 15;
+
+	switch (r)
+	{
+		case 0:
+			et_last_scene = ET_SCENE_TRADER;
+			if (g->silver >= 6)
+			{
+				g->silver -= 6;
+				g->food += 35;
+				g->linen += 4;
+				ETMsg("A trader passes. You trade 6 silver for food and linen.");
+			}
+			else
+				ETMsg("A trader passes, but you have too little silver.");
+			break;
+
+		case 1:
+			et_last_scene = ET_SCENE_OASIS;
+			ETMsg("A bitter spring is found and made useful.");
+			g->water += 25;
+			g->morale += 4;
+			break;
+
+		case 2:
+			et_last_scene = ET_SCENE_STORM;
+			ETMsg("Dust winds tear through the camp.");
+			g->water -= 18;
+			g->health -= 5;
+			break;
+
+		case 3:
+			et_last_scene = ET_SCENE_CAMP;
+			ETMsg("A child grows feverish in the night.");
+			g->health -= 7;
+			g->morale -= 4;
+			break;
+
+		case 4:
+			et_last_scene = ET_SCENE_CAMP;
+			ETMsg("Songs rise by the fire after sundown.");
+			g->morale += 10;
+			break;
+
+		case 5:
+			et_last_scene = ET_SCENE_FORAGE;
+			ETMsg("Scouts find dates and quail near the rocks.");
+			g->food += 28;
+			break;
+
+		case 6:
+			et_last_scene = ET_SCENE_TRAIL;
+			if (g->linen >= 5)
+			{
+				ETMsg("Torn sandals are repaired with spare linen.");
+				g->linen -= 5;
+				g->morale += 2;
+			}
+			else
+			{
+				ETMsg("Torn sandals slow the march.");
+				g->health -= 5;
+				g->morale -= 3;
+			}
+			break;
+
+		case 7:
+			et_last_scene = ET_SCENE_CAMP;
+			ETMsg("An argument divides the tents.");
+			g->morale -= 9;
+			break;
+
+		case 8:
+			et_last_scene = ET_SCENE_CAMP;
+			ETMsg("A cool night restores the weary.");
+			g->health += 6;
+			g->water += 6;
+			break;
+
+		case 9:
+			et_last_scene = ET_SCENE_TRAIL;
+			ETMsg("A rocky pass costs precious time.");
+			g->distance -= 6;
+			g->morale -= 2;
+			break;
+
+		case 10:
+			et_last_scene = ET_SCENE_STORM;
+			ETMsg("Thieves steal from an outer pack.");
+			g->food -= 20;
+			g->silver -= 4;
+			break;
+
+		case 11:
+			et_last_scene = ET_SCENE_CAMP;
+			ETMsg("A skilled healer tends the sick.");
+			g->health += 8;
+			break;
+
+		case 12:
+			et_last_scene = ET_SCENE_TRAIL;
+			ETMsg("A guide points out a shorter dry path.");
+			g->distance += 10;
+			g->morale += 2;
+			break;
+
+		case 13:
+			et_last_scene = ET_SCENE_OASIS;
+			ETMsg("Sour water spoils several skins.");
+			g->water -= 16;
+			g->health -= 3;
+			break;
+
+		case 14:
+			et_last_scene = ET_SCENE_TRAIL;
+			ETMsg("The day is calm and the road is kind.");
+			g->morale += 4;
+			break;
+	}
+	ETClamp(g);
+}
+
+U0 ETTravel(ETGame *g, I64 pace)
+{
+	I64 roll = RandU16;
+	I64 miles = 10 + roll % 8 + pace * 4;
+
+	et_last_scene = ET_SCENE_TRAIL;
+	g->distance += miles;
+	StrPrint(et_last_msg, "You travel %d miles.", miles);
+	ETDailyCost(g, pace);
+	ETRandomEvent(g);
+}
+
+U0 ETRest(ETGame *g)
+{
+	et_last_scene = ET_SCENE_CAMP;
+	ETMsg("You remain in camp and mend what was torn.");
+	g->food -= g->party / 2;
+	g->water -= g->party / 3;
+	g->health += 12;
+	g->morale += 6;
+	ETRandomEvent(g);
+}
+
+U0 ETForage(ETGame *g)
+{
+	I64 roll = RandU16;
+	I64 found = 18 + roll % 35;
+
+	et_last_scene = ET_SCENE_FORAGE;
+	StrPrint(et_last_msg, "You search the ravines and gather %d food.", found);
+	g->food += found;
+	g->water -= g->party / 4;
+	g->health -= 2;
+	roll = RandU16;
+	if ((roll % 5) == 0)
+	{
+		ETMsg("One scout is injured on loose stone.");
+		g->health -= 5;
+	}
+	ETRandomEvent(g);
+}
+
+U0 ETPray(ETGame *g)
+{
+	et_last_scene = ET_SCENE_PRAY;
+	ETMsg("The camp grows quiet for prayer and counsel.");
+	g->morale += 14;
+	g->health += 4;
+	g->food -= g->party / 3;
+	g->water -= g->party / 3;
+	ETRandomEvent(g);
+}
+
+Bool ETGameOver(ETGame *g)
+{
+	if (g->distance >= ET_GOAL_DISTANCE)
+	{
+		et_last_scene = ET_SCENE_WIN;
+		StrPrint(et_last_msg, "You reach Canaan with %d people still walking.", g->party);
+		return TRUE;
+	}
+	if (g->day > ET_DAY_LIMIT)
+	{
+		et_last_scene = ET_SCENE_STORM;
+		ETMsg("The season closes before the journey is complete.");
+		return TRUE;
+	}
+	if (g->health <= 0)
+	{
+		et_last_scene = ET_SCENE_CAMP;
+		ETMsg("The camp can go no farther.");
+		return TRUE;
+	}
+	if (g->party <= 0)
+	{
+		et_last_scene = ET_SCENE_CAMP;
+		ETMsg("The camp can go no farther.");
+		return TRUE;
+	}
+	return FALSE;
+}
+
+U0 ExodusTrail()
+{
+	ETGame g;
+	I64 ch, roll;
+	Bool turn_done;
+
+	SettingsPush;
+	WinMax;
+	ETInit(&g);
+	ch = ETTitle();
+	if (ch == 'L')
+	{
+		if (!ETLoad(&g))
+		{
+			ETDraw(&g, et_last_scene, et_last_msg, FALSE);
+			ETPause;
+			ETSupply(&g);
+		}
+	}
+	else
+		ETSupply(&g);
+
+	while (TRUE)
+	{
+		ETDraw(&g, et_last_scene, et_last_msg, TRUE);
+		turn_done = FALSE;
+
+		ch = ETChoice;
+		if (ch == CH_ESC)
+			break;
+		if (ch == CH_SHIFT_ESC)
+			break;
+
+		switch (ch)
+		{
+			case '1':
+				ETTravel(&g, 3);
+				turn_done = TRUE;
+				break;
+
+			case '2':
+				ETTravel(&g, 1);
+				turn_done = TRUE;
+				break;
+
+			case '3':
+				ETRest(&g);
+				turn_done = TRUE;
+				break;
+
+			case '4':
+				ETForage(&g);
+				turn_done = TRUE;
+				break;
+
+			case '5':
+				ETPray(&g);
+				turn_done = TRUE;
+				break;
+
+			case 'S':
+				ETSave(&g);
+				break;
+
+			case 'L':
+				ETLoad(&g);
+				break;
+
+			default:
+				ETMsg("That command is not on the tablets.");
+				break;
+		}
+
+		if (!turn_done)
+			continue;
+
+		ETClamp(&g);
+		roll = RandU16;
+		if (g.health < 25)
+		{
+			if ((roll % 4) == 0)
+			{
+				et_last_scene = ET_SCENE_CAMP;
+				ETMsg("One person is lost to hardship.");
+				g.party--;
+				g.morale -= 8;
+				ETClamp(&g);
+			}
+		}
+
+		g.day++;
+		if (ETGameOver(&g))
+		{
+			ETDraw(&g, et_last_scene, et_last_msg, FALSE);
+			ETPause;
+			break;
+		}
+
+		ETDraw(&g, et_last_scene, et_last_msg, FALSE);
+		ETPause;
+	}
+
+	DocClear;
+	DCFill;
+	SettingsPop;
+}
