@@ -38,6 +38,7 @@ I64 boot_ins_pending = FALSE;
 I64 normal_rebuild_pending = FALSE;
 I64 usb_only_input = FALSE;
 I64 usb_has_mouse;
+I64 usb_try;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
 	Cd("C:/Home");
@@ -109,15 +110,12 @@ LBts(&Fs->display_flags, DISPLAYf_SHOW);
 if (!normal_rebuild_pending)
 {
 	Silent;
-	I64 usb_try;
-	for (usb_try = 0; usb_try < 6 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
+	for (usb_try = 0; usb_try < 16 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
 	{
 		if (usb_try)
 			Sleep(1000);
 		UsbBootInit;
 	}
-	if ((sys_usb_input_active & (UK | UM)) != (UK | UM))
-		UsbBootRetrySpawn;
 	Silent(OFF);
 }
 else
