@@ -113,9 +113,8 @@ if (!normal_rebuild_pending)
 	usb_try = 0;
 	while (usb_try < 16)
 	{
-		if (sys_usb_input_active & UK)
-			if (sys_usb_input_active & UM)
-				break;
+		if (UsbBootInputReady)
+			break;
 		if (usb_try)
 			Sleep(1000);
 		UsbBootInit;
@@ -125,14 +124,14 @@ if (!normal_rebuild_pending)
 }
 else
 	"USB boot skipped for queued kernel rebuild.\n";
-if (!(sys_usb_input_active & UK))
+if (!UsbBootKbdActive)
 {
 	if (usb_only_input)
 		"PS/2 keyboard skipped for USB-only input.\n";
 	else
 		KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
 }
-usb_has_mouse = sys_usb_input_active & UM;
+usb_has_mouse = UsbBootMouseActive;
 if (!usb_has_mouse)
 {
 	if (usb_only_input)
@@ -148,7 +147,7 @@ if (!usb_has_mouse)
 }
 
 "USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
-if (!(sys_usb_input_active & 3))
+if (!sys_usb_input_active)
 	"$$RED$$No native USB keyboard/mouse (active=0x%X). See ::/Doc/USBBoot.DD.$$FG$$\n", sys_usb_input_active;
 RegInit;
 LBts(&sys_run_level, RLf_REGISTRY);
