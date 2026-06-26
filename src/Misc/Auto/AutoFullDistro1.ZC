@@ -22,7 +22,7 @@ U0 Auto()
 	BootMHDIns('C');
 	Copy("C:/Tmp/OSBuild/Kernel/KStart16.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KernelA.HH", "C:/Kernel/");
-	in_str = MStrPrint("CC\n%d\n\n\n\n", ata_port);
+	in_str = MStrPrint("CC\n%d\n\n\n\n\n\n", ata_port);
 	Sleep(700);
 	In(in_str);
 	BootHDIns;

@@ -20,7 +20,7 @@ U0 Auto()
 
 	WinMax;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
-	in_str = MStrPrint("CC\n%d\n\n\n\n", ata_port);
+	in_str = MStrPrint("CC\n%d\n\n\n\n\n\n", ata_port);
 	Sleep(700);
 	In(in_str);
 	BootHDIns;
