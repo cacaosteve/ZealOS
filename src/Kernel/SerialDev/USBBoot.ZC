@@ -202,14 +202,14 @@ public Bool UsbBootMouseActive()
 
 public Bool UsbBootInputReady()
 {
-	return UsbBootKbdActive && UsbBootMouseActive;
+	return UsbBootKbdActive() && UsbBootMouseActive();
 }
 
 public U0 UsbBootInit()
 {
 	I64 i;
 
-	if (UsbBootInputReady)
+	if (UsbBootInputReady())
 		return;
 	sys_usb_suppress_single_step = 1;
 	usb_verbose = 0;

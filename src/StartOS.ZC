@@ -113,7 +113,7 @@ if (!normal_rebuild_pending)
 	usb_try = 0;
 	while (usb_try < 16)
 	{
-		if (UsbBootInputReady)
+		if (UsbBootInputReady())
 			break;
 		if (usb_try)
 			Sleep(1000);
@@ -124,14 +124,14 @@ if (!normal_rebuild_pending)
 }
 else
 	"USB boot skipped for queued kernel rebuild.\n";
-if (!UsbBootKbdActive)
+if (!UsbBootKbdActive())
 {
 	if (usb_only_input)
 		"PS/2 keyboard skipped for USB-only input.\n";
 	else
 		KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
 }
-usb_has_mouse = UsbBootMouseActive;
+usb_has_mouse = UsbBootMouseActive();
 if (!usb_has_mouse)
 {
 	if (usb_only_input)
