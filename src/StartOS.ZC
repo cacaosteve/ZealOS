@@ -110,11 +110,16 @@ LBts(&Fs->display_flags, DISPLAYf_SHOW);
 if (!normal_rebuild_pending)
 {
 	Silent;
-	for (usb_try = 0; usb_try < 16 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
+	usb_try = 0;
+	while (usb_try < 16)
 	{
+		if (sys_usb_input_active & UK)
+			if (sys_usb_input_active & UM)
+				break;
 		if (usb_try)
 			Sleep(1000);
 		UsbBootInit;
+		usb_try++;
 	}
 	Silent(OFF);
 }
