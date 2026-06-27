@@ -246,6 +246,20 @@ public U0 UsbBootInit()
 	UsbBootLastWrite;
 }
 
+public U0 UsbBootTry(I64 max_tries)
+{
+	I64 i;
+
+	for (i = 0; i < max_tries; i++)
+	{
+		if (UsbBootInputReady())
+			return;
+		if (i)
+			Sleep(1000);
+		UsbBootInit;
+	}
+}
+
 public U0 UsbPollBgTask()
 {
 	while (sys_usb_input_active)

@@ -37,8 +37,6 @@ U0 BootStatusType(U8 *filename)
 I64 boot_ins_pending = FALSE;
 I64 normal_rebuild_pending = FALSE;
 I64 usb_only_input = FALSE;
-I64 usb_has_mouse;
-I64 usb_try;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
 	Cd("C:/Home");
@@ -110,45 +108,27 @@ LBts(&Fs->display_flags, DISPLAYf_SHOW);
 if (!normal_rebuild_pending)
 {
 	Silent;
-	usb_try = 0;
-	while (usb_try < 16)
-	{
-		if (UsbBootInputReady())
-			break;
-		if (usb_try)
-			Sleep(1000);
-		UsbBootInit;
-		usb_try++;
-	}
+	UsbBootTry(16);
 	Silent(OFF);
 }
 else
 	"USB boot skipped for queued kernel rebuild.\n";
-if (!UsbBootKbdActive())
+if (usb_only_input)
 {
-	if (usb_only_input)
-		"PS/2 keyboard skipped for USB-only input.\n";
-	else
-		KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
+	"PS/2 keyboard skipped for USB-only input.\n";
+	try
+		MouseHardEnable(FALSE);
+	catch
+		Fs->catch_except = TRUE;
+	"PS/2 mouse skipped for USB-only input.\n";
 }
-usb_has_mouse = UsbBootMouseActive();
-if (!usb_has_mouse)
+else
 {
-	if (usb_only_input)
-	{
-		try
-			MouseHardEnable(FALSE);
-		catch
-			Fs->catch_except = TRUE;
-		"PS/2 mouse skipped for USB-only input.\n";
-	}
-	else
-		Spawn(&MouseHardDriverInstall);
+	KbdInit; // PS/2 fallback is harmless when native USB also bound.
+	Spawn(&MouseHardDriverInstall);
 }
 
 "USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
-if (!sys_usb_input_active)
-	"$$RED$$No native USB keyboard/mouse (active=0x%X). See ::/Doc/USBBoot.DD.$$FG$$\n", sys_usb_input_active;
 RegInit;
 LBts(&sys_run_level, RLf_REGISTRY);
 
