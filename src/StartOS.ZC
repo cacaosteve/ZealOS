@@ -108,7 +108,17 @@ LBts(&Fs->display_flags, DISPLAYf_SHOW);
 if (!normal_rebuild_pending)
 {
 	Silent;
-	UsbBootTry(16);
+	UsbBootInit;
+	Sleep(1000);
+	UsbBootInit;
+	Sleep(1000);
+	UsbBootInit;
+	Sleep(1000);
+	UsbBootInit;
+	Sleep(1000);
+	UsbBootInit;
+	Sleep(1000);
+	UsbBootInit;
 	Silent(OFF);
 }
 else
