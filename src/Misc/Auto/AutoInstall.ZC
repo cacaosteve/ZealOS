@@ -11,6 +11,10 @@ U0 InstallDrive(U8 drv_let)
 	ExePrint("DirMake(\"%C:/Tmp/ScreenShots\");",	drv_let);
 	ExePrint("DirMake(\"%C:/Home\");",				drv_let);
 
+	st = MStrPrint("%C:/Home/.auto_iso_build", drv_let);
+	FileWrite(st, "1", 1);
+	Free(st);
+
 	st = MStrPrint("%C:/Home/DoDistro.ZC", drv_let);
 	if (!FileFind(st))
 		Copy("::/Misc/DoDistro.ZC", st);

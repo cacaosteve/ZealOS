@@ -35,6 +35,8 @@ U0 MakeMyISO()
 	Move(BOOT_DIR_DVD_KERNEL_ZXE, "/Distro" BOOT_DIR_KERNEL_ZXE);
 	progress1++;
 	CopyTree("/Home", 		"/Distro/Home");
+	Del("/Distro/Home/.auto_iso_build",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOBuild.DD",, FALSE, FALSE);
 	progress1++;
 	Del("/Distro/Home/Registry.ZC");
 	CopyTree("/System", 	"/Distro/System");
