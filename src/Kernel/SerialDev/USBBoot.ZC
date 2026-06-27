@@ -225,7 +225,7 @@ public U0 UsbBootInit()
 		XhmIntrSub;
 	if ((usb.uhci_active || usb.ehci_active) && sys_usb_input_active)
 	{
-		for (i = 0; i < 100; i++)
+		for (i = 0; i < 600; i++)
 		{
 			UsbPollEvt;
 			if (usb.uhci_kbd_done_count || usb.uhci_ms_done_count ||
