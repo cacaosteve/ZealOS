@@ -38,7 +38,6 @@ I64 boot_ins_pending = FALSE;
 I64 normal_rebuild_pending = FALSE;
 I64 auto_iso_build = FALSE;
 I64 skip_usb_boot = FALSE;
-I64 usb_only_input = FALSE;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
 	Cd("C:/Home");
@@ -46,7 +45,6 @@ if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 	normal_rebuild_pending = FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||
 			FileFind("OnceRebuildKernel.DD") || FileFind(".once_rebuild_kernel");
 	auto_iso_build = FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build");
-	usb_only_input = FileFind("UsbOnlyInput.DD") || FileFind(".usb_only_input");
 	boot_ins_pending = FileFind("BootInsPending.DD");
 	if (boot_ins_pending)
 	{
@@ -121,16 +119,6 @@ else
 	Silent;
 	UsbBootInit;
 	Silent(OFF);
-	if (usb_only_input)
-	{
-		"PS/2 keyboard skipped for USB-only input.\n";
-		"PS/2 mouse skipped for USB-only input.\n";
-	}
-	else
-	{
-		KbdInit; // PS/2 fallback is harmless when native USB also bound.
-		Spawn(&MouseHardDriverInstall);
-	}
 }
 
 "USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
