@@ -123,10 +123,6 @@ else
 if (usb_only_input)
 {
 	"PS/2 keyboard skipped for USB-only input.\n";
-	try
-		MouseHardEnable(FALSE);
-	catch
-		Fs->catch_except = TRUE;
 	"PS/2 mouse skipped for USB-only input.\n";
 }
 else
