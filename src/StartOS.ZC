@@ -115,8 +115,6 @@ if (auto_iso_build)
 if (skip_usb_boot)
 {
 	"USB boot skipped for automated build.\n";
-	KbdInit;
-	Spawn(&MouseHardDriverInstall);
 }
 else
 {
