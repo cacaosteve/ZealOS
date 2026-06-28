@@ -113,22 +113,26 @@ if (normal_rebuild_pending)
 if (auto_iso_build)
 	skip_usb_boot = TRUE;
 if (skip_usb_boot)
+{
 	"USB boot skipped for automated build.\n";
+	KbdInit;
+	Spawn(&MouseHardDriverInstall);
+}
 else
 {
 	Silent;
 	UsbBootInit;
 	Silent(OFF);
-}
-if (usb_only_input)
-{
-	"PS/2 keyboard skipped for USB-only input.\n";
-	"PS/2 mouse skipped for USB-only input.\n";
-}
-else
-{
-	KbdInit; // PS/2 fallback is harmless when native USB also bound.
-	Spawn(&MouseHardDriverInstall);
+	if (usb_only_input)
+	{
+		"PS/2 keyboard skipped for USB-only input.\n";
+		"PS/2 mouse skipped for USB-only input.\n";
+	}
+	else
+	{
+		KbdInit; // PS/2 fallback is harmless when native USB also bound.
+		Spawn(&MouseHardDriverInstall);
+	}
 }
 
 "USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
