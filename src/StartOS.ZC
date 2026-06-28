@@ -37,6 +37,7 @@ U0 BootStatusType(U8 *filename)
 I64 boot_ins_pending = FALSE;
 I64 normal_rebuild_pending = FALSE;
 I64 auto_iso_build = FALSE;
+I64 skip_usb_boot = FALSE;
 I64 usb_only_input = FALSE;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
@@ -107,14 +108,18 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-if (!normal_rebuild_pending && !auto_iso_build)
+if (normal_rebuild_pending)
+	skip_usb_boot = TRUE;
+if (auto_iso_build)
+	skip_usb_boot = TRUE;
+if (skip_usb_boot)
+	"USB boot skipped for automated build.\n";
+else
 {
 	Silent;
 	UsbBootInit;
 	Silent(OFF);
 }
-else
-	"USB boot skipped for automated build.\n";
 if (usb_only_input)
 {
 	"PS/2 keyboard skipped for USB-only input.\n";
