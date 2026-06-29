@@ -122,7 +122,7 @@ else
 }
 
 RegInit;
-LBts(&sys_run_level, RLf_REGISTRY);
+LBts(&sys_run_level, 15); // RLf_REGISTRY
 
 WallPaperInit;
 
