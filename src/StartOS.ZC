@@ -119,9 +119,9 @@ else
 	Silent;
 	UsbBootInit;
 	Silent(OFF);
+	"USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
 }
 
-"USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
 RegInit;
 LBts(&sys_run_level, RLf_REGISTRY);
 
