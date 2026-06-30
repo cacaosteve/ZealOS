@@ -122,7 +122,6 @@ else
 }
 
 RegInit;
-sys_run_level = sys_run_level | 0x8000; // RLF_REGISTRY
 
 WallPaperInit;
 
@@ -140,7 +139,6 @@ else
 	Option(OPTf_WARN_PAREN, OFF);
 	Option(OPTf_WARN_DUP_TYPES, OFF);
 };
-sys_run_level = sys_run_level | 0x10000; // RLF_HOME
 
 #help_index ""
 #include "~/MakeHome"
