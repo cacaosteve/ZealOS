@@ -123,16 +123,23 @@ else
 
 RegInit;
 
-WallPaperInit;
-
-if (DriveIsWritable)
-	DirMake("/Tmp"); //Good to have a Tmp
+if (auto_iso_build)
+{
+	"Desktop setup skipped for automated build.\n";
+}
 else
 {
-	try
-		DirMake("/Tmp");
-	catch
-		Fs->catch_except = TRUE;
+	WallPaperInit;
+
+	if (DriveIsWritable)
+		DirMake("/Tmp"); //Good to have a Tmp
+	else
+	{
+		try
+			DirMake("/Tmp");
+		catch
+			Fs->catch_except = TRUE;
+	}
 }
 
 #exe {
