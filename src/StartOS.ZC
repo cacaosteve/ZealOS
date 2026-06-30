@@ -123,7 +123,6 @@ else
 
 RegInit;
 
-#help_index ""
 #include "~/MakeHome"
 
 //After this file, the System task enters $LK,"server mode",A="HI:Job"$.
