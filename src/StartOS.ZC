@@ -123,11 +123,6 @@ else
 
 RegInit;
 
-#exe {
-	Option(OPTf_WARN_PAREN, OFF);
-	Option(OPTf_WARN_DUP_TYPES, OFF);
-};
-
 #help_index ""
 #include "~/MakeHome"
 
