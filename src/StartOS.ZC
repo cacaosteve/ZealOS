@@ -123,7 +123,8 @@ else
 
 RegInit;
 
-if (auto_iso_build)
+// Re-check after RegInit; the pre-MakeSystem flag is only safe for early boot gating.
+if (FileFind("C:/Home/.auto_iso_build") || FileFind("C:/Home/AutoISOBuild.DD"))
 {
 	"Auto ISO build: running queued Once tasks without Home startup.\n";
 	OnceExe;
