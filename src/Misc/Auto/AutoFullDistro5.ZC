@@ -37,6 +37,12 @@ U0 MakeMyISO()
 	CopyTree("/Home", 		"/Distro/Home");
 	Del("/Distro/Home/.auto_iso_build",, FALSE, FALSE);
 	Del("/Distro/Home/AutoISOBuild.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage0.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage1.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage2.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage3.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage4.DD",, FALSE, FALSE);
+	Del("/Distro/Home/AutoISOStage5.DD",, FALSE, FALSE);
 	progress1++;
 	Del("/Distro/Home/Registry.ZC");
 	CopyTree("/System", 	"/Distro/System");
@@ -73,4 +79,12 @@ U0 MakeMyISO()
 	Free(out_iso_filename);
 }
 MakeMyISO;
+Del("C:/Home/.auto_iso_build",, FALSE, FALSE);
+Del("C:/Home/AutoISOBuild.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage0.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage4.DD",, FALSE, FALSE);
+Del("C:/Home/AutoISOStage5.DD",, FALSE, FALSE);
 OutU8(0x501,0x31);

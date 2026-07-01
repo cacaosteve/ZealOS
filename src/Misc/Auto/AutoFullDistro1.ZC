@@ -26,12 +26,9 @@ U0 Auto()
 	Sleep(700);
 	In(in_str);
 	BootHDIns;
-	OnceFlush;
 	Free(in_str);
-	in_str = MStrPrint(	"OnceFlush;"
-						"Once(\"#include \\\"/Misc/Auto/AutoFullDistro2\\\";;Auto;\");"
-						"Reboot;");
-	OnceDrive('C', in_str);
+	Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
 	Reboot;
 }
 Auto;

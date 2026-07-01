@@ -1,4 +1,7 @@
 U0 Auto()
 {
-	PopUp("#include \"/Misc/Auto/AutoFullDistro5\"");
+	Del("C:/Home/AutoISOStage4.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/AutoISOStage5.DD", "5", 1);
+	ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
 }
+Auto;

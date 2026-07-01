@@ -37,6 +37,7 @@ U0 BootStatusType(U8 *filename)
 I64 boot_ins_pending = FALSE;
 I64 normal_rebuild_pending = FALSE;
 I64 auto_iso_build = FALSE;
+I64 auto_iso_stage = 0;
 I64 skip_usb_boot = FALSE;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
@@ -45,6 +46,19 @@ if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 	normal_rebuild_pending = FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||
 			FileFind("OnceRebuildKernel.DD") || FileFind(".once_rebuild_kernel");
 	auto_iso_build = FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build");
+	if (auto_iso_build)
+	{
+		if (FileFind("AutoISOStage5.DD"))
+			auto_iso_stage = 5;
+		else if (FileFind("AutoISOStage4.DD"))
+			auto_iso_stage = 4;
+		else if (FileFind("AutoISOStage3.DD"))
+			auto_iso_stage = 3;
+		else if (FileFind("AutoISOStage2.DD"))
+			auto_iso_stage = 2;
+		else if (FileFind("AutoISOStage1.DD"))
+			auto_iso_stage = 1;
+	}
 	boot_ins_pending = FileFind("BootInsPending.DD");
 	if (boot_ins_pending)
 	{
@@ -121,15 +135,27 @@ else
 	Silent(OFF);
 }
 
-RegInit;
-
-// Re-check after RegInit; the pre-MakeSystem flag is only safe for early boot gating.
-if (FileFind("C:/Home/.auto_iso_build") || FileFind("C:/Home/AutoISOBuild.DD"))
+if (auto_iso_build)
 {
-	"Auto ISO build: running queued Once tasks without Home startup.\n";
-	OnceExe;
+	"Auto ISO build stage %d.\n", auto_iso_stage;
+	if (auto_iso_stage == 0)
+		ExeFile("/Misc/Auto/AutoFullDistro0.ZC");
+	else if (auto_iso_stage == 1)
+		ExeFile("/Misc/Auto/AutoFullDistro1.ZC");
+	else if (auto_iso_stage == 2)
+		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
+	else if (auto_iso_stage == 3)
+		ExeFile("/Misc/Auto/AutoFullDistro3.ZC");
+	else if (auto_iso_stage == 4)
+		ExeFile("/Misc/Auto/AutoFullDistro4.ZC");
+	else if (auto_iso_stage == 5)
+		ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
+
+	while (TRUE)
+		Sleep(1000);
 }
-else
-	ExeFile("/Home/MakeHome.ZC");
+
+RegInit;
+ExeFile("/Home/MakeHome.ZC");
 
 //After this file, the System task enters $LK,"server mode",A="HI:Job"$.

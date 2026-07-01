@@ -24,9 +24,9 @@ U0 Auto()
 	Sleep(700);
 	In(in_str);
 	BootHDIns;
-	OnceFlush;
-	in_str = MStrPrint("#include \"/Misc/Auto/AutoFullDistro4\";;Auto;;");
-	OnceDrive('C', in_str);
+	Free(in_str);
+	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
 	Reboot;
 }

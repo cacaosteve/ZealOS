@@ -15,6 +15,10 @@ U0 InstallDrive(U8 drv_let)
 	FileWrite(st, "1", 1);
 	Free(st);
 
+	st = MStrPrint("%C:/Home/AutoISOStage0.DD", drv_let);
+	FileWrite(st, "0", 1);
+	Free(st);
+
 	st = MStrPrint("%C:/Home/DoDistro.ZC", drv_let);
 	if (!FileFind(st))
 		Copy("::/Misc/DoDistro.ZC", st);
@@ -115,7 +119,6 @@ Bool DoInstall()
 	DocBottom;
 	VMInstallWiz();
 	res = TRUE;
-	OnceDrive('C', "PopUp(\"#include \\\"/Misc/Auto/AutoFullDistro0\\\";\");");
 	BootRAM("C:" BOOT_DIR_KERNEL_ZXE);
 	return res;
 }
