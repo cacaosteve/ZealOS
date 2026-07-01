@@ -123,6 +123,12 @@ else
 
 RegInit;
 
-ExeFile("/Home/MakeHome.ZC");
+if (auto_iso_build)
+{
+	"Auto ISO build: running queued Once tasks without Home startup.\n";
+	OnceExe;
+}
+else
+	ExeFile("/Home/MakeHome.ZC");
 
 //After this file, the System task enters $LK,"server mode",A="HI:Job"$.
