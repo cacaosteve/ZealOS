@@ -34,42 +34,51 @@ U0 BootStatusType(U8 *filename)
 
 // Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
 // See ::/Doc/USBBoot.DD
-Bool StartOSCHomeReady()
+public I64 start_os_boot_ins_pending = FALSE;
+public I64 start_os_normal_rebuild_pending = FALSE;
+public I64 start_os_auto_iso_build = FALSE;
+public I64 start_os_auto_iso_stage = 0;
+public I64 start_os_skip_usb_boot = FALSE;
+if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
-	return sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE);
-}
-
-Bool StartOSBootInsPending()
-{
-	Bool boot_ins_pending = FALSE;
-
-	if (StartOSCHomeReady())
+	Cd("C:/Home");
+	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
+	start_os_normal_rebuild_pending = FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||
+			FileFind("OnceRebuildKernel.DD") || FileFind(".once_rebuild_kernel");
+	start_os_auto_iso_build = FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build");
+	if (start_os_auto_iso_build)
 	{
-		Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
-		boot_ins_pending = FileFind("C:/Home/BootInsPending.DD");
-		if (boot_ins_pending)
+		if (FileFind("AutoISOStage5.DD"))
+			start_os_auto_iso_stage = 5;
+		else if (FileFind("AutoISOStage4.DD"))
+			start_os_auto_iso_stage = 4;
+		else if (FileFind("AutoISOStage3.DD"))
+			start_os_auto_iso_stage = 3;
+		else if (FileFind("AutoISOStage2.DD"))
+			start_os_auto_iso_stage = 2;
+		else if (FileFind("AutoISOStage1.DD"))
+			start_os_auto_iso_stage = 1;
+	}
+	start_os_boot_ins_pending = FileFind("BootInsPending.DD");
+	if (start_os_boot_ins_pending)
+	{
+		Del("BootInsPending.DD",, FALSE, FALSE);
+		Del(".boot_ins_pending",, FALSE, FALSE);
+		Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+		Del(".once_rebuild_kernel",, FALSE, FALSE);
+	}
+	else
+	{
+		start_os_boot_ins_pending = FileFind(".boot_ins_pending");
+		if (start_os_boot_ins_pending)
 		{
-			Del("C:/Home/BootInsPending.DD",, FALSE, FALSE);
-			Del("C:/Home/.boot_ins_pending",, FALSE, FALSE);
-			Del("C:/Home/OnceRebuildKernel.DD",, FALSE, FALSE);
-			Del("C:/Home/.once_rebuild_kernel",, FALSE, FALSE);
-		}
-		else
-		{
-			boot_ins_pending = FileFind("C:/Home/.boot_ins_pending");
-			if (boot_ins_pending)
-			{
-				Del("C:/Home/.boot_ins_pending",, FALSE, FALSE);
-				Del("C:/Home/OnceRebuildKernel.DD",, FALSE, FALSE);
-				Del("C:/Home/.once_rebuild_kernel",, FALSE, FALSE);
-			}
+			Del(".boot_ins_pending",, FALSE, FALSE);
+			Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+			Del(".once_rebuild_kernel",, FALSE, FALSE);
 		}
 	}
-
-	return boot_ins_pending;
 }
-
-if (StartOSBootInsPending())
+if (start_os_boot_ins_pending)
 {
 	"Rebuilding kernel (USB skipped this boot for RAM)...\n";
 	ExeFile("/Home/BootKernelOnly");
@@ -102,66 +111,6 @@ Option(OPTf_WARN_DUP_TYPES, OFF);
 // Native USB first. PS/2 fills anything USB misses.
 // See ::/Doc/USBBoot.DD
 
-U0 StartOSPostSystemInit()
-{
-	I64 auto_iso_stage = -1;
-	Bool normal_rebuild_pending = FALSE;
-
-	if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
-	{
-		normal_rebuild_pending = FileFind("C:/Home/NormalRebuildKernel.DD") ||
-				FileFind("C:/Home/.normal_rebuild_kernel") ||
-				FileFind("C:/Home/OnceRebuildKernel.DD") ||
-				FileFind("C:/Home/.once_rebuild_kernel");
-		if (FileFind("C:/Home/AutoISOBuild.DD") || FileFind("C:/Home/.auto_iso_build"))
-		{
-			if (FileFind("C:/Home/AutoISOStage5.DD"))
-				auto_iso_stage = 5;
-			else if (FileFind("C:/Home/AutoISOStage4.DD"))
-				auto_iso_stage = 4;
-			else if (FileFind("C:/Home/AutoISOStage3.DD"))
-				auto_iso_stage = 3;
-			else if (FileFind("C:/Home/AutoISOStage2.DD"))
-				auto_iso_stage = 2;
-			else if (FileFind("C:/Home/AutoISOStage1.DD"))
-				auto_iso_stage = 1;
-			else
-				auto_iso_stage = 0;
-		}
-	}
-
-	if (normal_rebuild_pending || auto_iso_stage >= 0)
-	{
-		"USB boot skipped for automated build.\n";
-	}
-	else
-	{
-		Silent;
-		UsbBootInit;
-		Silent(OFF);
-	}
-
-	if (auto_iso_stage >= 0)
-	{
-		"Auto ISO build stage %d.\n", auto_iso_stage;
-		if (auto_iso_stage == 0)
-			ExeFile("/Misc/Auto/AutoFullDistro0.ZC");
-		else if (auto_iso_stage == 1)
-			ExeFile("/Misc/Auto/AutoFullDistro1.ZC");
-		else if (auto_iso_stage == 2)
-			ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
-		else if (auto_iso_stage == 3)
-			ExeFile("/Misc/Auto/AutoFullDistro3.ZC");
-		else if (auto_iso_stage == 4)
-			ExeFile("/Misc/Auto/AutoFullDistro4.ZC");
-		else if (auto_iso_stage == 5)
-			ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
-
-		while (TRUE)
-			Sleep(1000);
-	}
-}
-
 //Debug("Type 'G;'");
 DocTermNew;
 WinVert(2, text.rows / 8);
@@ -171,7 +120,40 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-StartOSPostSystemInit();
+if (start_os_normal_rebuild_pending)
+	start_os_skip_usb_boot = TRUE;
+if (start_os_auto_iso_build)
+	start_os_skip_usb_boot = TRUE;
+if (start_os_skip_usb_boot)
+{
+	"USB boot skipped for automated build.\n";
+}
+else
+{
+	Silent;
+	UsbBootInit;
+	Silent(OFF);
+}
+
+if (start_os_auto_iso_build)
+{
+	"Auto ISO build stage %d.\n", start_os_auto_iso_stage;
+	if (start_os_auto_iso_stage == 0)
+		ExeFile("/Misc/Auto/AutoFullDistro0.ZC");
+	else if (start_os_auto_iso_stage == 1)
+		ExeFile("/Misc/Auto/AutoFullDistro1.ZC");
+	else if (start_os_auto_iso_stage == 2)
+		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
+	else if (start_os_auto_iso_stage == 3)
+		ExeFile("/Misc/Auto/AutoFullDistro3.ZC");
+	else if (start_os_auto_iso_stage == 4)
+		ExeFile("/Misc/Auto/AutoFullDistro4.ZC");
+	else if (start_os_auto_iso_stage == 5)
+		ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
+
+	while (TRUE)
+		Sleep(1000);
+}
 
 RegInit;
 ExeFile("/Home/MakeHome.ZC");
