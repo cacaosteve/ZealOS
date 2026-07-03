@@ -34,7 +34,7 @@ U0 BootStatusType(U8 *filename)
 
 // Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
 // See ::/Doc/USBBoot.DD
-if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
+if (Letter2Drive('C', FALSE))
 {
 	U8 *start_os_after_system;
 
@@ -104,7 +104,10 @@ if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 	}
 	else
 	{
-		start_os_after_system = "Silent;\nUsbBootInit;\nSilent(OFF);\n";
+		start_os_after_system = "CHashFun *tmpf;\n"
+				"if ((tmpf = HashFind(\"UsbBootInit\", Fs->hash_table, HTT_FUN)) &&\n"
+				"\t\t!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))\n"
+				"\tExePrint(\"UsbBootInit;\");\n";
 	}
 	FileWrite("StartOSAfterSystem.ZC", start_os_after_system, StrLen(start_os_after_system));
 }

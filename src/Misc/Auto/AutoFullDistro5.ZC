@@ -4,6 +4,10 @@ U0 MakeMyISO()
 {
 	U8 *_out_iso_filename = "/Tmp/MyDistro.ISO.C";
 	U8 *out_iso_filename = FileNameAbs(_out_iso_filename);
+	U8 *start_os_after_system = "CHashFun *tmpf;\n"
+			"if ((tmpf = HashFind(\"UsbBootInit\", Fs->hash_table, HTT_FUN)) &&\n"
+			"\t\t!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))\n"
+			"\tExePrint(\"UsbBootInit;\");\n";
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
 
 	if (!DriveIsWritable)
@@ -43,7 +47,7 @@ U0 MakeMyISO()
 	Del("/Distro/Home/AutoISOStage3.DD",, FALSE, FALSE);
 	Del("/Distro/Home/AutoISOStage4.DD",, FALSE, FALSE);
 	Del("/Distro/Home/AutoISOStage5.DD",, FALSE, FALSE);
-	FileWrite("/Distro/Home/StartOSAfterSystem.ZC", "Silent;\nUsbBootInit;\nSilent(OFF);\n", 34);
+	FileWrite("/Distro/Home/StartOSAfterSystem.ZC", start_os_after_system, StrLen(start_os_after_system));
 	progress1++;
 	Del("/Distro/Home/Registry.ZC");
 	CopyTree("/System", 	"/Distro/System");

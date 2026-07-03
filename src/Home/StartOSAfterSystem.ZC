@@ -1,3 +1,4 @@
-Silent;
-UsbBootInit;
-Silent(OFF);
+CHashFun *tmpf;
+if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&
+		!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))
+	ExePrint("UsbBootInit;");
