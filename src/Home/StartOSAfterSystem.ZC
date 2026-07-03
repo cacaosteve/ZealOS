@@ -1,0 +1,3 @@
+Silent;
+UsbBootInit;
+Silent(OFF);

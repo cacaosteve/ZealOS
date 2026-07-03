@@ -36,6 +36,8 @@ U0 BootStatusType(U8 *filename)
 // See ::/Doc/USBBoot.DD
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
+	U8 *start_os_after_system;
+
 	Cd("C:/Home");
 	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
 	if (FileFind("BootInsPending.DD") || FileFind(".boot_ins_pending"))
@@ -62,6 +64,49 @@ if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 		while (TRUE)
 			Sleep(1000);
 	}
+	if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build"))
+	{
+		if (FileFind("AutoISOStage5.DD"))
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 5.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro5.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+		else if (FileFind("AutoISOStage4.DD"))
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 4.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro4.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+		else if (FileFind("AutoISOStage3.DD"))
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 3.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro3.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+		else if (FileFind("AutoISOStage2.DD"))
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 2.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro2.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+		else if (FileFind("AutoISOStage1.DD"))
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 1.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro1.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+		else
+			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
+					"\"Auto ISO build stage 0.\\n\";\n"
+					"ExeFile(\"/Misc/Auto/AutoFullDistro0.ZC\");\n"
+					"while (TRUE)\n\tSleep(1000);\n";
+	}
+	else if (FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||
+			FileFind("OnceRebuildKernel.DD") || FileFind(".once_rebuild_kernel"))
+	{
+		start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n";
+	}
+	else
+	{
+		start_os_after_system = "Silent;\nUsbBootInit;\nSilent(OFF);\n";
+	}
+	FileWrite("StartOSAfterSystem.ZC", start_os_after_system, StrLen(start_os_after_system));
 }
 
 #include "/System/MakeSystem"
@@ -85,57 +130,7 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE) &&
-		(FileFind("C:/Home/NormalRebuildKernel.DD") || FileFind("C:/Home/.normal_rebuild_kernel") ||
-		 FileFind("C:/Home/OnceRebuildKernel.DD") || FileFind("C:/Home/.once_rebuild_kernel") ||
-		 FileFind("C:/Home/AutoISOBuild.DD") || FileFind("C:/Home/.auto_iso_build")))
-{
-	"USB boot skipped for automated build.\n";
-}
-else
-{
-	Silent;
-	UsbBootInit;
-	Silent(OFF);
-}
-
-if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE) &&
-		(FileFind("C:/Home/AutoISOBuild.DD") || FileFind("C:/Home/.auto_iso_build")))
-{
-	if (FileFind("C:/Home/AutoISOStage5.DD"))
-	{
-		"Auto ISO build stage 5.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
-	}
-	else if (FileFind("C:/Home/AutoISOStage4.DD"))
-	{
-		"Auto ISO build stage 4.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro4.ZC");
-	}
-	else if (FileFind("C:/Home/AutoISOStage3.DD"))
-	{
-		"Auto ISO build stage 3.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro3.ZC");
-	}
-	else if (FileFind("C:/Home/AutoISOStage2.DD"))
-	{
-		"Auto ISO build stage 2.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
-	}
-	else if (FileFind("C:/Home/AutoISOStage1.DD"))
-	{
-		"Auto ISO build stage 1.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro1.ZC");
-	}
-	else
-	{
-		"Auto ISO build stage 0.\n";
-		ExeFile("/Misc/Auto/AutoFullDistro0.ZC");
-	}
-
-	while (TRUE)
-		Sleep(1000);
-}
+ExeFile("/Home/StartOSAfterSystem.ZC");
 
 RegInit;
 ExeFile("/Home/MakeHome.ZC");

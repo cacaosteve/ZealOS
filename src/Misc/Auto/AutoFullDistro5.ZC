@@ -43,6 +43,7 @@ U0 MakeMyISO()
 	Del("/Distro/Home/AutoISOStage3.DD",, FALSE, FALSE);
 	Del("/Distro/Home/AutoISOStage4.DD",, FALSE, FALSE);
 	Del("/Distro/Home/AutoISOStage5.DD",, FALSE, FALSE);
+	FileWrite("/Distro/Home/StartOSAfterSystem.ZC", "Silent;\nUsbBootInit;\nSilent(OFF);\n", 34);
 	progress1++;
 	Del("/Distro/Home/Registry.ZC");
 	CopyTree("/System", 	"/Distro/System");
