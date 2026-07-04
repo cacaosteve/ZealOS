@@ -413,7 +413,7 @@ public U0 DocPutKey(CDoc *doc, I64 ch=0, I64 sc=0)
 											}
 											else
 											{
-												if (DriveIsWritable)
+												if (DriveIsWritable())
 												{
 													DocWrite(doc);
 													st = StrNew(doc->filename.name);
@@ -778,7 +778,7 @@ public U0 DocPutKey(CDoc *doc, I64 ch=0, I64 sc=0)
 							KeyDescSet("Edit/Save");
 						else
 						{
-							if (DriveIsWritable)
+							if (DriveIsWritable())
 							{
 								DocWrite(doc);
 							}

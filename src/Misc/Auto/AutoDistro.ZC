@@ -7,7 +7,7 @@
 U0 MakeMyISO(U8 *_out_iso_filename)
 {//Does everything with current drive.
 	U8 *out_iso_filename = FileNameAbs(_out_iso_filename);
-	if (!DriveIsWritable)
+	if (!DriveIsWritable())
 	{
 		"Drive must be writable.	Install on Hard drive, first.\n";
 		return;

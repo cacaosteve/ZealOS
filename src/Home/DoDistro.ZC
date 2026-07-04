@@ -9,7 +9,7 @@ U0 MakeMyISO(U8 *_out_iso_filename)
 	U8 *out_iso_filename = FileNameAbs(_out_iso_filename);
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
 
-	if (!DriveIsWritable)
+	if (!DriveIsWritable())
 	{
 		"Drive must be writable.	Install on Hard drive, first.\n";
 		return;

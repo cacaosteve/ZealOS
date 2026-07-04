@@ -10,7 +10,7 @@ U0 MakeMyISO()
 			"\tExePrint(\"UsbBootInit;\");\n";
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
 
-	if (!DriveIsWritable)
+	if (!DriveIsWritable())
 	{
 		"Drive must be writable.	Install on Hard drive, first.\n";
 		return;

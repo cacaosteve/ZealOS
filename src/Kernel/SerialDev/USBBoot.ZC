@@ -179,7 +179,7 @@ public U0 UsbBootLastWrite()
 	{
 		try
 		{
-			if (DriveIsWritable)
+			if (DriveIsWritable())
 				FileWrite("/Tmp/UsbBootLast.DD", st, StrLen(st));
 		}
 		catch
