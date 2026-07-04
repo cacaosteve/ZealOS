@@ -54,10 +54,12 @@ verify_current_usb_tree() {
 	echo "Verifying staged USB input tree in $root ..."
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
 	require_same_file "../src/Kernel/SerialDev/USB.ZC" "$root/Kernel/SerialDev/USB.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBBoot.ZC" "$root/Kernel/SerialDev/USBBoot.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBEHCI.ZC" "$root/Kernel/SerialDev/USBEHCI.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBControl.ZC" "$root/Kernel/SerialDev/USBControl.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBKbd.ZC" "$root/Kernel/SerialDev/USBKbd.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBMouse.ZC" "$root/Kernel/SerialDev/USBMouse.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBUHCI.ZC" "$root/Kernel/SerialDev/USBUHCI.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBXHCI.ZC" "$root/Kernel/SerialDev/USBXHCI.ZC"
 	require_same_file "../src/Doc/USBBoot.DD" "$root/Doc/USBBoot.DD"
 	require_file "$root/Demo/USBInput.ZC"
@@ -94,6 +96,9 @@ trap 'script_cleanup' EXIT
 
 mkdir -p "$TMPMOUNT"
 mkdir -p "$TMPISODIR"
+
+echo "Checking ZealC kernel compile traps..."
+./check-zealc-kernel-traps.sh "${ZEALC_TRAP_SCOPE:-Kernel/SerialDev}" || exit 1
 
 echo "Building ZealBooter..."
 make -C ../zealbooter TOOLCHAIN=llvm distclean all || ( echo "ERROR: ZealBooter build failed !" && false )

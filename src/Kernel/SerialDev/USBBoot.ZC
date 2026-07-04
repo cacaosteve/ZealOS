@@ -179,7 +179,7 @@ public U0 UsbBootLastWrite()
 	{
 		try
 		{
-			if (DriveIsWritable())
+			if (Fs->cur_dv && Fs->cur_dv->bd && !(Fs->cur_dv->bd->flags & BDF_READ_ONLY))
 				FileWrite("/Tmp/UsbBootLast.DD", st, StrLen(st));
 		}
 		catch

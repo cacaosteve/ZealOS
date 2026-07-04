@@ -113,6 +113,13 @@ check "Spawn assignment in kernel" '=\s*Spawn\(' \
 check "Spawn call in kernel" '\bSpawn\(' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
 
+# SerialDev is included before BlkDev/MakeBlkDev in Kernel.PRJ.  Do not call
+# block-device helpers that are only defined later in the kernel build.
+if [ -d "$SRC_DIR/Kernel/SerialDev" ]; then
+	check "DriveIsWritable before BlkDev include" '\bDriveIsWritable\b' \
+		"$SRC_DIR/Kernel/SerialDev" --glob '*.ZC'
+fi
+
 # StrCmp (use StrCompare)
 check "StrCmp (use StrCompare)" '\bStrCmp\b' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
