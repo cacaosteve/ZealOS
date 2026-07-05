@@ -1155,13 +1155,6 @@ U0 EhciFinalizeInput()
 	if (sys_usb_input_active & UK)
 	{
 		OutU8(PIC_1_DATA, InU8(PIC_1_DATA) | 2);
-		try
-		{
-			KbdCmdSend(KBD_CTRL, 0xAD);
-			KbdCmdFlush;
-		}
-		catch
-			Fs->catch_except = TRUE;
 		while (FifoI64Count(kbd.scan_code_fifo))
 			FifoI64Remove(kbd.scan_code_fifo, &sc);
 		while (FifoU8Count(kbd.fifo2))
@@ -1176,13 +1169,6 @@ U0 EhciFinalizeInput()
 		mouse_hard.irqs_working = FALSE;
 		mouse_hard.install_attempts = 1;
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
-		try
-		{
-			KbdCmdSend(KBD_CTRL, KBDC_DISABLE_MS);
-			KbdCmdFlush;
-		}
-		catch
-			Fs->catch_except = TRUE;
 		while (FifoU8Count(mouse_hard.fifo2))
 			FifoU8Remove(mouse_hard.fifo2, &b);
 		usb.ms_use_tab = usb.ehci_tab_addr != 0;

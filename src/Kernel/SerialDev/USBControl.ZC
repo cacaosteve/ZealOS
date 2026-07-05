@@ -3,8 +3,6 @@ U32 *DevCtx(I64 slot, I64 dci)
 	return (usb.dev_ctx + slot * XHCI_CTX_SIZE + dci * usb.ctx_size)(U32 *);
 }
 
-U0 KbdCmdSend(I64 port, U8 val);
-
 U32 *DciCtx(I64 dci)
 {
 	return (usb.input_ctx + usb.ctx_size + dci * usb.ctx_size)(U32 *);
@@ -915,7 +913,8 @@ I64 UsbActiveScore(I64 active)
 
 public U0 UsbCoreInit()
 {
-	I64 n, bdf, best_n = -1, last_ok_n = -1, best_active = 0, active, class_code, next_bdf;
+	I64 n, bdf, best_n = -1, last_ok_n = -1, best_active = 0, active, class_code, next_bdf, sc;
+	U8 b;
 	Bool any_addressed = FALSE;
 
 	sys_usb_input_active = 0;
@@ -996,10 +995,10 @@ public U0 UsbCoreInit()
 	if (sys_usb_input_active & UK)
 	{
 		OutU8(PIC_1_DATA, InU8(PIC_1_DATA) | 2);
-		try
-			KbdCmdSend(KBD_CTRL, 0xAD);
-		catch
-			Fs->catch_except = TRUE;
+		while (FifoI64Count(kbd.scan_code_fifo))
+			FifoI64Remove(kbd.scan_code_fifo, &sc);
+		while (FifoU8Count(kbd.fifo2))
+			FifoU8Remove(kbd.fifo2, &b);
 	}
 	if (sys_usb_input_active & UM)
 	{
@@ -1010,10 +1009,8 @@ public U0 UsbCoreInit()
 		mouse_hard.irqs_working = FALSE;
 		mouse_hard.install_attempts = 1;
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
-		try
-			KbdCmdSend(KBD_CTRL, KBDC_DISABLE_MS);
-		catch
-			Fs->catch_except = TRUE;
+		while (FifoU8Count(mouse_hard.fifo2))
+			FifoU8Remove(mouse_hard.fifo2, &b);
 	}
 }
 
