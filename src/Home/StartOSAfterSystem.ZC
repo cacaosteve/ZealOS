@@ -1,4 +1,9 @@
 CHashFun *tmpf;
 if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&
 		!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))
+{
 	ExePrint("UsbBootInit;");
+	"USB boot: active=0x%X stage=%d\n", sys_usb_input_active, usb_debug_stage;
+	if (sys_usb_input_active)
+		Spawn(&UsbPollBgTask,, "UsbPollBgTask");
+}

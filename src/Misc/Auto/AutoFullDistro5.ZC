@@ -7,7 +7,12 @@ U0 MakeMyISO()
 	U8 *start_os_after_system = "CHashFun *tmpf;\n"
 			"if ((tmpf = HashFind(\"UsbBootInit\", Fs->hash_table, HTT_FUN)) &&\n"
 			"\t\t!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))\n"
-			"\tExePrint(\"UsbBootInit;\");\n";
+			"{\n"
+			"\tExePrint(\"UsbBootInit;\");\n"
+			"\t\"USB boot: active=0x%X stage=%d\\n\", sys_usb_input_active, usb_debug_stage;\n"
+			"\tif (sys_usb_input_active)\n"
+			"\t\tSpawn(&UsbPollBgTask,, \"UsbPollBgTask\");\n"
+			"}\n";
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
 
 	if (!DriveIsWritable())
