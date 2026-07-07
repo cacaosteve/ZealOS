@@ -105,7 +105,7 @@ public U0 BootHDInsAutoKernelOnlyReboot(U8 drv_let='C', I64 hd_port=0, I64 cd_po
 	I64 errs;
 
 	Cd("C:/");
-	no_warn hd_port, cd_port;
+	no_warn drv_let, hd_port, cd_port;
 	FileWrite("C:/Home/BootInsStage.DD", "kernel", 6);
 	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
 	if (errs)
