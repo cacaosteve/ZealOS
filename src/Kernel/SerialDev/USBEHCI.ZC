@@ -531,6 +531,21 @@ I64 EhciHidRptKind(I64 addr, I64 mps, I64 iface, I64 rpt_len)
 	return HidRptKind(buf, rpt_len);
 }
 
+Bool EhciHidRptMouseAbs(I64 addr, I64 mps, I64 iface, I64 rpt_len)
+{
+	U8 *buf;
+
+	if (rpt_len <= 0)
+		return FALSE;
+	if (rpt_len > 512)
+		rpt_len = 512;
+	buf = usb.ctrl_buf + udma_hid_rpt;
+	MemSet(buf, 0, rpt_len);
+	if (!EhciGetIfaceDesc(addr, mps, USB_DESC_REPORT, 0, iface, rpt_len, buf))
+		return FALSE;
+	return HidRptMouseAbs(buf, rpt_len);
+}
+
 U0 EhciPsePulse()
 {
 	U32 cmd;
@@ -740,10 +755,8 @@ U0 EhciIntrDone(Bool is_kbd)
 	EhciIntrSubmit(is_kbd);
 }
 
-Bool EhciHidBind(I64 addr, I64 mps, I64 iface, I64 ep_addr, I64 max_pkt, Bool is_kbd, Bool is_boot)
+Bool EhciHidBind(I64 addr, I64 mps, I64 iface, I64 ep_addr, I64 max_pkt, Bool is_kbd, Bool is_boot, Bool want_abs)
 {
-	Bool want_abs;
-
 	if (!max_pkt)
 		max_pkt = 8;
 	max_pkt &= 0x7FF;
@@ -778,11 +791,15 @@ Bool EhciHidBind(I64 addr, I64 mps, I64 iface, I64 ep_addr, I64 max_pkt, Bool is
 		return TRUE;
 	}
 
-	want_abs = !is_boot && max_pkt >= 5;
+	if (is_boot)
+		want_abs = FALSE;
 	if (want_abs)
 	{
 		if (usb.ehci_tab_addr)
-			return FALSE;
+			want_abs = FALSE;
+	}
+	if (want_abs)
+	{
 		if (is_boot)
 			EhciProto(addr, mps, iface, 0);
 		usb.ehci_tab_addr = addr;
@@ -826,7 +843,7 @@ U0 EhciCfgParse(I64 addr, I64 mps, U8 *cfg, I64 len)
 {
 	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, x;
 	I64 cls = 0, sub = 0, desc_len, rpt_len = 0, rpt_kind = UHID_KIND_NONE;
-	Bool try_kbd, try_mouse, boot_iface;
+	Bool try_kbd, try_mouse, boot_iface, mouse_abs;
 
 	while (i < len)
 	{
@@ -887,9 +904,19 @@ U0 EhciCfgParse(I64 addr, I64 mps, U8 *cfg, I64 len)
 				if (!try_kbd && !try_mouse && max_pkt >= 4)
 					try_mouse = TRUE;
 				if (try_kbd)
-					EhciHidBind(addr, mps, iface, ep_addr, max_pkt, TRUE, boot_iface);
+					EhciHidBind(addr, mps, iface, ep_addr, max_pkt, TRUE, boot_iface, FALSE);
 				else if (try_mouse)
-					EhciHidBind(addr, mps, iface, ep_addr, max_pkt, FALSE, boot_iface);
+				{
+					mouse_abs = FALSE;
+					if (!boot_iface)
+					{
+						if (rpt_len)
+							mouse_abs = EhciHidRptMouseAbs(addr, mps, iface, rpt_len);
+						else if (!proto && max_pkt >= 5)
+							mouse_abs = TRUE;
+					}
+					EhciHidBind(addr, mps, iface, ep_addr, max_pkt, FALSE, boot_iface, mouse_abs);
+				}
 				break;
 		}
 		i += desc_len;

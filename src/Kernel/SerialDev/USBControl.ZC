@@ -327,6 +327,88 @@ I64 HidRptKind(U8 *rpt, I64 len)
 	return kind;
 }
 
+Bool HidRptMouseAbs(U8 *rpt, I64 len)
+{
+	I64 i = 0, b, sz, typ, tag, val, page = 0, umin = -1, umax = -1;
+	Bool has_xy = FALSE;
+
+	while (i < len)
+	{
+		b = rpt[i++];
+		if (b == 0xFE)
+		{
+			if (i >= len)
+				break;
+			sz = rpt[i++];
+			i++;
+			i += sz;
+		}
+		else
+		{
+			sz = b & 3;
+			if (sz == 3)
+				sz = 4;
+			typ = b >> 2;
+			typ &= 3;
+			tag = b >> 4;
+			tag &= 15;
+			if (i + sz > len)
+				break;
+			val = 0;
+			if (sz >= 1)
+				val |= rpt[i];
+			if (sz >= 2)
+				val |= rpt[i + 1] << 8;
+			if (sz >= 4)
+			{
+				val |= rpt[i + 2] << 16;
+				val |= rpt[i + 3] << 24;
+			}
+			if (typ == 1)
+			{
+				if (tag == 0)
+					page = val;
+			}
+			else if (typ == 2)
+			{
+				if (tag == 0)
+				{
+					if (page == 1)
+					{
+						if (val == 0x30 || val == 0x31)
+							has_xy = TRUE;
+					}
+					else if (page == 0x0D)
+					{
+						if (val == 4 || val == 5)
+							return TRUE;
+					}
+				}
+				else if (tag == 1)
+					umin = val;
+				else if (tag == 2)
+				{
+					umax = val;
+					if (page == 1)
+						if (umin <= 0x30 && umax >= 0x31)
+							has_xy = TRUE;
+				}
+			}
+			else if (typ == 0)
+			{
+				if (tag == 8)
+					if (has_xy)
+						return !(val & 4);
+				has_xy = FALSE;
+				umin = -1;
+				umax = -1;
+			}
+			i += sz;
+		}
+	}
+	return FALSE;
+}
+
 I64 UcHidRptKind(I64 slot, I64 iface, I64 rpt_len)
 {
 	U8 *buf;
@@ -340,6 +422,21 @@ I64 UcHidRptKind(I64 slot, I64 iface, I64 rpt_len)
 	if (!UcGetIfaceDesc(slot, USB_DESC_REPORT, 0, iface, rpt_len, buf))
 		return UHID_KIND_NONE;
 	return HidRptKind(buf, rpt_len);
+}
+
+Bool UcHidRptMouseAbs(I64 slot, I64 iface, I64 rpt_len)
+{
+	U8 *buf;
+
+	if (rpt_len <= 0)
+		return FALSE;
+	if (rpt_len > 512)
+		rpt_len = 512;
+	buf = usb.ctrl_buf + udma_hid_rpt;
+	MemSet(buf, 0, rpt_len);
+	if (!UcGetIfaceDesc(slot, USB_DESC_REPORT, 0, iface, rpt_len, buf))
+		return FALSE;
+	return HidRptMouseAbs(buf, rpt_len);
 }
 
 public U0 XhkIntrSub()
@@ -526,9 +623,8 @@ U0 HidMouseUnbind()
 	usb.ms_acc_b = 0;
 }
 
-Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 interval, I64 port_speed, I64 cfg_val, Bool is_kbd, Bool is_boot)
+Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 interval, I64 port_speed, I64 cfg_val, Bool is_kbd, Bool is_boot, Bool want_abs)
 {
-	Bool want_abs;
 	no_warn cfg_val;
 
 	if (!max_pkt)
@@ -564,7 +660,8 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 	}
 	else
 	{
-		want_abs = !is_boot && max_pkt >= 5;
+		if (is_boot)
+			want_abs = FALSE;
 		if (sys_usb_input_active & UM)
 		{
 			if (!usb.ms_abs)
@@ -602,7 +699,7 @@ U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 {
 	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, dci, interval, cfg_val = 1, x;
 	I64 cls = 0, sub = 0, desc_len, rpt_len = 0, rpt_kind = UHID_KIND_NONE;
-	Bool try_kbd, try_mouse, boot_iface;
+	Bool try_kbd, try_mouse, boot_iface, mouse_abs;
 
 	usb_debug_cfg_len = len;
 	usb_debug_iface_cls = 0;
@@ -707,9 +804,19 @@ U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 					}
 				}
 				if (try_kbd)
-					HidDevBind(slot, iface, ep_addr, max_pkt, dci, interval, port_speed, cfg_val, TRUE, boot_iface);
+					HidDevBind(slot, iface, ep_addr, max_pkt, dci, interval, port_speed, cfg_val, TRUE, boot_iface, FALSE);
 				else if (try_mouse)
-					HidDevBind(slot, iface, ep_addr, max_pkt, dci, interval, port_speed, cfg_val, FALSE, boot_iface);
+				{
+					mouse_abs = FALSE;
+					if (!boot_iface)
+					{
+						if (rpt_len)
+							mouse_abs = UcHidRptMouseAbs(slot, iface, rpt_len);
+						else if (!proto && max_pkt >= 5)
+							mouse_abs = TRUE;
+					}
+					HidDevBind(slot, iface, ep_addr, max_pkt, dci, interval, port_speed, cfg_val, FALSE, boot_iface, mouse_abs);
+				}
 				break;
 		}
 		i += desc_len;

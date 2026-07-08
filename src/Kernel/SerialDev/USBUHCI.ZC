@@ -372,10 +372,23 @@ I64 UhciHidRptKind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 rpt_len
 	return HidRptKind(buf, rpt_len);
 }
 
-Bool UhciHidBind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 ep_addr, I64 max_pkt, Bool is_kbd, Bool is_boot)
+Bool UhciHidRptMouseAbs(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 rpt_len)
 {
-	Bool want_abs;
+	U8 *buf;
 
+	if (rpt_len <= 0)
+		return FALSE;
+	if (rpt_len > 512)
+		rpt_len = 512;
+	buf = usb.ctrl_buf + udma_hid_rpt;
+	MemSet(buf, 0, rpt_len);
+	if (!UhciGetIfaceDesc(ctlr, addr, mps, low, USB_DESC_REPORT, 0, iface, rpt_len, buf))
+		return FALSE;
+	return HidRptMouseAbs(buf, rpt_len);
+}
+
+Bool UhciHidBind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 ep_addr, I64 max_pkt, Bool is_kbd, Bool is_boot, Bool want_abs)
+{
 	if (!max_pkt)
 		max_pkt = 8;
 	max_pkt &= 0x7FF;
@@ -412,12 +425,16 @@ Bool UhciHidBind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 ep_addr, 
 		return TRUE;
 	}
 
-	want_abs = !is_boot && max_pkt >= 5;
+	if (is_boot)
+		want_abs = FALSE;
 	if (want_abs)
 	{
 		// UTM usb-tablet: absolute pointer for uncaptured (host) mode.
 		if (usb.uhci_tab_addr)
-			return FALSE;
+			want_abs = FALSE;
+	}
+	if (want_abs)
+	{
 		if (is_boot)
 			UhciProto(ctlr, addr, mps, low, iface, 0);
 		usb.uhci_tab_ctlr = ctlr;
@@ -463,7 +480,7 @@ U0 UhciCfgParse(I64 ctlr, I64 addr, I64 mps, Bool low, U8 *cfg, I64 len)
 {
 	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, x;
 	I64 cls = 0, sub = 0, desc_len, rpt_len = 0, rpt_kind = UHID_KIND_NONE;
-	Bool try_kbd, try_mouse, boot_iface;
+	Bool try_kbd, try_mouse, boot_iface, mouse_abs;
 
 	while (i < len)
 	{
@@ -524,9 +541,19 @@ U0 UhciCfgParse(I64 ctlr, I64 addr, I64 mps, Bool low, U8 *cfg, I64 len)
 				if (!try_kbd && !try_mouse && max_pkt >= 4)
 					try_mouse = TRUE;
 				if (try_kbd)
-					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, TRUE, boot_iface);
+					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, TRUE, boot_iface, FALSE);
 				else if (try_mouse)
-					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, FALSE, boot_iface);
+				{
+					mouse_abs = FALSE;
+					if (!boot_iface)
+					{
+						if (rpt_len)
+							mouse_abs = UhciHidRptMouseAbs(ctlr, addr, mps, low, iface, rpt_len);
+						else if (!proto && max_pkt >= 5)
+							mouse_abs = TRUE;
+					}
+					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, FALSE, boot_iface, mouse_abs);
+				}
 				break;
 		}
 		i += desc_len;
