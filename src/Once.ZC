@@ -99,24 +99,10 @@ U0 Tmp()
 			}
 			break;
 		case BOOT_SRC_DVD:
-			"\nIf you answer 'No' you can play with\n"
-			"the live CD without installing.\n\n"
-			"Install onto hard drive ";
-
-			if (YorN)
-			{
-				DocBottom;
-				RunFile("::/Misc/OSInstall",, TRUE);
-			}
-			if (FileFind("::/Misc/Tour"))
-			{
-				"\nTake Tour";
-				if (YorN) {
-					DocBottom;
-					Cd("::/Misc/Tour");
-					InFile("Tour");
-				}
-			}
+			DocBottom;
+			"\nLive ISO boot ready.\n"
+			"Run $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n";
+			Cd("::/Home");
 			break;
 		case BOOT_SRC_HARDDRIVE:
 		case BOOT_SRC_RAM:

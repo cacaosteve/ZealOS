@@ -52,7 +52,10 @@ require_kernel_symbol() {
 verify_current_usb_tree() {
 	root="$1"
 	echo "Verifying staged USB input tree in $root ..."
+	require_same_file "../src/HomeSys.ZC" "$root/HomeSys.ZC"
+	require_same_file "../src/Once.ZC" "$root/Once.ZC"
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
+	require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
 	require_same_file "../src/Kernel/SerialDev/Keyboard.ZC" "$root/Kernel/SerialDev/Keyboard.ZC"
 	require_same_file "../src/Kernel/SerialDev/MakeSerialDev.ZC" "$root/Kernel/SerialDev/MakeSerialDev.ZC"
 	require_same_file "../src/Kernel/SerialDev/Mouse.ZC" "$root/Kernel/SerialDev/Mouse.ZC"
