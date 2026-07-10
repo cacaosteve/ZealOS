@@ -201,6 +201,7 @@ public class CUSBStateGlobals
 	Bool	 ms_use_tab;
 	I64		 ms_rel_idle;
 	I64		 ms_rel_report_id;
+	I64		 ms_report_id;
 	F64		 ms_rel_last_t;
 	U8		 ms_last_bytes[16];
 	I64		 ms_last_len;
