@@ -19,6 +19,7 @@ fi
 
 KVM=''
 (lsmod | grep -q kvm) && KVM=' -accel kvm'
+QEMU_USB_INPUT='-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -device usb-mouse,bus=xhci.0'
 
 # Set this true if you want to test ISOs in QEMU after building.
 TESTING=false
@@ -111,7 +112,7 @@ make -C ../zealbooter TOOLCHAIN=llvm distclean all || ( echo "ERROR: ZealBooter 
 
 echo "Making temp vdisk, running auto-install ..."
 "$QEMU_BIN_PATH/qemu-img" create -f raw "$TMPDISK" 1024M
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
 
 echo "Copying all src/ code into vdisk Tmp/OSBuild/ ..."
 rm -f ../src/Home/Registry.ZC
@@ -125,7 +126,7 @@ verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
 umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -device isa-debug-exit $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -device isa-debug-exit $QEMU_HEADLESS || true
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 
@@ -206,11 +207,11 @@ if [ "$TESTING" = true ]; then
 	    cd ..
 	fi
 	echo "Testing limine-zealbooter-xorriso isohybrid boot in UEFI mode ..."
-	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -bios ovmf/OVMF.fd -smp 4 -cdrom ZealOS-limine.iso $QEMU_HEADLESS
+	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -bios ovmf/OVMF.fd -smp 4 $QEMU_USB_INPUT -cdrom ZealOS-limine.iso $QEMU_HEADLESS
 	echo "Testing limine-zealbooter-xorriso isohybrid boot in BIOS mode ..."
-	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -smp 4 -cdrom ZealOS-limine.iso $QEMU_HEADLESS
+	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -cdrom ZealOS-limine.iso $QEMU_HEADLESS
 	echo "Testing native ZealC MyDistro legacy ISO in BIOS mode ..."
-	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -smp 4 -cdrom ZealOS-MyDistro.iso $QEMU_HEADLESS
+	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -cdrom ZealOS-MyDistro.iso $QEMU_HEADLESS
 fi
 
 # comment these 2 lines if you want lingering old Distro ISOs

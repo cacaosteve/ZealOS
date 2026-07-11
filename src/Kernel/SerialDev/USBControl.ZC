@@ -483,30 +483,42 @@ public U0 XhkIntrSub()
 	XHCIDoorbell(usb.kbd_slot, usb.kbd_dci);
 }
 
-public U0 XhmIntrSub()
+U0 XhmIntrSubOne(U8 *ring, U64 ring_phys, I64 *ring_idx, I64 *ring_cycle,
+		I64 slot, I64 dci, I64 max_pkt, U64 buf_phys, I64 buf_off, Bool *pending)
 {
 	CXHCITrb trb;
 	U8 *buf;
 
-	if (!usb.ms_ring)
+	if (!ring)
 		return;
-	if (usb.ms_pending)
+	if (!slot)
 		return;
-	buf = usb.ctrl_buf + udma_ms;
-	if (usb.ms_max_pkt)
-		MemSet(buf, 0, usb.ms_max_pkt);
-	else
-		MemSet(buf, 0, 8);
+	if (!dci)
+		return;
+	if (*pending)
+		return;
+	buf = usb.ctrl_buf + buf_off;
+	if (!max_pkt)
+		max_pkt = 8;
+	MemSet(buf, 0, max_pkt);
 	MemSet(&trb, 0, sizeof(trb));
-	trb.param = XHCIPhys(buf);
-	trb.status = 8;
-	if (usb.ms_max_pkt)
-		trb.status = usb.ms_max_pkt;
+	trb.param = buf_phys;
+	if (!trb.param)
+		trb.param = XHCIPhys(buf);
+	trb.status = max_pkt;
 	trb.control = XHCI_TRB_NORMAL << 10;
 	trb.control |= 1 << XHCI_TRB_IOC;
-	EpRingPost(&trb, usb.ms_ring, &usb.ms_ring_idx, &usb.ms_ring_cycle, usb.ms_ring_phys);
-	usb.ms_pending = TRUE;
-	XHCIDoorbell(usb.ms_slot, usb.ms_dci);
+	EpRingPost(&trb, ring, ring_idx, ring_cycle, ring_phys);
+	*pending = TRUE;
+	XHCIDoorbell(slot, dci);
+}
+
+public U0 XhmIntrSub()
+{
+	XhmIntrSubOne(usb.ms_ring, usb.ms_ring_phys, &usb.ms_ring_idx, &usb.ms_ring_cycle,
+		usb.ms_slot, usb.ms_dci, usb.ms_max_pkt, usb.ms_buf_phys, udma_ms, &usb.ms_pending);
+	XhmIntrSubOne(usb.tab_ring, usb.tab_ring_phys, &usb.tab_ring_idx, &usb.tab_ring_cycle,
+		usb.tab_slot, usb.tab_dci, usb.tab_max_pkt, usb.tab_buf_phys, udma_tab, &usb.tab_pending);
 }
 
 I64 XHCIIntrIntervalCtx(I64 interval, I64 port_speed)
@@ -541,7 +553,7 @@ I64 XHCIIntrIntervalCtx(I64 interval, I64 port_speed)
 	return exp;
 }
 
-Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_kbd, I64 interval, I64 port_speed)
+Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_kbd, Bool is_tab, I64 interval, I64 port_speed)
 {
 	CXHCITrb trb;
 	U32 *in_ctrl, *in_slot, *in_ep, *dev_slot0;
@@ -586,6 +598,18 @@ Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_
 		usb.kbd_buf_phys = XHCIPhys(usb.ctrl_buf + udma_kbd);
 		EpRingReset(ring, ring_phys, &usb.kbd_ring_idx, &usb.kbd_ring_cycle);
 	}
+	else if (is_tab)
+	{
+		usb.tab_ring = ring;
+		usb.tab_ring_phys = ring_phys;
+		usb.tab_slot = slot;
+		usb.tab_ep = ep_addr;
+		usb.tab_dci = dci;
+		usb.tab_iface = iface;
+		usb.tab_max_pkt = max_pkt;
+		usb.tab_buf_phys = XHCIPhys(usb.ctrl_buf + udma_tab);
+		EpRingReset(ring, ring_phys, &usb.tab_ring_idx, &usb.tab_ring_cycle);
+	}
 	else
 	{
 		usb.ms_ring = ring;
@@ -600,6 +624,8 @@ Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_
 	}
 	if (is_kbd)
 		EpDequeueSet(in_ep, ring_phys, usb.kbd_ring_cycle);
+	else if (is_tab)
+		EpDequeueSet(in_ep, ring_phys, usb.tab_ring_cycle);
 	else
 		EpDequeueSet(in_ep, ring_phys, usb.ms_ring_cycle);
 	if (!max_pkt)
@@ -639,6 +665,18 @@ U0 HidMouseUnbind()
 	usb.ms_ring_cycle = 0;
 	usb.ms_pending = FALSE;
 	usb.ms_xfer_done = FALSE;
+	usb.tab_slot = 0;
+	usb.tab_ep = 0;
+	usb.tab_dci = 0;
+	usb.tab_iface = 0;
+	usb.tab_max_pkt = 0;
+	usb.tab_ring = 0;
+	usb.tab_ring_phys = 0;
+	usb.tab_ring_idx = 0;
+	usb.tab_ring_cycle = 0;
+	usb.tab_pending = FALSE;
+	usb.tab_xfer_done = FALSE;
+	usb.tab_report_id = 0;
 	usb.ms_abs = FALSE;
 	usb.ms_abs_seen = FALSE;
 	usb.ms_acc_x = 0;
@@ -667,7 +705,7 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 			UcProto(slot, iface, 0);
 			UcIdle(slot, iface, 0, 0);
 		}
-		if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, TRUE, interval, port_speed))
+		if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, TRUE, FALSE, interval, port_speed))
 		{
 			sys_usb_input_active |= UK;
 			return TRUE;
@@ -676,7 +714,7 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 		{
 			UcProto(slot, iface, 1);
 			UcIdle(slot, iface, 0, 0);
-			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, TRUE, interval, port_speed))
+			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, TRUE, FALSE, interval, port_speed))
 			{
 				sys_usb_input_active |= UK;
 				return TRUE;
@@ -691,34 +729,47 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 			want_abs = FALSE;
 			report_id = 0;
 		}
-		if (sys_usb_input_active & UM)
-		{
-			if (!usb.ms_abs)
-				return FALSE;
-			if (want_abs)
-				return FALSE;
-			HidMouseUnbind;
-		}
 		usb_debug_stage = 32;
-		usb.ms_abs = FALSE;
 		if (want_abs)
-			usb.ms_abs = TRUE;
+		{
+			if (usb.tab_slot)
+				return FALSE;
+			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, TRUE, interval, port_speed))
+			{
+				usb.tab_report_id = report_id;
+				usb.tab_pending = FALSE;
+				usb.tab_xfer_done = FALSE;
+				usb.tab_xfer_len = 0;
+				usb.ms_use_tab = TRUE;
+				if (!usb.ms_slot)
+					usb.ms_abs = TRUE;
+				sys_usb_input_active |= UM;
+				return TRUE;
+			}
+			usb_debug_stage = 33;
+			return FALSE;
+		}
+		usb.ms_abs = FALSE;
+		if (usb.ms_slot)
+			return FALSE;
 		if (is_boot)
 			UcProto(slot, iface, 0);
-		if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, interval, port_speed))
+		if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, FALSE, interval, port_speed))
 		{
 			usb.ms_report_id = report_id;
 			usb.ms_rel_report_id = 0;
+			usb.ms_use_tab = usb.tab_slot != 0;
 			sys_usb_input_active |= UM;
 			return TRUE;
 		}
 		if (is_boot)
 		{
 			UcProto(slot, iface, 1);
-			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, interval, port_speed))
+			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, FALSE, interval, port_speed))
 			{
 				usb.ms_report_id = 0;
 				usb.ms_rel_report_id = 0;
+				usb.ms_use_tab = usb.tab_slot != 0;
 				sys_usb_input_active |= UM;
 				return TRUE;
 			}

@@ -56,16 +56,16 @@ U0 XhmRptDbg(U8 *rpt, I64 len)
 	}
 }
 
-Bool XhmAbsRptOk(U8 *rpt, I64 len, I64 *off)
+Bool XhmAbsRptOk(U8 *rpt, I64 len, I64 *off, I64 report_id)
 {
 	I64 o = 0;
 
 	// Absolute: [buttons][x_lo][x_hi][y_lo][y_hi] or leading report ID + 5 bytes.
-	if (usb.ms_report_id)
+	if (report_id)
 	{
 		if (len < 6)
 			return FALSE;
-		if (rpt[0] != usb.ms_report_id)
+		if (rpt[0] != report_id)
 			return FALSE;
 		o = 1;
 	}
@@ -216,11 +216,11 @@ U0 XhmAbsBttns(I64 b)
 	usb.ms_last_btn = b;
 }
 
-U0 XhmRptAbs(U8 *rpt, I64 len)
+U0 XhmRptAbs(U8 *rpt, I64 len, I64 report_id=0)
 {
 	I64 off, b, x, y, sw, sh, npx, npy, adx, ady;
 
-	if (!XhmAbsRptOk(rpt, len, &off))
+	if (!XhmAbsRptOk(rpt, len, &off, report_id))
 		return;
 
 	b = rpt[off] & 7;
@@ -290,7 +290,7 @@ U0 XhmRptAbs(U8 *rpt, I64 len)
 	XhmAbsWarp(npx, npy, b);
 }
 
-U0 XhmRptRel(U8 *rpt, I64 len)
+U0 XhmRptRel(U8 *rpt, I64 len, I64 report_id=0)
 {
 	I64 dx, dy, dz, b, off, id_b, id_dx, id_dy, id_dz;
 
@@ -299,11 +299,11 @@ U0 XhmRptRel(U8 *rpt, I64 len)
 	// makes byte 0 nonzero.  UTM's captured cursor can use
 	// [report_id][buttons][X][Y], so learn that short form only after a
 	// no-button movement report makes byte 1 unambiguously the button byte.
-	if (usb.ms_report_id)
+	if (report_id)
 	{
 		if (len < 4)
 			return;
-		if (rpt[0] != usb.ms_report_id)
+		if (rpt[0] != report_id)
 			return;
 		off = 1;
 	}
@@ -369,21 +369,21 @@ U0 XhmRptRel(U8 *rpt, I64 len)
 	usb.ms_acc_z += dz;
 }
 
-U0 XhmRptHandleMode(U8 *rpt, I64 len, Bool abs_mode)
+U0 XhmRptHandleMode(U8 *rpt, I64 len, Bool abs_mode, I64 report_id=0)
 {
 	if (len < 3)
 		return;
 
 	XhmRptDbg(rpt, len);
 	if (abs_mode)
-		XhmRptAbs(rpt, len);
+		XhmRptAbs(rpt, len, report_id);
 	else
-		XhmRptRel(rpt, len);
+		XhmRptRel(rpt, len, report_id);
 }
 
 U0 XhmRptHandle(U8 *rpt, I64 len)
 {
-	XhmRptHandleMode(rpt, len, usb.ms_abs);
+	XhmRptHandleMode(rpt, len, usb.ms_abs, usb.ms_report_id);
 }
 
 U0 XhmAccFlush()
@@ -469,29 +469,29 @@ U0 XhmAccFlush()
 U0 XhmEvtHandle()
 {
 	U8 *buf;
+	Bool done = FALSE;
 
 	PUSHFD
 	CLI
-	if (!usb.ms_pending)
+	if (usb.ms_ring && usb.ms_pending && usb.ms_xfer_done)
 	{
-		POPFD
-		return;
+		buf = usb.ctrl_buf + udma_ms;
+		if (usb.ms_xfer_len && XhcXferOk(usb.ms_xfer_code))
+			XhmRptHandleMode(buf, usb.ms_xfer_len, FALSE, usb.ms_report_id);
+		usb.ms_pending = FALSE;
+		usb.ms_xfer_done = FALSE;
+		done = TRUE;
 	}
-	if (!usb.ms_xfer_done)
+	if (usb.tab_ring && usb.tab_pending && usb.tab_xfer_done)
 	{
-		POPFD
-		return;
+		buf = usb.ctrl_buf + udma_tab;
+		if (usb.tab_xfer_len && XhcXferOk(usb.tab_xfer_code))
+			XhmRptHandleMode(buf, usb.tab_xfer_len, TRUE, usb.tab_report_id);
+		usb.tab_pending = FALSE;
+		usb.tab_xfer_done = FALSE;
+		done = TRUE;
 	}
-	if (!usb.ms_ring)
-	{
-		POPFD
-		return;
-	}
-	buf = usb.ctrl_buf + udma_ms;
-	if (usb.ms_xfer_len && XhcXferOk(usb.ms_xfer_code))
-		XhmRptHandle(buf, usb.ms_xfer_len);
-	usb.ms_pending = FALSE;
-	usb.ms_xfer_done = FALSE;
 	POPFD
-	XhmIntrSub;
+	if (done)
+		XhmIntrSub;
 }

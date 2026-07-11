@@ -1289,5 +1289,7 @@ public U0 UsbPollEvt()
 	{
 		if (usb.ms_ring && !usb.ms_pending && !usb.ms_xfer_done)
 			XhmIntrSub;
+		if (usb.tab_ring && !usb.tab_pending && !usb.tab_xfer_done)
+			XhmIntrSub;
 	}
 }
