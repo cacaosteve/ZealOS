@@ -3,7 +3,7 @@
 #   1. Sets Input USB = 3.0, PS/2 = Off, clears Additional Arguments.
 #   2. Syncs USB sources and queues normal-boot kernel rebuild.
 #   3. Boot VM; wait for desktop, auto compile (~5-15 min), auto reboot.
-#   4. build/check-utm-usb-boot.sh — expect active=0x3, mouse abs=1 (tablet).
+#   4. build/check-utm-usb-boot.sh — expect active=0x3 (kbd+mouse).
 #
 # Do NOT also set QEMU Additional Arguments (qemu-xhci etc.) — that duplicates HID.
 set -e
@@ -40,6 +40,7 @@ with open(config_path, "wb") as f:
 print(f"Updated {config_path}")
 print(f"Backup: {backup}")
 print("  Input USB: 3.0, PS/2: Off, Additional Arguments: (cleared)")
+print("  Use UTM Cursor on/captured. usb-tablet is ignored when usb-mouse is present.")
 PY
 
 export AUTO_NORMAL_REBUILD=1

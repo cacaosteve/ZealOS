@@ -121,6 +121,14 @@ Bool XhmTabletBound()
 	return FALSE;
 }
 
+Bool XhmDualPointerBound()
+{
+	if (XhmBootMsBound())
+		if (XhmTabletBound())
+			return TRUE;
+	return FALSE;
+}
+
 I64 XhmS8(U8 b)
 {
 	if (b & 0x80)
@@ -245,10 +253,11 @@ U0 XhmRptAbs(U8 *rpt, I64 len, I64 report_id=0)
 	b = rpt[off] & 7;
 	x = rpt[off + 1] | (rpt[off + 2] << 8);
 	y = rpt[off + 3] | (rpt[off + 4] << 8);
-	if (XhmTabletBound())
+	if (XhmDualPointerBound())
 	{
-		usb.ms_use_tab = TRUE;
-		b = 0;
+		usb.ms_use_tab = FALSE;
+		XhmAbsBttns(0);
+		return;
 	}
 	sw = sys_framebuffer_width;
 	sh = sys_framebuffer_height;
@@ -364,19 +373,10 @@ U0 XhmRptRel(U8 *rpt, I64 len, I64 report_id=0)
 	if (!XhmRptRelRead(rpt, len, off, &b, &dx, &dy, &dz))
 		return;
 
-	// UTM exposes both usb-mouse and usb-tablet.  Prefer tablet movement and
-	// ignore relative packets so captured-cursor noise cannot open windows.
-	if (XhmTabletBound())
-	{
-		usb.ms_use_tab = TRUE;
-		usb.ms_rel_report_id = 0;
-		usb.ms_acc_x = 0;
-		usb.ms_acc_y = 0;
-		usb.ms_acc_z = 0;
-		usb.ms_acc_b = 0;
-		XhmAbsBttns(0);
-		return;
-	}
+	// In UTM, dual usb-mouse + usb-tablet streams can fight.  When both
+	// endpoints exist, let relative usb-mouse drive the UI and ignore tablet.
+	if (XhmDualPointerBound())
+		usb.ms_use_tab = FALSE;
 
 	if (dx || dy || dz)
 	{

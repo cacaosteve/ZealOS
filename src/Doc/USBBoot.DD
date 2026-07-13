@@ -33,7 +33,7 @@ $FG,5$UTM / QEMU$FG$
 * **Recommended UTM settings:** Input USB = **USB 3.0 (XHCI)**; PS/2 Controller = **Off**; Additional Arguments = empty.
 * Do not add $FG,2$qemu-xhci$FG$, $FG,2$usb-kbd$FG$, $FG,2$usb-mouse$FG$, or $FG,2$usb-tablet$FG$ in Additional Arguments for normal UTM testing. That creates a different device topology from the UI-only target.
 * The driver scans **every xHCI root port** so separate $FG,2$usb-kbd$FG$ and $FG,2$usb-mouse$FG$ devices can both bind ($FG,2$active=0x3$FG$).
-* $FG,2$usb-mouse$FG$ = relative boot HID + scroll wheel. $FG,2$usb-tablet$FG$ = absolute HID; the driver warps the guest cursor to match UTM uncaptured pointer position. UHCI/EHCI bind and poll both so UTM cursor-capture (mouse) and uncaptured (tablet) modes work.
+* $FG,2$usb-mouse$FG$ = relative boot HID + scroll wheel. $FG,2$usb-tablet$FG$ = absolute HID. When both are present, ZealOS uses $FG,2$usb-mouse$FG$ and ignores tablet pointer events because UTM's dual streams can fight and cause cursor jumps.
 * UHCI support is intentionally narrow: HID keyboard/mouse/tablet for UTM's UI-created PC USB path only. It is not USB storage, hub, hotplug, or arbitrary USB device support.
 
 $FG,5$Known Failure Modes$FG$
