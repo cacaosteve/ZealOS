@@ -358,27 +358,6 @@ U0 XHCIEventAdvance(I64 max_events=0)
 					}
 				}
 			}
-			if (slot == usb.tab_slot)
-			{
-				if (dci == usb.tab_dci)
-				{
-					if (usb.tab_pending)
-					{
-						actual = usb.tab_max_pkt - residual;
-						if (actual < 0)
-							actual = 0;
-						if (actual > usb.tab_max_pkt)
-							actual = usb.tab_max_pkt;
-						usb.tab_xfer_code = code;
-						usb.tab_xfer_done = TRUE;
-						if (XhcXferOk(code))
-							usb.tab_xfer_len = actual;
-						else
-							usb.tab_xfer_len = 0;
-						handled = TRUE;
-					}
-				}
-			}
 			if (slot == usb.kbd_slot)
 			{
 				if (dci == usb.kbd_dci)
@@ -1022,7 +1001,6 @@ Bool XHCIControllerInitBdf(I64 bdf)
 	usb.input_ctx = XHCIAlloc(XHCI_INPUT_CTX_SIZE, 64, &usb.input_ctx_phys);
 	usb.ctrl_buf = XHCIAlloc(USB_CTRL_BUF_SIZE, 64, &usb.ctrl_buf_phys);
 	usb.ms_buf_phys = XHCIPhys(usb.ctrl_buf + udma_ms);
-	usb.tab_buf_phys = XHCIPhys(usb.ctrl_buf + udma_tab);
 	usb.kbd_buf_phys = XHCIPhys(usb.ctrl_buf + udma_kbd);
 
 	XHCICmdRingReset;

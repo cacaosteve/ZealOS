@@ -40,7 +40,7 @@ with open(config_path, "wb") as f:
 print(f"Updated {config_path}")
 print(f"Backup: {backup}")
 print("  Input USB: 3.0, PS/2: Off, Additional Arguments: (cleared)")
-print("  Use UTM Cursor on/captured. usb-tablet is ignored when usb-mouse is present.")
+print("  Cursor on uses usb-mouse; Cursor off uses usb-tablet. Pause briefly after switching.")
 PY
 
 export AUTO_NORMAL_REBUILD=1

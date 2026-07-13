@@ -110,8 +110,7 @@ public U0 UsbBootLastWrite()
 				   "ehci_ms addr=%d ep=%d iface=%d port=%d speed=%d max=%d pend=%d done=%d err=%d token=0x%X abs=%d seen=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
 				   "ehci_tab addr=%d ep=%d iface=%d port=%d speed=%d max=%d\n"
 				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
-				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d seen=%d last_abs=(%d,%d) ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
-				   "tablet slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d rpt=%d use=%d\n",
+				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d seen=%d last_abs=(%d,%d) ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
 				   usb_debug_stage, sys_usb_input_active, usb.irq, sys_pci_services, sys_pci_buses,
 				   mouse_hard.install_attempts, usb_debug_cfg_len, usb_debug_iface_cls,
 				   usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
@@ -162,9 +161,7 @@ public U0 UsbBootLastWrite()
 				   usb.ms_last_abs_x, usb.ms_last_abs_y, usb.ms_ring, usb.ms_ring_phys, usb.ms_pending,
 				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
 				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
-				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7],
-				   usb.tab_slot, usb.tab_dci, usb.tab_iface, usb.tab_ep, usb.tab_max_pkt, usb.tab_ring, usb.tab_ring_phys,
-				   usb.tab_pending, usb.tab_xfer_done, usb.tab_xfer_code, usb.tab_xfer_len, usb.tab_report_id, usb.ms_use_tab);
+				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
 	drive = Letter2Drive('C', FALSE);
 	if (drive && (drive->fs_type == FSt_FAT32 || drive->fs_type == FSt_REDSEA) &&
 			drive->bd && !(drive->bd->flags & BDF_READ_ONLY))
@@ -178,41 +175,14 @@ public U0 UsbBootLastWrite()
 			Fs->catch_except = TRUE;
 		}
 	}
-	else
-	{
-		try
-		{
-			if (Fs->cur_dv && Fs->cur_dv->bd && !(Fs->cur_dv->bd->flags & BDF_READ_ONLY))
-				FileWrite("/Tmp/UsbBootLast.DD", st, StrLen(st));
-		}
-		catch
-		{
-			Fs->catch_except = TRUE;
-		}
-	}
 	Free(st);
-}
-
-public Bool UsbBootKbdActive()
-{
-	return sys_usb_input_active & UK;
-}
-
-public Bool UsbBootMouseActive()
-{
-	return sys_usb_input_active & UM;
-}
-
-public Bool UsbBootInputReady()
-{
-	return UsbBootKbdActive() && UsbBootMouseActive();
 }
 
 public U0 UsbBootInit()
 {
 	I64 i;
 
-	if (UsbBootInputReady())
+	if ((sys_usb_input_active & (UK | UM)) == (UK | UM))
 		return;
 	sys_usb_suppress_single_step = 1;
 	usb_verbose = 0;
@@ -228,7 +198,7 @@ public U0 UsbBootInit()
 		XhmIntrSub;
 	if ((usb.uhci_active || usb.ehci_active) && sys_usb_input_active)
 	{
-		for (i = 0; i < 600; i++)
+		for (i = 0; i < 100; i++)
 		{
 			UsbPollEvt;
 			if (usb.uhci_kbd_done_count || usb.uhci_ms_done_count ||

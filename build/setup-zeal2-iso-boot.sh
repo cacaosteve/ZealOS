@@ -82,4 +82,4 @@ PY
 echo
 echo "Done. Quit UTM completely, reopen zeal2, and boot from the CD."
 echo "After boot, expect: USB boot: active=0x3"
-echo "Use UTM Cursor on/captured (usb-mouse). usb-tablet is ignored when both pointers exist."
+echo "UTM Cursor on uses usb-mouse; Cursor off uses usb-tablet. Pause briefly after switching."

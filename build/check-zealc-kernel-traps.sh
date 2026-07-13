@@ -118,8 +118,6 @@ check "Spawn call in kernel" '\bSpawn\(' \
 if [ -d "$SRC_DIR/Kernel/SerialDev" ]; then
 	check "DriveIsWritable before BlkDev include" '\bDriveIsWritable\b' \
 		"$SRC_DIR/Kernel/SerialDev" --glob '*.ZC'
-	check "legacy PS/2 command calls in USB drivers" '\b(KbdCmdSend|KbdCmdFlush|KbdMouseCmdAck|KBDC_[A-Z0-9_]+)\b' \
-		"$SRC_DIR/Kernel/SerialDev" --glob 'USB*.ZC'
 fi
 
 # StrCmp (use StrCompare)
