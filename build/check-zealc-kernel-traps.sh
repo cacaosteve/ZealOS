@@ -127,9 +127,9 @@ check "duplicate USB background poller" 'Spawn\s*\(&UsbPollBgTask' \
 	"$SRC_DIR/Home/StartOSAfterSystem.ZC" \
 	"$SRC_DIR/Misc/Auto/AutoFullDistro5.ZC"
 
-# KConfig is noninteractive. These legacy answers are interpreted as HolyC
-# commands after BootHDIns returns and can leave the installer task waiting.
-check "obsolete interactive BootHDIns installer answers" 'XTalkWait.*BootHDIns.*0x20000' \
+# BootHDIns is noninteractive. Text-driven XTalkWait can either execute legacy
+# answers as HolyC or remain blocked on terminal UI state after compilation.
+check "text-driven BootHDIns installer job" 'XTalkWait.*BootHDIns' \
 	"$SRC_DIR/Misc/OSInstall.ZC" \
 	"$SRC_DIR/Misc/Auto/AutoInstall.ZC"
 

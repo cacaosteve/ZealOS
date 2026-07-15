@@ -10,6 +10,18 @@
 "$$DKGRAY$$ZealOS Boot Loader is written in public-domain ZealC, but only supports BIOS mode.\n\n" \
 "Limine supports UEFI and BIOS mode and multiple boot protocols, but is written in BSD-2 licensed C code, and cannot be modified within ZealOS.$$FG$$\n\n\n"
 
+U0 BootHDInsTaskWait(CTask *task, U8 drv_let)
+{
+	CJob	*job;
+	I64	 res;
+	U8	*st = MStrPrint("BootHDIns('%C');", drv_let);
+
+	job = TaskExe(task, Fs, st, 1 << JOBf_WAKE_MASTER);
+	Free(st);
+	if (!job || !JobResScan(job, &res))
+		PrintErr("BootHDIns task failed for %C:.\n", drv_let);
+}
+
 // TODO FIXME: refactor OSUpgrade code into optional Diff prompt to compare ISO<->HDD before Install.
 
 CDirEntry OSFilesMGFind(CDirEntry *needle_entry, CDirEntry *haystack_list)
@@ -185,8 +197,7 @@ U0 OSUpgrade()
 
 	OSMerge(drv_let); // src_drv needed?
 
-	// KConfig is noninteractive; old prompt answers become stray HolyC commands.
-	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
+	BootHDInsTaskWait(task, drv_let);
 
 	if (!sys_is_uefi_booted)
 	{
@@ -280,7 +291,7 @@ U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
 {// DOUBLE CHECK INFILE
 	no_warn ata_port, atapi_port;
 	InstallDrive(drv_let);
-	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
+	BootHDInsTaskWait(task, drv_let);
 }
 
 U0 VMInstallWiz()
@@ -440,8 +451,7 @@ U0 RegularInstallWiz()
 	InstallDrive(drv_let);
 
 
-	// KConfig is noninteractive; old prompt answers become stray HolyC commands.
-	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
+	BootHDInsTaskWait(task, drv_let);
 	if (!sys_is_uefi_booted)
 	{
 		"$$RED$$Install Master Boot loader?$$FG$$";
