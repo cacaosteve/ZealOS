@@ -185,8 +185,8 @@ U0 OSUpgrade()
 
 	OSMerge(drv_let); // src_drv needed?
 
-	XTalkWait(task, "BootHDIns('%C');\n\nB\n0x20000\nC\n%s\n\n", drv_let, port_st);
-	XTalkWait(task, "\n\n"); //skip through Disk Cache, Options
+	// KConfig is noninteractive; old prompt answers become stray HolyC commands.
+	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
 
 	if (!sys_is_uefi_booted)
 	{
@@ -278,13 +278,9 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 
 U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
 {// DOUBLE CHECK INFILE
+	no_warn ata_port, atapi_port;
 	InstallDrive(drv_let);
-	XTalkWait(task, "BootHDIns('%C');\n\nB\n0x20000\n", drv_let);
-	if (ata_port > -1)
-		XTalkWait(task, "C\n%d\n", ata_port);
-	if (atapi_port > -1)
-		XTalkWait(task, "T%d\n", atapi_port);
-	XTalkWait(task, "\n\n\n\n"); //Exit Drives, skip Disk Cache and Options
+	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
 }
 
 U0 VMInstallWiz()
@@ -444,8 +440,8 @@ U0 RegularInstallWiz()
 	InstallDrive(drv_let);
 
 
-	XTalkWait(task, "BootHDIns('%C');\n\nB\n0x20000\nC\n%s\n\n", drv_let, port_st);
-	XTalkWait(task, "\n\n"); //skip through Disk Cache, Options
+	// KConfig is noninteractive; old prompt answers become stray HolyC commands.
+	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
 	if (!sys_is_uefi_booted)
 	{
 		"$$RED$$Install Master Boot loader?$$FG$$";

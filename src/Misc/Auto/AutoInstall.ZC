@@ -43,13 +43,9 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 
 U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
 {// DOUBLE CHECK INFILE
+	no_warn ata_port, atapi_port;
 	InstallDrive(drv_let);
-	XTalkWait(task, "BootHDIns('%C');\n\nB\n0x20000\n", drv_let);
-	if (ata_port > -1)
-		XTalkWait(task, "C\n%d\n", ata_port);
-	if (atapi_port > -1)
-		XTalkWait(task, "T%d\n", atapi_port);
-	XTalkWait(task, "\n\n\n\n\n\n"); //Exit Drives, skip Disk Cache and Options
+	XTalkWait(task, "BootHDIns('%C');\n", drv_let);
 }
 
 U0 VMInstallWiz()
