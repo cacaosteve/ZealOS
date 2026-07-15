@@ -120,6 +120,13 @@ if [ -d "$SRC_DIR/Kernel/SerialDev" ]; then
 		"$SRC_DIR/Kernel/SerialDev" --glob '*.ZC'
 fi
 
+# KbdMouseHandler already owns poll-mode USB after startup. A second task races
+# the same UHCI/EHCI transfer state and can replay raw HID bytes as input.
+check "duplicate USB background poller" 'Spawn\s*\(&UsbPollBgTask' \
+	"$SRC_DIR/StartOS.ZC" \
+	"$SRC_DIR/Home/StartOSAfterSystem.ZC" \
+	"$SRC_DIR/Misc/Auto/AutoFullDistro5.ZC"
+
 # StrCmp (use StrCompare)
 check "StrCmp (use StrCompare)" '\bStrCmp\b' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'

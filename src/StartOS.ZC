@@ -110,8 +110,6 @@ if (Letter2Drive('C', FALSE))
 				"{\n"
 				"\tExePrint(\"UsbBootInit;\");\n"
 				"\t\"USB boot: active=0x%X stage=%d\\n\", sys_usb_input_active, usb_debug_stage;\n"
-				"\tif (sys_usb_input_active)\n"
-				"\t\tSpawn(&UsbPollBgTask,, \"UsbPollBgTask\");\n"
 				"}\n";
 	}
 	FileWrite("StartOSAfterSystem.ZC", start_os_after_system, StrLen(start_os_after_system));

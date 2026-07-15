@@ -4,6 +4,4 @@ if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&
 {
 	ExePrint("UsbBootInit;");
 	"USB boot: active=0x%X stage=%d\n", sys_usb_input_active, usb_debug_stage;
-	if (sys_usb_input_active)
-		Spawn(&UsbPollBgTask,, "UsbPollBgTask");
 }

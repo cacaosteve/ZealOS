@@ -38,6 +38,7 @@ $FG,5$UTM / QEMU$FG$
 
 $FG,5$Known Failure Modes$FG$
 * $FG,2$UsbBootInit$FG$ uses poll mode only (no $FG,2$UsbIntrEnable$FG$ at boot). $FG,2$UdRun;$FG$ or $FG,2$UsbInit$FG$ may call $FG,2$UsbIntrEnable$FG$ for xHCI IRQ testing after boot — routes the PCI $FG,2$interrupt line$FG$ (GSI), not INTA..D pin index 0–3.
+* After startup, $FG,2$KbdMouseHandler$FG$ is the sole poll-mode USB owner. Do not spawn a second $FG,2$UsbPollBgTask$FG$: concurrent polls can replay UHCI/EHCI report bytes as phantom keys or pointer events.
 * Garbled menus / dead keyboard after boot — usually IOAPIC entries were hijacked by old USB IRQ code; update and $FG,2$BootHDInsAuto; Reboot;$FG$.
 * USB-only laptops with no i8042 — PS/2 fallback never works; native xHCI is required.
 * xHCI still owned by firmware — the driver claims OS ownership through the xHCI legacy extended capability before reset, then waits for $FG,2$USBSTS.HCHalted$FG$ to clear.
