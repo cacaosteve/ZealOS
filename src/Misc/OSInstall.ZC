@@ -239,9 +239,92 @@ U0 OSUpgrade()
 	Kill(task);
 }
 
-U0 InstallDrive(U8 drv_let)
+I64 InstallCopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, I64 *_file_count)
 {
-	U8 *st;
+	U8	*st;
+	I64	 res = 0;
+
+	while (tmpde)
+	{
+		st = MAlloc(StrLen(tmpde->full_name) + dst_dir_len + 2);
+		MemCopy(st, dst_dir, dst_dir_len);
+		StrCopy(st + dst_dir_len, tmpde->full_name + src_dir_len);
+		if (tmpde->attr & RS_ATTR_DIR)
+		{
+			DirMake(st, LinkedListCount(tmpde->sub));
+			res += InstallCopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir, _file_count);
+		}
+		else
+		{
+			if (CopySingle(tmpde->full_name, st))
+				res++;
+			else
+			{
+				Silent(OFF);
+				PrintErr("Install copy failed: \"%s\" -> \"%s\".\n", tmpde->full_name, st);
+				Silent;
+			}
+			*_file_count = *_file_count + 1;
+			progress1 = *_file_count;
+			if (!((*_file_count) & 0x1F))
+				Sleep(1);
+		}
+		Free(st);
+		tmpde = tmpde->next;
+	}
+
+	return res;
+}
+
+I64 InstallCopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask)
+{
+	Bool		 old_silent = Silent;
+	CDirContext	*dirc;
+	CDirEntry	*tmpde = NULL;
+	I64			 res = 0, i1, i2, file_count = 0;
+	U8			*st1, *st2;
+
+	Silent(OFF);
+	"Copying system files to %s ...\n", dst_files_find_mask;
+	StrCopy(progress1_desc, "Installing files");
+	progress1 = 0;
+	progress1_max = 1;
+	Silent;
+
+	if (dirc = DirContextNew(src_files_find_mask, TRUE,, TRUE))
+	{
+		tmpde = FilesFind(dirc->mask, FUF_RECURSE);
+		progress1 = 0;
+		progress1_max = FileCount(tmpde);
+		st1 = DirCur;
+		DirContextDel(dirc);
+		i1 = StrLen(st1);
+		if (i1 == 3)
+			i1--;
+		if (dirc = DirContextNew(dst_files_find_mask, TRUE, TRUE))
+		{
+			st2 = DirCur;
+			i2 = StrLen(st2);
+			if (i2 == 3)
+				i2--;
+			res = InstallCopyTree2(tmpde, i1, i2, st2, &file_count);
+			DirContextDel(dirc);
+			Free(st2);
+		}
+		DirTreeDel(tmpde);
+		Free(st1);
+	}
+
+	ProgressBarsReset;
+	Silent(old_silent);
+	"Copied %d files to %s.\n", res, dst_files_find_mask;
+
+	return res;
+}
+
+U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
+{
+	U8 *st, *src_st;
 
 	while (!DriveCheck(blkdev.let_to_drive[drv_let - 'A'], FALSE))
 		Sleep(1);
@@ -254,7 +337,9 @@ U0 InstallDrive(U8 drv_let)
 	'.';
 	Sleep(1000);
 
-	ExePrint("CopyTree(\"::/\",\"%C:/\");",			drv_let);
+	st = MStrPrint("%C:/", drv_let);
+	InstallCopyTree(src_root, st);
+	Free(st);
 
 	ExePrint("Del(\"%C:/Boot/Limine-BIOS-CD.BIN\");", drv_let);
 	ExePrint("Del(\"%C:/Boot/Limine-UEFI-CD.BIN\");", drv_let);
@@ -267,13 +352,26 @@ U0 InstallDrive(U8 drv_let)
 
 	st = MStrPrint("%C:/Home/DoDistro.ZC", drv_let);
 	if (!FileFind(st))
-		Copy("::/Misc/DoDistro.ZC", st);
+	{
+		src_st = MStrPrint("%sMisc/DoDistro.ZC", src_root);
+		Copy(src_st, st);
+		Free(src_st);
+	}
 	Free(st);
 
 	st = MStrPrint("%C:/Home/MakeHome.ZC", drv_let);
 	if (!FileFind(st))
-		Copy("::/MakeHome.ZC", st);
+	{
+		src_st = MStrPrint("%sMakeHome.ZC", src_root);
+		Copy(src_st, st);
+		Free(src_st);
+	}
 	Free(st);
+}
+
+U0 InstallDrive(U8 drv_let)
+{
+	InstallDriveFrom(drv_let, "::/");
 }
 
 Bool VMPartDisk(CTask *task, I64 ata_port)
@@ -287,10 +385,10 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 		return FALSE;
 }
 
-U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
+U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port, U8 *src_root="::/")
 {// DOUBLE CHECK INFILE
 	no_warn task, ata_port, atapi_port;
-	InstallDrive(drv_let);
+	InstallDriveFrom(drv_let, src_root);
 	BootHDInsPrebuilt(drv_let);
 }
 
@@ -340,7 +438,7 @@ U0 VMInstallWiz()
 	if (VMPartDisk(task, ata_port))
 	{
 		VMInstallDrive(task, 'C', ata_port, atapi_port);
-		VMInstallDrive(task, 'D', ata_port, atapi_port);
+		VMInstallDrive(task, 'D', ata_port, atapi_port, "C:/");
 		if (!sys_is_uefi_booted)
 		{
 			if (FileFind(LIMINE_HDD_FILE))
