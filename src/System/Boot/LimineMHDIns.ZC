@@ -3,14 +3,28 @@
 U8 binary_limine_hdd_bin_data[0];
 #endif
 
+Bool LimineBootFilesFind(U8 drv_let)
+{
+	U8	*filename_sys = MStrPrint("%C:/Boot/Limine-BIOS.SYS", drv_let),
+		*filename_elf = MStrPrint("%C:/Boot/ZealBooter.ELF", drv_let),
+		*filename_zxe = MStrPrint("%C:/Boot/Kernel.ZXE", drv_let);
+	Bool res = FileFind(filename_sys) && FileFind(filename_elf) && FileFind(filename_zxe);
+
+	Free(filename_sys);
+	Free(filename_elf);
+	Free(filename_zxe);
+
+	return res;
+}
+
 Bool LimineCFGMake(U8 drv_let)
 {
-	U8		*filename_cfg = MStrPrint("%C:/Boot/Limine.CONF", drv_let);
+	U8		 cfg_drv_let = drv_let, entry_drv_let;
+	U8		*filename_cfg = MStrPrint("%C:/Boot/Limine.CONF", cfg_drv_let);
 	CDoc	*doc = DocNew(filename_cfg);
 	CDrive	*drive;
-	CBlkDev	*bd;
 	I64		 i;
-	U8		*filename_sys, *filename_elf, *filename_zxe, *st;
+	U8		*st;
 
 	"\nGenerating Limine.CONF ...\n";
 
@@ -23,26 +37,19 @@ Bool LimineCFGMake(U8 drv_let)
 	{
 		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32 && DriveIsWritable(drive->drv_let))
 		{
-			bd = drive->bd;
-			drv_let = Drive2Letter(drive);
-
-			filename_sys = MStrPrint("%C:/Boot/Limine-BIOS.SYS", drv_let);
-			filename_elf = MStrPrint("%C:/Boot/ZealBooter.ELF", drv_let);
-			filename_zxe = MStrPrint("%C:/Boot/Kernel.ZXE", drv_let);
-			if (FileFind(filename_sys) && FileFind(filename_elf) && FileFind(filename_zxe))
+			entry_drv_let = Drive2Letter(drive);
+			if (LimineBootFilesFind(entry_drv_let))
 			{
-				st = MStrPrint("/ZealOS %C:/\n"
+				DocPrint(doc, "/ZealOS %C:/\n"
 					"protocol: limine\n"
 					"resolution: 640x480\n"
 					"path: boot(%d):/Boot/ZealBooter.ELF\n"
 					"module_path: boot(%d):/Boot/Kernel.ZXE\n"
-					"\n", drv_let, drive->prt_num + 1, drive->prt_num + 1);
-
-				DocPrint(doc, st);
-				"%C:/ drive added as a Limine.CONF menu entry.\n", drv_let;
+					"\n", entry_drv_let, drive->prt_num + 1, drive->prt_num + 1);
+				"%C:/ drive added as a Limine.CONF menu entry.\n", entry_drv_let;
 			}
 			else
-				"%C:/ drive is missing Limine bootloader files.\n", drv_let;
+				"%C:/ drive is missing Limine bootloader files.\n", entry_drv_let;
 		}
 	}
 	DocWrite(doc);
@@ -55,14 +62,16 @@ Bool LimineCFGMake(U8 drv_let)
 	{
 		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32 && DriveIsWritable(drive->drv_let))
 		{
-			drv_let = Drive2Letter(drive);
-			if (FileFind(filename_sys) && FileFind(filename_elf) && FileFind(filename_zxe))
+			entry_drv_let = Drive2Letter(drive);
+			if (entry_drv_let != cfg_drv_let && LimineBootFilesFind(entry_drv_let))
 			{
-				st = MStrPrint("%C:/Boot/Limine.CONF", drv_let);
+				st = MStrPrint("%C:/Boot/Limine.CONF", entry_drv_let);
 				Copy(filename_cfg, st);
+				Free(st);
 			}
 		}
 	}
+	Free(filename_cfg);
 
 	return TRUE;
 }

@@ -289,9 +289,9 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 
 U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
 {// DOUBLE CHECK INFILE
-	no_warn ata_port, atapi_port;
+	no_warn task, ata_port, atapi_port;
 	InstallDrive(drv_let);
-	BootHDInsTaskWait(task, drv_let);
+	BootHDInsPrebuilt(drv_let);
 }
 
 U0 VMInstallWiz()
@@ -450,8 +450,7 @@ U0 RegularInstallWiz()
 	}
 	InstallDrive(drv_let);
 
-
-	BootHDInsTaskWait(task, drv_let);
+	BootHDInsPrebuilt(drv_let);
 	if (!sys_is_uefi_booted)
 	{
 		"$$RED$$Install Master Boot loader?$$FG$$";
