@@ -68,6 +68,7 @@ U0 BootHDInsKernelFinish(CDrive *drive, Bool move_kernel)
 					br.code[i] = 0;
 
 				BlkWrite(drive, &br, drive->drv_offset, 1);
+				"Partition boot record updated.\n";
 			}
 			break;
 

@@ -397,11 +397,14 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 		return FALSE;
 }
 
-U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port, U8 *src_root="::/")
+U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port, U8 *src_root="::/", Bool install_boot_record=TRUE)
 {// DOUBLE CHECK INFILE
 	no_warn task, ata_port, atapi_port;
 	InstallDriveFrom(drv_let, src_root);
-	BootHDInsPrebuilt(drv_let);
+	if (install_boot_record)
+		BootHDInsPrebuilt(drv_let);
+	else
+		"Skipping %C: partition boot record during VM install; Limine can boot this partition directly.\n", drv_let;
 }
 
 U0 VMInstallWiz()
@@ -450,7 +453,7 @@ U0 VMInstallWiz()
 	if (VMPartDisk(task, ata_port))
 	{
 		VMInstallDrive(task, 'C', ata_port, atapi_port);
-		VMInstallDrive(task, 'D', ata_port, atapi_port, "C:/");
+		VMInstallDrive(task, 'D', ata_port, atapi_port, "C:/", FALSE);
 		if (!sys_is_uefi_booted)
 		{
 			if (FileFind(LIMINE_HDD_FILE))
@@ -467,22 +470,19 @@ U0 VMInstallWiz()
 
 				if (ch == 'Z')
 				{
-					BootMHDIns('C');
+					BootMHDIns('C', "C");
 					"\n(Generating optional UEFI-mode Limine.CONF...)\n";
 					LimineCFGMake('C');
 				}
 				else
-				{
 					LimineMHDIns('C');
-				}
 				"\n\n";
 			}
 			else
-				BootMHDIns('C');
+				BootMHDIns('C', "C");
 		}
 		else
 			LimineCFGMake('C');
-
 	}
 
 	WinVert(task->win_top, Fs->win_bottom);
