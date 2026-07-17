@@ -3,6 +3,8 @@
 U8 binary_limine_hdd_bin_data[0];
 #endif
 
+#define LIMINE_CFG_BUF_SIZE		8192
+
 Bool LimineBootFilesFind(U8 drv_let)
 {
 	U8	*filename_sys = MStrPrint("%C:/Boot/Limine-BIOS.SYS", drv_let),
@@ -21,16 +23,16 @@ Bool LimineCFGMake(U8 drv_let)
 {
 	U8		 cfg_drv_let = drv_let, entry_drv_let;
 	U8		*filename_cfg = MStrPrint("%C:/Boot/Limine.CONF", cfg_drv_let);
-	CDoc	*doc = DocNew(filename_cfg);
 	CDrive	*drive;
-	I64		 i;
-	U8		*st;
+	I64		 i, cfg_len, entry_len;
+	U8		*cfg = MAlloc(LIMINE_CFG_BUF_SIZE), *entry, *st;
 
 	"\nGenerating Limine.CONF ...\n";
 
-	DocPrint(doc,
-		"timeout: 2\n"
-		"interface_resolution: 640x480\n\n");
+	cfg[0] = 0;
+	CatPrint(cfg,
+			"timeout: 2\n"
+			"interface_resolution: 640x480\n\n");
 
 	"Searching drives for Limine bootloader files ...\n";
 	for (i = 0, drive = blkdev.drvs; i < DRIVES_NUM; i++, drive++)
@@ -40,20 +42,36 @@ Bool LimineCFGMake(U8 drv_let)
 			entry_drv_let = Drive2Letter(drive);
 			if (LimineBootFilesFind(entry_drv_let))
 			{
-				DocPrint(doc, "/ZealOS %C:/\n"
+				entry = MStrPrint("/ZealOS %C:/\n"
 					"protocol: limine\n"
 					"resolution: 640x480\n"
 					"path: boot(%d):/Boot/ZealBooter.ELF\n"
 					"module_path: boot(%d):/Boot/Kernel.ZXE\n"
 					"\n", entry_drv_let, drive->prt_num + 1, drive->prt_num + 1);
-				"%C:/ drive added as a Limine.CONF menu entry.\n", entry_drv_let;
+				cfg_len		= StrLen(cfg);
+				entry_len	= StrLen(entry);
+				if (cfg_len + entry_len < LIMINE_CFG_BUF_SIZE)
+				{
+					CatPrint(cfg, "%s", entry);
+					"%C:/ drive added as a Limine.CONF menu entry.\n", entry_drv_let;
+				}
+				else
+					"%C:/ skipped; Limine.CONF buffer full.\n", entry_drv_let;
+				Free(entry);
 			}
 			else
 				"%C:/ drive is missing Limine bootloader files.\n", entry_drv_let;
 		}
 	}
-	DocWrite(doc);
-	DocDel(doc);
+	cfg_len = StrLen(cfg);
+	if (!FileWrite(filename_cfg, cfg, cfg_len))
+	{
+		PrintErr("Failed to write %s.\n", filename_cfg);
+		Free(cfg);
+		Free(filename_cfg);
+
+		return FALSE;
+	}
 
 	"/Boot/Limine.CONF generated.\n";
 
@@ -66,11 +84,15 @@ Bool LimineCFGMake(U8 drv_let)
 			if (entry_drv_let != cfg_drv_let && LimineBootFilesFind(entry_drv_let))
 			{
 				st = MStrPrint("%C:/Boot/Limine.CONF", entry_drv_let);
-				Copy(filename_cfg, st);
+				if (FileWrite(st, cfg, cfg_len))
+					"%C:/ Limine.CONF copied.\n", entry_drv_let;
+				else
+					PrintErr("Failed to write %s.\n", st);
 				Free(st);
 			}
 		}
 	}
+	Free(cfg);
 	Free(filename_cfg);
 
 	return TRUE;
