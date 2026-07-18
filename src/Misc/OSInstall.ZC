@@ -376,7 +376,7 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	InstallDriveFileDel(drv_let, "/boot.catalog");
 	"Live-ISO boot files removed from %C:/.\n", drv_let;
 
-	"Ensuring %C:/Tmp and %C:/Home exist ...\n", drv_let, drv_let;
+	"Ensuring install dirs exist on %C:/ ...\n", drv_let;
 	InstallDriveDirMake(drv_let, "/Tmp");
 	InstallDriveDirMake(drv_let, "/Tmp/ScreenShots");
 	InstallDriveDirMake(drv_let, "/Home");
@@ -474,7 +474,7 @@ U0 VMInstallWiz()
 	if (VMPartDisk(task, ata_port))
 	{
 		VMInstallDrive(task, 'C', ata_port, atapi_port);
-		VMInstallDrive(task, 'D', ata_port, atapi_port, "C:/", FALSE);
+		"Skipping D: backup partition copy during VM install; C: is enough to boot.\n";
 		if (!sys_is_uefi_booted)
 		{
 			if (FileFind(LIMINE_HDD_FILE))
