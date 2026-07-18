@@ -376,7 +376,7 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	InstallDriveFileDel(drv_let, "/boot.catalog");
 	"Live-ISO boot files removed from %C:/.\n", drv_let;
 
-	"Ensuring %C:/Tmp and %C:/Home exist ...\n", drv_let;
+	"Ensuring %C:/Tmp and %C:/Home exist ...\n", drv_let, drv_let;
 	InstallDriveDirMake(drv_let, "/Tmp");
 	InstallDriveDirMake(drv_let, "/Tmp/ScreenShots");
 	InstallDriveDirMake(drv_let, "/Home");
