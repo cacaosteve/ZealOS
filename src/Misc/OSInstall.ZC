@@ -334,6 +334,22 @@ I64 InstallCopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask)
 	return res;
 }
 
+U0 InstallDriveFileDel(U8 drv_let, U8 *path)
+{
+	U8 *st = MStrPrint("%C:%s", drv_let, path);
+
+	Del(st,, FALSE, FALSE);
+	Free(st);
+}
+
+U0 InstallDriveDirMake(U8 drv_let, U8 *path)
+{
+	U8 *st = MStrPrint("%C:%s", drv_let, path);
+
+	DirMake(st);
+	Free(st);
+}
+
 U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 {
 	U8 *st, *src_st;
@@ -353,14 +369,17 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	InstallCopyTree(src_root, st);
 	Free(st);
 
-	ExePrint("Del(\"%C:/Boot/Limine-BIOS-CD.BIN\");", drv_let);
-	ExePrint("Del(\"%C:/Boot/Limine-UEFI-CD.BIN\");", drv_let);
-	ExePrint("Del(\"%C:/Boot/Limine.CONF\");", drv_let);
-	ExePrint("Del(\"%C:/boot.catalog\");", drv_let);
+	"Removing live-ISO boot files from %C:/ ...\n", drv_let;
+	InstallDriveFileDel(drv_let, "/Boot/Limine-BIOS-CD.BIN");
+	InstallDriveFileDel(drv_let, "/Boot/Limine-UEFI-CD.BIN");
+	InstallDriveFileDel(drv_let, "/Boot/Limine.CONF");
+	InstallDriveFileDel(drv_let, "/boot.catalog");
+	"Live-ISO boot files removed from %C:/.\n", drv_let;
 
-	ExePrint("DirMake(\"%C:/Tmp\");",				drv_let);
-	ExePrint("DirMake(\"%C:/Tmp/ScreenShots\");",	drv_let);
-	ExePrint("DirMake(\"%C:/Home\");",				drv_let);
+	"Ensuring %C:/Tmp and %C:/Home exist ...\n", drv_let;
+	InstallDriveDirMake(drv_let, "/Tmp");
+	InstallDriveDirMake(drv_let, "/Tmp/ScreenShots");
+	InstallDriveDirMake(drv_let, "/Home");
 
 	st = MStrPrint("%C:/Home/DoDistro.ZC", drv_let);
 	if (!FileFind(st))
@@ -379,6 +398,8 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 		Free(src_st);
 	}
 	Free(st);
+
+	"%C:/ install finalization complete.\n", drv_let;
 }
 
 U0 InstallDrive(U8 drv_let)
