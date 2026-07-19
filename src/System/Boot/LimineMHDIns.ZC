@@ -7,16 +7,21 @@ U8 binary_limine_hdd_bin_data[0];
 
 Bool LimineBootFilesFind(U8 drv_let)
 {
-	U8	*filename_sys = MStrPrint("%C:/Boot/Limine-BIOS.SYS", drv_let),
-		*filename_elf = MStrPrint("%C:/Boot/ZealBooter.ELF", drv_let),
-		*filename_zxe = MStrPrint("%C:/Boot/Kernel.ZXE", drv_let);
-	Bool res = FileFind(filename_sys) && FileFind(filename_elf) && FileFind(filename_zxe);
+	CDirEntry	 de;
+	CDrive		*drive = Letter2Drive(drv_let, FALSE);
+	I64			 boot_clus;
 
-	Free(filename_sys);
-	Free(filename_elf);
-	Free(filename_zxe);
+	if (!drive || drive->fs_type != FSt_FAT32)
+		return FALSE;
 
-	return res;
+	if (!FAT32FileFind(drive, drive->root_clus, "Boot", &de, FUF_JUST_DIRS))
+		return FALSE;
+
+	boot_clus = de.clus;
+
+	return FAT32FileFind(drive, boot_clus, "Limine-BIOS.SYS", &de, FUF_JUST_FILES) &&
+			FAT32FileFind(drive, boot_clus, "ZealBooter.ELF", &de, FUF_JUST_FILES) &&
+			FAT32FileFind(drive, boot_clus, "Kernel.ZXE", &de, FUF_JUST_FILES);
 }
 
 Bool LimineCFGMake(U8 drv_let)
