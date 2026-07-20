@@ -26,7 +26,7 @@ Bool LimineBootFilesFind(U8 drv_let)
 	return res;
 }
 
-Bool LimineCFGMake(U8 drv_let)
+Bool LimineCFGMake(U8 drv_let, Bool scan_all_drives=TRUE)
 {
 	U8		 cfg_drv_let = drv_let, entry_drv_let;
 	U8		*filename_cfg = MStrPrint("%C:/Boot/Limine.CONF", cfg_drv_let);
@@ -42,32 +42,37 @@ Bool LimineCFGMake(U8 drv_let)
 			"interface_resolution: 640x480\n\n");
 
 	"Searching drives for Limine bootloader files ...\n";
+	if (!scan_all_drives)
+		"VM install: limiting Limine configuration to %C:/.\n", cfg_drv_let;
 	for (i = 0, drive = blkdev.drvs; i < DRIVES_NUM; i++, drive++)
 	{
-		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32 && DriveIsWritable(drive->drv_let))
+		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32)
 		{
 			entry_drv_let = Drive2Letter(drive);
-			if (LimineBootFilesFind(entry_drv_let))
+			if ((scan_all_drives || entry_drv_let == cfg_drv_let) && DriveIsWritable(entry_drv_let))
 			{
-				entry = MStrPrint("/ZealOS %C:/\n"
-					"protocol: limine\n"
-					"resolution: 640x480\n"
-					"path: boot(%d):/Boot/ZealBooter.ELF\n"
-					"module_path: boot(%d):/Boot/Kernel.ZXE\n"
-					"\n", entry_drv_let, drive->prt_num + 1, drive->prt_num + 1);
-				cfg_len		= StrLen(cfg);
-				entry_len	= StrLen(entry);
-				if (cfg_len + entry_len < LIMINE_CFG_BUF_SIZE)
+				if (LimineBootFilesFind(entry_drv_let))
 				{
-					CatPrint(cfg, "%s", entry);
-					"%C:/ drive added as a Limine.CONF menu entry.\n", entry_drv_let;
+					entry = MStrPrint("/ZealOS %C:/\n"
+						"protocol: limine\n"
+						"resolution: 640x480\n"
+						"path: boot(%d):/Boot/ZealBooter.ELF\n"
+						"module_path: boot(%d):/Boot/Kernel.ZXE\n"
+						"\n", entry_drv_let, drive->prt_num + 1, drive->prt_num + 1);
+					cfg_len		= StrLen(cfg);
+					entry_len	= StrLen(entry);
+					if (cfg_len + entry_len < LIMINE_CFG_BUF_SIZE)
+					{
+						CatPrint(cfg, "%s", entry);
+						"%C:/ drive added as a Limine.CONF menu entry.\n", entry_drv_let;
+					}
+					else
+						"%C:/ skipped; Limine.CONF buffer full.\n", entry_drv_let;
+					Free(entry);
 				}
 				else
-					"%C:/ skipped; Limine.CONF buffer full.\n", entry_drv_let;
-				Free(entry);
+					"%C:/ drive is missing Limine bootloader files.\n", entry_drv_let;
 			}
-			else
-				"%C:/ drive is missing Limine bootloader files.\n", entry_drv_let;
 		}
 	}
 	cfg_len = StrLen(cfg);
@@ -82,20 +87,23 @@ Bool LimineCFGMake(U8 drv_let)
 
 	"/Boot/Limine.CONF generated.\n";
 
-	"Copying Limine.CONF to all other drives ...\n";
-	for (i = 0, drive = blkdev.drvs; i < DRIVES_NUM; i++, drive++)
+	if (scan_all_drives)
 	{
-		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32 && DriveIsWritable(drive->drv_let))
+		"Copying Limine.CONF to all other drives ...\n";
+		for (i = 0, drive = blkdev.drvs; i < DRIVES_NUM; i++, drive++)
 		{
-			entry_drv_let = Drive2Letter(drive);
-			if (entry_drv_let != cfg_drv_let && LimineBootFilesFind(entry_drv_let))
+			if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->fs_type == FSt_FAT32 && DriveIsWritable(drive->drv_let))
 			{
-				st = MStrPrint("%C:/Boot/Limine.CONF", entry_drv_let);
-				if (FileWrite(st, cfg, cfg_len))
-					"%C:/ Limine.CONF copied.\n", entry_drv_let;
-				else
-					PrintErr("Failed to write %s.\n", st);
-				Free(st);
+				entry_drv_let = Drive2Letter(drive);
+				if (entry_drv_let != cfg_drv_let && LimineBootFilesFind(entry_drv_let))
+				{
+					st = MStrPrint("%C:/Boot/Limine.CONF", entry_drv_let);
+					if (FileWrite(st, cfg, cfg_len))
+						"%C:/ Limine.CONF copied.\n", entry_drv_let;
+					else
+						PrintErr("Failed to write %s.\n", st);
+					Free(st);
+				}
 			}
 		}
 	}
@@ -105,7 +113,7 @@ Bool LimineCFGMake(U8 drv_let)
 	return TRUE;
 }
 
-Bool LimineMHDIns(U8 drv_let)
+Bool LimineMHDIns(U8 drv_let, Bool scan_all_drives=TRUE)
 {
 	U8	*limine			= binary_limine_hdd_bin_data;
 	U16  limine_size	= sizeof(binary_limine_hdd_bin_data);
@@ -135,7 +143,7 @@ Bool LimineMHDIns(U8 drv_let)
 
 	BlkDevUnlock(bd);
 
-	LimineCFGMake(drv_let);
+	LimineCFGMake(drv_let, scan_all_drives);
 
 	"\nLimine BSD2-licensed HDD MBR Boot Loader installed.\n\n";
 
