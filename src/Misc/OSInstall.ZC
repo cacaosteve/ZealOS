@@ -352,7 +352,7 @@ U0 InstallDriveDirMake(U8 drv_let, U8 *path)
 
 U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 {
-	U8 *st, *src_st;
+	U8  dst_root[4], *st, *src_st;
 
 	while (!DriveCheck(blkdev.let_to_drive[drv_let - 'A'], FALSE))
 		Sleep(1);
@@ -365,9 +365,9 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	'.';
 	Sleep(1000);
 
-	st = MStrPrint("%C:/", drv_let);
-	InstallCopyTree(src_root, st);
-	Free(st);
+	StrPrint(dst_root, "%C:/", drv_let);
+	InstallCopyTree(src_root, dst_root);
+	"System file copy returned; beginning %C:/ finalization.\n", drv_let;
 
 	"Removing live-ISO boot files from %C:/ ...\n", drv_let;
 	InstallDriveFileDel(drv_let, "/Boot/Limine-BIOS-CD.BIN");
