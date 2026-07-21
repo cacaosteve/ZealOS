@@ -164,7 +164,8 @@ Bool FBlkRead(CFile *f, U8 *buf, I64 blk=FFB_NEXT_BLK, I64 count=1)
 
 	if (f->flags & FF_CONTIGUOUS)
 	{
-		BlkRead(drive, buf, Clus2Blk(drive, c) + blk, count);
+		if (!BlkRead(drive, buf, Clus2Blk(drive, c) + blk, count))
+			return FALSE;
 		blk += count;
 	}
 	else
@@ -228,7 +229,8 @@ Bool FBlkWrite(CFile *f, U8 *buf, I64 blk=FFB_NEXT_BLK, I64 count=1)
 		return TRUE;
 	if (f->flags & FF_CONTIGUOUS)
 	{
-		BlkWrite(drive, buf, Clus2Blk(drive, c) + blk, count);
+		if (!BlkWrite(drive, buf, Clus2Blk(drive, c) + blk, count))
+			return FALSE;
 		blk += count;
 	}
 	else
