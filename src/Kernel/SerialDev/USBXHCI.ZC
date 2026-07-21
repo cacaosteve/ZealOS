@@ -775,7 +775,7 @@ interrupt U0 UsbIrqH()
 	U32 iman;
 
 	CLD
-	XHCIEventAdvance;
+	XHCIEventAdvance(XHCI_RING_SIZE);
 	XhkEvtHandle;
 	XhmEvtHandle;
 	if (sys_usb_input_active & UM)

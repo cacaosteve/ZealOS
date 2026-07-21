@@ -130,6 +130,7 @@ public class CUSBStateGlobals
 	I64		 max_slots;
 	I64		 page_size;
 	I64		 irq;
+	I64		 poll_lock;
 
 	U8		*dcbaa;
 	U64		 dcbaa_phys;

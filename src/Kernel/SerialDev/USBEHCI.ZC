@@ -1248,33 +1248,34 @@ public U0 EhciPollEvt()
 
 public U0 UsbPollEvt()
 {
+	// WinMgr and debugger polling can arrive on different cores.
+	if (LBts(&usb.poll_lock, 0))
+		return;
 	if (usb.uhci_active)
 	{
 		usb_debug_poll_count++;
 		UhciPollEvt;
-		return;
 	}
-	if (usb.ehci_active)
+	else if (usb.ehci_active)
 	{
 		usb_debug_poll_count++;
 		EhciPollEvt;
-		return;
 	}
-	if (!usb.active)
-		return;
-	if (usb.irq)
-		return;
-	XHCIEventAdvance;
-	XhkEvtHandle;
-	XhmEvtHandle;
-	if (sys_usb_input_active & UK)
+	else if (usb.active && !usb.irq)
 	{
-		if (usb.kbd_ring && !usb.kbd_pending && !usb.kbd_xfer_done)
-			XhkIntrSub;
+		XHCIEventAdvance(XHCI_RING_SIZE);
+		XhkEvtHandle;
+		XhmEvtHandle;
+		if (sys_usb_input_active & UK)
+		{
+			if (usb.kbd_ring && !usb.kbd_pending && !usb.kbd_xfer_done)
+				XhkIntrSub;
+		}
+		if (sys_usb_input_active & UM)
+		{
+			if (usb.ms_ring && !usb.ms_pending && !usb.ms_xfer_done)
+				XhmIntrSub;
+		}
 	}
-	if (sys_usb_input_active & UM)
-	{
-		if (usb.ms_ring && !usb.ms_pending && !usb.ms_xfer_done)
-			XhmIntrSub;
-	}
+	LBtr(&usb.poll_lock, 0);
 }
