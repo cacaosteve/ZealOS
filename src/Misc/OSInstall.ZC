@@ -239,101 +239,6 @@ U0 OSUpgrade()
 	Kill(task);
 }
 
-I64 InstallCopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, I64 *_file_count)
-{
-	U8	*st;
-	I64	 res = 0;
-
-	while (tmpde)
-	{
-		st = MAlloc(StrLen(tmpde->full_name) + dst_dir_len + 2);
-		MemCopy(st, dst_dir, dst_dir_len);
-		StrCopy(st + dst_dir_len, tmpde->full_name + src_dir_len);
-		if (tmpde->attr & RS_ATTR_DIR)
-		{
-			DirMake(st, LinkedListCount(tmpde->sub));
-			res += InstallCopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir, _file_count);
-		}
-		else
-		{
-			if (CopySingle(tmpde->full_name, st))
-				res++;
-			else
-			{
-				Silent(OFF);
-				PrintErr("Install copy failed: \"%s\" -> \"%s\".\n", tmpde->full_name, st);
-				Silent;
-			}
-			*_file_count = *_file_count + 1;
-			progress1 = *_file_count;
-			if (!((*_file_count) & 0x3F))
-			{
-				Silent(OFF);
-				'.';
-				Silent;
-			}
-			if (!((*_file_count) & 0x1F))
-				Sleep(1);
-		}
-		Free(st);
-		tmpde = tmpde->next;
-	}
-
-	return res;
-}
-
-I64 InstallCopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask)
-{
-	Bool		 old_silent = Silent;
-	CDirContext	*dirc;
-	CDirEntry	*tmpde = NULL;
-	I64			 res = 0, i1, i2, file_count = 0;
-	U8			*st1, *st2;
-
-	Silent(OFF);
-	"Copying system files to %s ...\n", dst_files_find_mask;
-	StrCopy(progress1_desc, "Installing files");
-	progress1 = 0;
-	progress1_max = 1;
-	Silent;
-
-	if (dirc = DirContextNew(src_files_find_mask, TRUE,, TRUE))
-	{
-		Silent(OFF);
-		"Scanning source files ...\n";
-		Silent;
-		tmpde = FilesFind(dirc->mask, FUF_RECURSE);
-		progress1 = 0;
-		progress1_max = FileCount(tmpde);
-		Silent(OFF);
-		"%d files found.\n", progress1_max;
-		Silent;
-		st1 = DirCur;
-		DirContextDel(dirc);
-		i1 = StrLen(st1);
-		if (i1 == 3)
-			i1--;
-		if (dirc = DirContextNew(dst_files_find_mask, TRUE, TRUE))
-		{
-			st2 = DirCur;
-			i2 = StrLen(st2);
-			if (i2 == 3)
-				i2--;
-			res = InstallCopyTree2(tmpde, i1, i2, st2, &file_count);
-			DirContextDel(dirc);
-			Free(st2);
-		}
-		DirTreeDel(tmpde);
-		Free(st1);
-	}
-
-	ProgressBarsReset;
-	Silent(old_silent);
-	"Copied %d files to %s.\n", res, dst_files_find_mask;
-
-	return res;
-}
-
 U0 InstallDriveFileDel(U8 drv_let, U8 *path)
 {
 	U8 *st = MStrPrint("%C:%s", drv_let, path);
@@ -353,6 +258,7 @@ U0 InstallDriveDirMake(U8 drv_let, U8 *path)
 U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 {
 	U8  dst_root[4], *st, *src_st;
+	I64 copied;
 
 	while (!DriveCheck(blkdev.let_to_drive[drv_let - 'A'], FALSE))
 		Sleep(1);
@@ -366,7 +272,9 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	Sleep(1000);
 
 	StrPrint(dst_root, "%C:/", drv_let);
-	InstallCopyTree(src_root, dst_root);
+	"Copying system files to %s ...\n", dst_root;
+	copied = CopyTree(src_root, dst_root);
+	"Copied %d entries to %s.\n", copied, dst_root;
 	"System file copy returned; beginning %C:/ finalization.\n", drv_let;
 
 	"Removing live-ISO boot files from %C:/ ...\n", drv_let;
@@ -423,7 +331,11 @@ U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port, U8 *src
 	no_warn task, ata_port, atapi_port;
 	InstallDriveFrom(drv_let, src_root);
 	if (install_boot_record)
+	{
+		"Installing %C: partition boot record.\n", drv_let;
 		BootHDInsPrebuilt(drv_let);
+		"%C: partition boot record install returned.\n", drv_let;
+	}
 	else
 		"Skipping %C: partition boot record during VM install; Limine can boot this partition directly.\n", drv_let;
 }
