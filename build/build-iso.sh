@@ -60,6 +60,7 @@ verify_current_usb_tree() {
 	require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
 	require_same_file "../src/System/Boot/BootHDIns.ZC" "$root/System/Boot/BootHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineMHDIns.ZC" "$root/System/Boot/LimineMHDIns.ZC"
+	require_same_file "../src/Kernel/BlkDev/DiskAHCI.ZC" "$root/Kernel/BlkDev/DiskAHCI.ZC"
 	require_same_file "../src/Kernel/SerialDev/Keyboard.ZC" "$root/Kernel/SerialDev/Keyboard.ZC"
 	require_same_file "../src/Kernel/SerialDev/MakeSerialDev.ZC" "$root/Kernel/SerialDev/MakeSerialDev.ZC"
 	require_same_file "../src/Kernel/SerialDev/Mouse.ZC" "$root/Kernel/SerialDev/Mouse.ZC"

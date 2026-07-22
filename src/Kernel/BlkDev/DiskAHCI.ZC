@@ -1197,33 +1197,48 @@ Bool AHCIBootDVDProbeAll(CBlkDev *bd)
 Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 {
 	CBlkDev	*bd			= drive->bd;
-	I64		 spc		= bd->blk_size >> BLK_SIZE_BITS, n, blk2,
-			 l2			= (bd->max_reads << 1) + (spc << 1);
-	U8		*dvd_buf;//	= MAlloc(l2 << BLK_SIZE_BITS);
+	I64		 spc		= bd->blk_size >> BLK_SIZE_BITS, n, blk2, l2,
+			 offset, copy_count;
+	U8		*dvd_buf;
 
 	if (bd->type == BDT_ATAPI)
 	{
-		dvd_buf	= MAlloc(l2 << BLK_SIZE_BITS);
+		//Large callers can span several bounded ATAPI cache windows.
+		while (count > 0)
+		{
+			l2 = (bd->max_reads << 1) + (spc << 1);
+			if (blk <= bd->max_reads)
+				blk2 = 0;
+			else
+				blk2 = FloorU64(blk - bd->max_reads, spc);
 
-		if (blk <= bd->max_reads)
-			blk2 = 0;
-		else
-			blk2 = FloorU64(blk - bd->max_reads, spc);
+			if (blk2 + l2 > drive->size + drive->drv_offset)
+				l2 = drive->size + drive->drv_offset - blk2;
 
-		if (blk2 + l2 > drive->size + drive->drv_offset)
-			l2 = drive->size + drive->drv_offset - blk2;
+			n = (l2 + spc - 1) / spc;
+			l2 = n * spc;
+			dvd_buf = MAlloc(l2 << BLK_SIZE_BITS);
 
-		n = (l2 + spc - 1) / spc;
+//			"AHCIAtapiBlksRead(bd, dvd_buf, %d, %d);", blk2 / spc, n;
+			AHCIAtapiBlksRead(bd, dvd_buf, blk2 / spc, n);
 
-//		"AHCIAtapiBlksRead(bd, dvd_buf, %d, %d);", blk2 / spc, n;
-		AHCIAtapiBlksRead(bd, dvd_buf, blk2 / spc, n);
+			if (bd->flags & BDF_READ_CACHE)
+				DiskCacheAdd(drive, dvd_buf, blk2, l2);
 
-		if (bd->flags & BDF_READ_CACHE)
-			DiskCacheAdd(drive, dvd_buf, blk2, n * spc);
+			offset = blk - blk2;
+			copy_count = MinI64(count, l2 - offset);
+			if (copy_count <= 0)
+			{
+				Free(dvd_buf);
+				throw('AHCI');
+			}
+			MemCopy(buf, dvd_buf + offset << BLK_SIZE_BITS, copy_count << BLK_SIZE_BITS);
+			Free(dvd_buf);
 
-		MemCopy(buf, dvd_buf + (blk - blk2) << BLK_SIZE_BITS, count << BLK_SIZE_BITS);
-		Free(dvd_buf);
-
+			buf += copy_count << BLK_SIZE_BITS;
+			blk += copy_count;
+			count -= copy_count;
+		}
 	}
 	else
 		return FALSE;
