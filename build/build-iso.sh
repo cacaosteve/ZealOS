@@ -221,12 +221,30 @@ fi
 rm -f ./ZealOS-PublicDomain-BIOS-*.iso
 rm -f ./ZealOS-BSD2-UEFI-*.iso
 
-mv ./ZealOS-MyDistro.iso ./ZealOS-PublicDomain-BIOS-$(date +%Y-%m-%d-%H_%M_%S).iso
-mv ./ZealOS-limine.iso ./ZealOS-BSD2-UEFI-$(date +%Y-%m-%d-%H_%M_%S).iso
+BUILD_STAMP="$(date +%Y-%m-%d-%H_%M_%S)"
+BIOS_ISO="ZealOS-PublicDomain-BIOS-$BUILD_STAMP.iso"
+UEFI_ISO="ZealOS-BSD2-UEFI-$BUILD_STAMP.iso"
+
+mv ./ZealOS-MyDistro.iso "./$BIOS_ISO"
+mv ./ZealOS-limine.iso "./$UEFI_ISO"
+
+# VMware builds run in a separate Fedora checkout. Export completed artifacts to
+# the Mac checkout when its ZealOS shared folder is mounted.
+if [ -z "${ISO_EXPORT_DIR:-}" ] && mountpoint -q /mnt/hgfs 2>/dev/null && [ -d /mnt/hgfs/ZealOS/build ]; then
+	ISO_EXPORT_DIR=/mnt/hgfs/ZealOS/build
+fi
+if [ -n "${ISO_EXPORT_DIR:-}" ]; then
+	mkdir -p "$ISO_EXPORT_DIR"
+	if [ "$(cd "$ISO_EXPORT_DIR" && pwd -P)" != "$SCRIPT_DIR" ]; then
+		echo "Exporting ISOs to $ISO_EXPORT_DIR ..."
+		cp -f "$BIOS_ISO" "$UEFI_ISO" "$ISO_EXPORT_DIR/"
+		sync
+	fi
+fi
 
 echo "Finished."
 echo
 echo "ISOs built:"
-ls | grep ZealOS-P
-ls | grep ZealOS-B
+echo "$BIOS_ISO"
+echo "$UEFI_ISO"
 echo
