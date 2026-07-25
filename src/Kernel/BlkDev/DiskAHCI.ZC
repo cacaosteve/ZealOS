@@ -1206,17 +1206,18 @@ Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 		//Large callers can span several bounded ATAPI cache windows.
 		while (count > 0)
 		{
-			l2 = (bd->max_reads << 1) + (spc << 1);
-			if (blk <= bd->max_reads)
-				blk2 = 0;
-			else
-				blk2 = FloorU64(blk - bd->max_reads, spc);
+			//max_reads is in 512-byte blocks; ATAPI commands use whole optical sectors.
+			l2 = FloorU64(bd->max_reads, spc);
+			if (l2 < spc)
+				l2 = spc;
+			blk2 = FloorU64(blk, spc);
 
 			if (blk2 + l2 > drive->size + drive->drv_offset)
-				l2 = drive->size + drive->drv_offset - blk2;
+				l2 = FloorU64(drive->size + drive->drv_offset - blk2, spc);
+			if (l2 < spc)
+				throw('AHCI');
 
-			n = (l2 + spc - 1) / spc;
-			l2 = n * spc;
+			n = l2 / spc;
 			dvd_buf = MAlloc(l2 << BLK_SIZE_BITS);
 
 //			"AHCIAtapiBlksRead(bd, dvd_buf, %d, %d);", blk2 / spc, n;
