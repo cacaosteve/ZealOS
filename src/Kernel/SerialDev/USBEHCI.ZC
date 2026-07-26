@@ -1248,6 +1248,8 @@ public U0 EhciPollEvt()
 
 public U0 UsbPollEvt()
 {
+	if (usb.poll_pause)
+		return;
 	// WinMgr and debugger polling can arrive on different cores.
 	if (LBts(&usb.poll_lock, 0))
 		return;
@@ -1278,4 +1280,12 @@ public U0 UsbPollEvt()
 		}
 	}
 	LBtr(&usb.poll_lock, 0);
+}
+
+public U0 UsbPollPause(Bool paused=TRUE)
+{
+	usb.poll_pause = paused;
+	if (paused)
+		while (usb.poll_lock)
+			Sleep(1);
 }

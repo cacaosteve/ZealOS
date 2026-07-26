@@ -259,6 +259,7 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 {
 	U8  dst_root[4], *st, *src_st;
 	I64 copied;
+	Bool usb_poll_paused = FALSE;
 
 	while (!DriveCheck(blkdev.let_to_drive[drv_let - 'A'], FALSE))
 		Sleep(1);
@@ -273,7 +274,18 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 
 	StrPrint(dst_root, "%C:/", drv_let);
 	"Copying system files to %s ...\n", dst_root;
+	if (sys_boot_src.u16[0] == BOOT_SRC_DVD && sys_usb_input_active)
+	{
+		"Pausing USB input polling during live-CD copy.\n";
+		UsbPollPause;
+		usb_poll_paused = TRUE;
+	}
 	copied = CopyTree(src_root, dst_root);
+	if (usb_poll_paused)
+	{
+		UsbPollPause(FALSE);
+		"USB input polling resumed.\n";
+	}
 	"Copied %d entries to %s.\n", copied, dst_root;
 	"System file copy returned; beginning %C:/ finalization.\n", drv_let;
 

@@ -512,6 +512,7 @@ public extern			U0					 UdWinResume();
 public extern			U0					 UdBgResume();
 public extern			U0					 UdTrapsRel();
 public extern			U0					 UsbPollEvt();
+public extern			U0					 UsbPollPause(Bool paused=TRUE);
 public extern			I64					 sys_usb_input_active;
 public extern			I64					 usb_debug_stage;
 extern			I64					 KbdMessagesQueue();
