@@ -191,6 +191,7 @@ truncate -s 32K bios_boot.img
 
 xorriso -as mkisofs -R -r -J -b Boot/Limine-BIOS-CD.BIN \
         -no-emul-boot -boot-load-size 4 -boot-info-table \
+        --boot-catalog-hide \
         --efi-boot Boot/Limine-UEFI-CD.BIN \
         -efi-boot-part --efi-boot-image --protective-msdos-label \
         -append_partition 4 21686148-6449-6E6F-744E-656564454649 bios_boot.img \
