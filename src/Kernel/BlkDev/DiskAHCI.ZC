@@ -1311,7 +1311,7 @@ Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 {
 	CBlkDev	*bd			= drive->bd;
 	I64		 spc		= bd->blk_size >> BLK_SIZE_BITS, n, blk2, l2,
-			 offset, copy_count;
+			 offset, copy_count, window_limit;
 	U8		*dvd_buf;
 
 	if (bd->type == BDT_ATAPI)
@@ -1320,10 +1320,14 @@ Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 		while (count > 0)
 		{
 			//max_reads is in 512-byte blocks; ATAPI commands use whole optical sectors.
-			l2 = FloorU64(bd->max_reads, spc);
-			if (l2 < spc)
-				l2 = spc;
+			window_limit = FloorU64(bd->max_reads, spc);
+			if (window_limit < spc)
+				window_limit = spc;
 			blk2 = FloorU64(blk, spc);
+			offset = blk - blk2;
+			l2 = CeilU64(offset + count, spc);
+			if (l2 > window_limit)
+				l2 = window_limit;
 
 			if (blk2 + l2 > drive->size + drive->drv_offset)
 				l2 = FloorU64(drive->size + drive->drv_offset - blk2, spc);
@@ -1339,7 +1343,6 @@ Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 			if (bd->flags & BDF_READ_CACHE)
 				DiskCacheAdd(drive, dvd_buf, blk2, l2);
 
-			offset = blk - blk2;
 			copy_count = MinI64(count, l2 - offset);
 			if (copy_count <= 0)
 			{
