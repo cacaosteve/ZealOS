@@ -849,50 +849,45 @@ I64 AHCIAtaBlksRW(CBlkDev *bd, U8 *buf, I64 blk, I64 count, Bool write)
 
 I64 AHCIAtaBlksRead(CBlkDev *bd, U8 *buf, I64 blk, I64 count)
 {//Read 'count' amount of blocks from block 'blk' in AHCI disk device. Returns num of bytes transferred between disk and memory.
-	I64 byte_count = 0;
+	I64 byte_count = 0, n, max_count = AHCI_PRDT_MAX_BLOCKS, total_count = count;
+
 	if (!count)
 		return 0;
-	if (count <= AHCI_PRDT_MAX_BLOCKS)
+	//Honor the per-device limit as well as the AHCI command-table limit.
+	if (0 < bd->max_reads < max_count)
+		max_count = bd->max_reads;
+
+	while (count > 0)
 	{
-		return AHCIAtaBlksRW(bd, buf, blk, count, FALSE);
-	}
-	else
-	{
-		while (count > AHCI_PRDT_MAX_BLOCKS)
-		{
-			byte_count += AHCIAtaBlksRW(bd, buf, blk, AHCI_PRDT_MAX_BLOCKS, FALSE);
-			count -= AHCI_PRDT_MAX_BLOCKS;
-			blk += AHCI_PRDT_MAX_BLOCKS;
-			buf += AHCI_PRDT_MAX_BLOCKS * BLK_SIZE;
-		}
-		byte_count += AHCIAtaBlksRW(bd, buf, blk, count, FALSE);
+		n = MinI64(count, max_count);
+		byte_count += AHCIAtaBlksRW(bd, buf, blk, n, FALSE);
+		count -= n;
+		blk += n;
+		buf += n * BLK_SIZE;
 	}
 
-	blkdev.read_count += (count * bd->blk_size) >> BLK_SIZE_BITS;
+	blkdev.read_count += (total_count * bd->blk_size) >> BLK_SIZE_BITS;
 
 	return byte_count;
 }
 
 I64 AHCIAtaBlksWrite(CBlkDev *bd, U8 *buf, I64 blk, I64 count)
 {//Write 'count' amount of blocks from block 'blk' in AHCI disk device. Returns num of bytes transferred between memory and disk.
-	I64  byte_count = 0;
+	I64 byte_count = 0, n, max_count = AHCI_PRDT_MAX_BLOCKS;
 
 	if (!count)
 		return 0;
-	if (count <= AHCI_PRDT_MAX_BLOCKS)
+	//ATA disks are configured for conservative writes; split bulk copies here.
+	if (0 < bd->max_writes < max_count)
+		max_count = bd->max_writes;
+
+	while (count > 0)
 	{
-		return AHCIAtaBlksRW(bd, buf, blk, count, TRUE);
-	}
-	else
-	{
-		while (count > AHCI_PRDT_MAX_BLOCKS)
-		{
-			byte_count += AHCIAtaBlksRW(bd, buf, blk, AHCI_PRDT_MAX_BLOCKS, TRUE);
-			count -= AHCI_PRDT_MAX_BLOCKS;
-			blk += AHCI_PRDT_MAX_BLOCKS;
-			buf += AHCI_PRDT_MAX_BLOCKS * BLK_SIZE;
-		}
-		byte_count += AHCIAtaBlksRW(bd, buf, blk, count, TRUE);
+		n = MinI64(count, max_count);
+		byte_count += AHCIAtaBlksRW(bd, buf, blk, n, TRUE);
+		count -= n;
+		blk += n;
+		buf += n * BLK_SIZE;
 	}
 
 	return byte_count;
