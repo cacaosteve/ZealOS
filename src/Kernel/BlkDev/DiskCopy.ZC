@@ -31,7 +31,7 @@ Bool CopySingle(U8 *f1, U8 *f2) //Just one file
 	U8		*absf1 = FileNameAbs(f1), *absf2 = FileNameAbs(f2), *buf;
 	I64		 count, n, size, attr1 = FileAttr(f1), attr2 = FileAttr(f2), i, j, time = counts.jiffies;
 	CFile	*in_file = NULL, *out_file = NULL;
-	Bool	 ok = TRUE;
+	Bool	 ok = TRUE, trace = ToBool(StrIMatch("/StartOS.ZC", f1));
 
 	if (!StrCompare(absf1, absf2))
 	{//onto self?
@@ -77,31 +77,45 @@ Bool CopySingle(U8 *f1, U8 *f2) //Just one file
 					n = count;
 					i = j;
 				}
+				if (trace)
+					"\nStartOS copy trace: reading %d block(s)", n;
 				if (!FBlkRead(in_file, buf, FFB_NEXT_BLK, n))
 				{
 					PrintErr("\nFile read failed: \"%s\".\n", f1);
 					ok = FALSE;
 					break;
 				}
+				if (trace)
+					"\nStartOS copy trace: read complete; writing %d block(s)", n;
 				if (!FBlkWrite(out_file, buf, FFB_NEXT_BLK, n))
 				{
 					PrintErr("\nFile write failed: \"%s\".\n", f2);
 					ok = FALSE;
 					break;
 				}
+				if (trace)
+					"\nStartOS copy trace: write complete";
 				count -= n;
 				j -= n << BLK_SIZE_BITS;
 			}
 			"\n";
 			if (ok)
 			{
+				if (trace)
+					"StartOS copy trace: setting metadata\n";
 				out_file->flags			|= FF_USE_OLD_DATETIME;
 				out_file->de.datetime	= in_file->de.datetime;
 				out_file->de.size		= size;
 				out_file->de.attr		= FileAttr(f2, in_file->de.attr);
 			}
+			if (trace)
+				"StartOS copy trace: closing output\n";
 			FClose(out_file);
+			if (trace)
+				"StartOS copy trace: closing input\n";
 			FClose(in_file);
+			if (trace)
+				"StartOS copy trace: complete\n";
 			Free(buf);
 			return ok;
 		}
