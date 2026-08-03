@@ -47,6 +47,7 @@ Bool VMPartDisk(CTask *task, I64 ata_port)
 	if (ata_port > -1)
 	{
 		XTalkWait(task, "DiskPart(,1.0);\nC\n%d\nY", ata_port); // DOUBLE CHECK INFILE
+		TaskWait(task, TRUE); // Input filtering can finish before DiskPart returns.
 		return TRUE;
 	}
 	else
