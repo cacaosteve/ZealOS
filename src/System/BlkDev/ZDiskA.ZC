@@ -118,6 +118,7 @@ public Bool Move(U8 *f1, U8 *f2)
 	return FALSE;
 }
 
+#define COPY_BUF_BLKS	0x80
 I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U8 *copy_buf)
 {
 	U8 *st;
@@ -192,8 +193,10 @@ public I64 CopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask, Bool no_ma
 				"ISO copy trace: destination context released\n";
 			Free(st2);
 			if (trace)
-				"ISO copy trace: destination root released\n"
+			{
+				"ISO copy trace: destination root released\n";
 				"ISO copy trace: releasing shared copy buffer\n";
+			}
 			Free(copy_buf);
 			if (trace)
 				"ISO copy trace: shared copy buffer released\n";
