@@ -26,12 +26,12 @@ Bool CopySingleZ(U8 *f1, U8 *f2) //Just one file
 }
 
 #define COPY_BUF_BLKS 	0x80
-Bool CopySingle(U8 *f1, U8 *f2) //Just one file
+Bool CopySingle(U8 *f1, U8 *f2, U8 *copy_buf=NULL) //Just one file
 {
 	U8		*absf1 = FileNameAbs(f1), *absf2 = FileNameAbs(f2), *buf;
 	I64		 count, n, size, attr1 = FileAttr(f1), attr2 = FileAttr(f2), i, j, time = counts.jiffies;
 	CFile	*in_file = NULL, *out_file = NULL;
-	Bool	 ok = TRUE, trace = ToBool(StrIMatch("/StartOS.ZC", f1));
+	Bool	 ok = TRUE, own_buf = FALSE, trace = ToBool(StrIMatch("/StartOS.ZC", f1));
 
 	if (!StrCompare(absf1, absf2))
 	{//onto self?
@@ -43,7 +43,11 @@ Bool CopySingle(U8 *f1, U8 *f2) //Just one file
 	Free(absf2);
 	if (attr1 != attr2)
 		return CopySingleZ(f1, f2);
-	buf = MAlloc(COPY_BUF_BLKS << BLK_SIZE_BITS);
+	if (!(buf = copy_buf))
+	{
+		buf = MAlloc(COPY_BUF_BLKS << BLK_SIZE_BITS);
+		own_buf = TRUE;
+	}
 	if (attr1 & RS_ATTR_CONTIGUOUS)
 		in_file = FOpen(f1, "rc");
 	else
@@ -115,8 +119,17 @@ Bool CopySingle(U8 *f1, U8 *f2) //Just one file
 				"StartOS copy trace: closing input\n";
 			FClose(in_file);
 			if (trace)
-				"StartOS copy trace: complete\n";
-			Free(buf);
+				"StartOS copy trace: file handles closed\n";
+			if (own_buf)
+			{
+				if (trace)
+					"StartOS copy trace: releasing private buffer\n";
+				Free(buf);
+				if (trace)
+					"StartOS copy trace: private buffer released\n";
+			}
+			if (trace)
+				"StartOS copy trace: file complete\n";
 			return ok;
 		}
 		else
@@ -125,7 +138,8 @@ Bool CopySingle(U8 *f1, U8 *f2) //Just one file
 	}
 	else
 		PrintErr("File not found: \"%s\".\n", f1);
-	Free(buf);
+	if (own_buf)
+		Free(buf);
 
 	return FALSE;
 }

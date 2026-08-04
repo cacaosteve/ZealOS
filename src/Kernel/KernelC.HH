@@ -318,7 +318,7 @@ public extern	I64		 ClusBlkWrite(CDrive *drive, U8 *buf, I64 c, I64 blks);
 public extern	I64		 ClusNumNext( CDrive *drive, I64 c, I64 count=1);
 public extern	I64		 ClusRead(    CDrive *drive, U8 *buf, I64 c, I64 count);
 public extern	I64		 ClusWrite(   CDrive *drive, U8 *buf, I64 c, I64 count);
-extern			Bool	 CopySingle(U8 *f1, U8 *f2); //Just one file
+extern			Bool	 CopySingle(U8 *f1, U8 *f2, U8 *copy_buf=NULL); //Just one file
 public extern	U8		 Drive2Letter(CDrive *drive=NULL);
 public extern	CDrive	*DriveCheck(  CDrive *drive, Bool except=TRUE);
 public extern	U0		 DriveDel(    CDrive *drive);
