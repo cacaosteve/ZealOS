@@ -30,6 +30,18 @@ class CKConfig
 	U8		mem_init_val, heap_init_val, var_init_val, boot_drive_let, mount_ide_auto_hd_let, mount_ide_auto_cd_let;
 };
 
+CKConfig *KConfigNew()
+{
+	CKConfig *c = CAlloc(sizeof(CKConfig));
+
+	c->home_dir = StrNew("::/Home");
+	c->disk_cache_size_exp = StrNew("Scale2Mem(0x80000,0x8000000)");
+	c->boot_drive_let = 'C';
+	c->opts[CONFIG_MOUNT_AHCI_AUTO] = TRUE;
+
+	return c;
+}
+
 U0 KConfigDel(CKConfig *c)
 {
 	if (c)

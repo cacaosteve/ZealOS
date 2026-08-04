@@ -133,6 +133,13 @@ check "text-driven BootHDIns installer job" 'XTalkWait.*BootHDIns' \
 	"$SRC_DIR/Misc/OSInstall.ZC" \
 	"$SRC_DIR/Misc/Auto/AutoInstall.ZC"
 
+# The full-distro stages rebuild the kernel across reboots. Queued keystrokes
+# are timing-sensitive and can stop at a prompt or execute as HolyC commands.
+check "queued input in automatic distro stage" '\bIn\s*\(' \
+	"$SRC_DIR/Misc/Auto/AutoFullDistro1.ZC" \
+	"$SRC_DIR/Misc/Auto/AutoFullDistro2.ZC" \
+	"$SRC_DIR/Misc/Auto/AutoFullDistro3.ZC"
+
 # StrCmp (use StrCompare)
 check "StrCmp (use StrCompare)" '\bStrCmp\b' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
