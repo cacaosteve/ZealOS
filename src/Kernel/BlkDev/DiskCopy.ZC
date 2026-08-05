@@ -70,9 +70,9 @@ Bool CopySingle(U8 *f1, U8 *f2, U8 *copy_buf=NULL) //Just one file
 				{
 					n = COPY_BUF_BLKS;
 					i = n << BLK_SIZE_BITS;
-					if (counts.jiffies > time + 2000)
+					if (counts.jiffies > time + 10000)
 					{
-						"\n [ %0.2f%% ]", 100 * ToF64(size - j) / size;
+						" [%0.2f%%]", 100 * ToF64(size - j) / size;
 						time = counts.jiffies;
 					}
 				}

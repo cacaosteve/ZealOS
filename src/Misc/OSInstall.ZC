@@ -281,12 +281,10 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 		usb_poll_paused = TRUE;
 	}
 	copied = CopyTree(src_root, dst_root);
-	if (usb_poll_paused)
-	{
-		UsbPollPause(FALSE);
-		"USB input polling resumed.\n";
-	}
-	"Copied %d entries to %s.\n", copied, dst_root;
+	"\nCopied %d entries to %s.\n", copied, dst_root;
+	"Clearing copy log so finalization does not lock the document...\n";
+	DocClear;
+	DocBottom;
 	"System file copy returned; beginning %C:/ finalization.\n", drv_let;
 
 	"Removing live-ISO boot files from %C:/ ...\n", drv_let;
@@ -320,6 +318,14 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 	Free(st);
 
 	"%C:/ install finalization complete.\n", drv_let;
+	if (usb_poll_paused)
+	{
+		try
+			UsbPollPause(FALSE);
+		catch
+			Fs->catch_except = TRUE;
+		"USB input polling resumed.\n";
+	}
 }
 
 U0 InstallDrive(U8 drv_let)
