@@ -233,7 +233,7 @@ U0 OSUpgrade()
 		}
 	}
 	else
-		LimineCFGMake(drv_let);
+		LimineESPIns(drv_let);
 
 	WinVert(task->win_top, Fs->win_bottom);
 	Kill(task);
@@ -428,7 +428,7 @@ U0 VMInstallWiz()
 				BootMHDIns('C', "C");
 		}
 		else
-			LimineCFGMake('C', FALSE);
+			LimineESPIns('C', FALSE);
 	}
 
 	WinVert(task->win_top, Fs->win_bottom);
@@ -471,6 +471,19 @@ U0 RegularInstallWiz()
 
 	XTalkWait(task, "%s\n\n", port_st);
 
+	if (sys_is_uefi_booted)
+	{
+		"\n$$RED$$Repartition the whole ATA disk now? This ERASES all partitions.$$FG$$\n"
+		"Needed on a blank Mac mini 2.5in SATA drive. Skip if partitions already exist.\n";
+		if (YorN)
+		{
+			XTalkWait(task, "DiskPart(,1.0);\nC\n%s\nY\n", port_st);
+			TaskWait(task, TRUE);
+			drv_let = 'C';
+			"Using %C: after DiskPart. Format FAT32 next.\n", drv_let;
+		}
+	}
+
 	DriveRep;
 	do
 	{
@@ -502,8 +515,15 @@ U0 RegularInstallWiz()
 		if (ch == '1')
 			Format(drv_let,, FALSE, FSt_FAT32);
 		else
+		{
+			if (sys_is_uefi_booted)
+				PrintWarn("UEFI/Mac mini install should use FAT32 for Limine EFI fallback.\n");
 			Format(drv_let,, FALSE, FSt_REDSEA);
+		}
 	}
+	else if (sys_is_uefi_booted && Letter2Drive(drv_let, FALSE) &&
+			Letter2Drive(drv_let, FALSE)->fs_type != FSt_FAT32)
+		PrintWarn("%C: is not FAT32; LimineESPIns expects FAT32.\n", drv_let);
 	InstallDrive(drv_let);
 
 	BootHDInsPrebuilt(drv_let);
@@ -542,7 +562,7 @@ U0 RegularInstallWiz()
 		}
 	}
 	else
-		LimineCFGMake(drv_let);
+		LimineESPIns(drv_let);
 
 	WinVert(task->win_top, Fs->win_bottom);
 	Kill(task);
@@ -555,7 +575,10 @@ U0 DoInstructions()
 	AutoComplete;
 	WinToTop(Fs);
 	WinTileVert;
-	XTalk(task, "Ed(\"::/Doc/Install.DD\");\n");
+	if (sys_is_uefi_booted)
+		XTalk(task, "Ed(\"::/Doc/InstallMacMini.DD\");\n");
+	else
+		XTalk(task, "Ed(\"::/Doc/Install.DD\");\n");
 }
 
 Bool DoInstall(Bool prompt_reboot)
@@ -564,7 +587,9 @@ Bool DoInstall(Bool prompt_reboot)
 	CSMBIOSSystemInfo	*sys_info = SMBIOSStructGet(SMBIOSt_SYSTEM);
 	U8					*company = SMBIOSStr(sys_info, sys_info->manufacturer);
 
-	if (StrCompare(company, "VMware, Inc.") && StrCompare(company, "innotek GmbH") && StrCompare(company, "QEMU"))
+	if (StrIMatch("Apple", company))
+		vm_install = FALSE;
+	else if (StrCompare(company, "VMware, Inc.") && StrCompare(company, "innotek GmbH") && StrCompare(company, "QEMU"))
 	{
 		"\n\n\n\n\nAre you installing inside VMware, QEMU, VirtualBox or a similar virtual machine? ";
 		vm_install = YorN;

@@ -100,8 +100,10 @@ U0 Tmp()
 			break;
 		case BOOT_SRC_DVD:
 			DocBottom;
-			"\nLive ISO boot ready.\n"
-			"Run $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n";
+			"\nLive ISO boot ready.\n";
+			ExeFile("::/Demo/MacMiniProbe");
+			"\nRun $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n"
+			"Mac mini / UEFI: $$LK,\"InstallMacMini.DD\",A=\"FI:::/Doc/InstallMacMini.DD\"$$\n";
 			Cd("::/Home");
 			break;
 		case BOOT_SRC_HARDDRIVE:

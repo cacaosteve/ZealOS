@@ -6,6 +6,8 @@ Dual booting with another operating system is the best way to use ZealOS.  It is
 
 The $LK,"::/Misc/OSInstall.ZC"$ script will automate much of this.	It runs if you boot the CD/DVD-ROM.
 
+For a $FG,2$2014 Mac mini$FG$ (UEFI + internal 2.5" SATA, USB stick as boot media only), see $LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$. Write the $FG,2$BSD2-UEFI$FG$ ISO with $FG,2$build/write-mac-mini-stick.sh$FG$. Do not use TinkerOS USB images.
+
 See $LK,"Boot.DD",A="FI:::/Doc/Boot.DD"$ for an overview of booting.	See $LK,"Requirements",A="FI:::/Doc/Requirements.DD"$ for supported hardware.
 
 Two ZealOS partitions are highly recommended, so you can boot to a back-up and fix the primary when you work on it.  Odds are, you only need a couple gigabytes for your ZealOS partitions.

@@ -1,0 +1,135 @@
+// Phase 0 probe for 2014 Mac mini install: USB HID, AHCI SATA, framebuffer.
+// Live ISO: runs from /Home/Once.ZC. Re-run with ExeFile("::/Demo/MacMiniProbe");
+
+#define UK	1
+#define UM	2
+
+U0 MacMiniProbeWrite(U8 *st)
+{
+	CDrive *drive;
+
+	drive = Letter2Drive('C', FALSE);
+	if (drive && (drive->fs_type == FSt_FAT32 || drive->fs_type == FSt_REDSEA) &&
+			drive->bd && !(drive->bd->flags & BDF_READ_ONLY))
+	{
+		try
+			FileWrite("C:/Home/MacMiniProbe.DD", st, StrLen(st));
+		catch
+			Fs->catch_except = TRUE;
+		return;
+	}
+	try
+	{
+		if (DriveIsWritable)
+			FileWrite("/Tmp/MacMiniProbe.DD", st, StrLen(st));
+	}
+	catch
+		Fs->catch_except = TRUE;
+}
+
+public U0 MacMiniProbe()
+{
+	I64 i, ata_count = 0, atapi_count = 0, bdf;
+	CAHCIPort *port;
+	U8 *st, *p;
+	Bool usb_ok, ata_ok, fb_ok;
+
+	st = MAlloc(4096);
+	st[0] = 0;
+	p = st;
+
+	"\n$$PURPLE$$$$TX+CX,\"Mac mini / UEFI install probe\"$$$$FG$$\n\n";
+
+	CatPrint(p, "uefi=%d boot_src=%d stage=%d usb_active=0x%X\n",
+			sys_is_uefi_booted, sys_boot_src.u16[0], usb_debug_stage, sys_usb_input_active);
+	CatPrint(p, "fb=%dx%d bpp=%d pitch=%d addr=0x%X\n",
+			sys_framebuffer_width, sys_framebuffer_height, sys_framebuffer_bpp,
+			sys_framebuffer_pitch, sys_framebuffer_addr);
+
+	"UEFI boot: %d\n", sys_is_uefi_booted;
+	"USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
+	if (sys_usb_input_active & UK)
+		"  USB keyboard bound\n";
+	else
+		"$$RED$$  USB keyboard NOT bound$$FG$$\n";
+	if (sys_usb_input_active & UM)
+		"  USB mouse/tablet bound\n";
+	else
+		"$$RED$$  USB mouse/tablet NOT bound$$FG$$\n";
+	usb_ok = (sys_usb_input_active & (UK | UM)) == (UK | UM);
+	if (usb_ok)
+		"$$GREEN$$USB HID probe OK (active=0x3).$$FG$$\n";
+	else
+		"$$RED$$USB HID probe FAIL. Need active=0x3 before install (no PS/2 on Mac mini).$$FG$$\n";
+
+	bdf = PCIClassFind(PCIC_SERIAL << 16 | PCISC_USB << 8 | PCIP_USB_XHCI, 0);
+	"xHCI BDF: 0x%X\n", bdf;
+	CatPrint(p, "xhci_bdf=0x%X\n", bdf);
+
+	"Framebuffer: %dx%d bpp=%d\n", sys_framebuffer_width, sys_framebuffer_height, sys_framebuffer_bpp;
+	fb_ok = sys_framebuffer_width >= 640 && sys_framebuffer_height >= 480 && sys_framebuffer_addr;
+	if (fb_ok)
+		"$$GREEN$$Framebuffer probe OK.$$FG$$\n";
+	else
+		"$$RED$$Framebuffer probe FAIL.$$FG$$\n";
+
+	if (!blkdev.ahci_hba)
+	{
+		"$$RED$$No AHCI HBA. Cannot install to SATA.$$FG$$\n";
+		CatPrint(p, "ahci=0 ata=0\n");
+		ata_ok = FALSE;
+	}
+	else
+	{
+		"AHCI HBA present, version %X.%1X%1X\n",
+				blkdev.ahci_hba->version >> 16,
+				(blkdev.ahci_hba->version & 0xFF00) >> 8,
+				blkdev.ahci_hba->version & 0xFF;
+		CatPrint(p, "ahci=1 ver=0x%X ports_impl=0x%X\n",
+				blkdev.ahci_hba->version, blkdev.ahci_hba->ports_implemented);
+		for (i = 0; i < AHCI_MAX_PORTS; i++)
+		{
+			if (PCIBt(&blkdev.ahci_hba->ports_implemented, i))
+			{
+				port = &blkdev.ahci_hba->ports[i];
+				if (port->signature == AHCI_PxSIG_ATA)
+				{
+					"  SATA port %d: ATA (2.5in HDD/SSD candidate)\n", i;
+					CatPrint(p, "port %d ATA\n", i);
+					ata_count++;
+				}
+				else if (port->signature == AHCI_PxSIG_ATAPI)
+				{
+					"  SATA port %d: ATAPI\n", i;
+					CatPrint(p, "port %d ATAPI\n", i);
+					atapi_count++;
+				}
+				else
+				{
+					"  SATA port %d: sig=0x%X\n", i, port->signature;
+					CatPrint(p, "port %d sig=0x%X\n", i, port->signature);
+				}
+			}
+		}
+		ata_ok = ata_count > 0;
+		if (ata_ok)
+			"$$GREEN$$AHCI ATA probe OK (%d port(s)). Use this for install.$$FG$$\n", ata_count;
+		else
+			"$$RED$$No ATA SATA port. Blade/NVMe-only mini cannot install (no MSC/NVMe).$$FG$$\n";
+	}
+
+	"\nDefined drives:\n";
+	DriveRep;
+	CatPrint(p, "ata_count=%d atapi_count=%d usb_ok=%d ata_ok=%d fb_ok=%d\n",
+			ata_count, atapi_count, usb_ok, ata_ok, fb_ok);
+
+	if (usb_ok && ata_ok && fb_ok)
+		"\n$$GREEN$$Probe green. Run RunFile(\"::/Misc/OSInstall\"); then pick FAT32 on the ATA disk.$$FG$$\n";
+	else
+		"\n$$RED$$Probe not green. See ::/Doc/InstallMacMini.DD$$FG$$\n";
+
+	MacMiniProbeWrite(st);
+	Free(st);
+}
+
+MacMiniProbe;

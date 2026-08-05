@@ -25,7 +25,7 @@ $FG,5$Unsupported Hardware$FG$
 
 * No sound cards.
 
-* No USB mass storage or printers.
+* No USB mass storage or printers. Mac mini install uses firmware USB-boot of the UEFI ISO plus internal AHCI SATA ($LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$).
 
 * Native $FG,2$USB keyboard/mouse$FG$ via xHCI when available; minimal UHCI HID for UTM/QEMU PC UI input; $FG,2$PS/2$FG$ fallback otherwise.
 

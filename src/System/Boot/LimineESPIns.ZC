@@ -1,0 +1,145 @@
+// UEFI HDD install: Apple/PC firmware fallback path EFI/BOOT/BOOTX64.EFI.
+// Does not write an MBR. BIOS installs still use LimineMHDIns / BootMHDIns.
+
+#ifndef LIMINE_CFG_BUF_SIZE
+#define LIMINE_CFG_BUF_SIZE		8192
+#endif
+
+Bool LimineCopyIfPresent(U8 *src, U8 *dst)
+{
+	if (!src || !dst)
+		return FALSE;
+	if (!FileFind(src,, FUF_JUST_FILES))
+		return FALSE;
+	if (Copy(src, dst))
+	{
+		"Copied %s -> %s\n", src, dst;
+		return TRUE;
+	}
+	PrintErr("Copy failed: %s -> %s\n", src, dst);
+	return FALSE;
+}
+
+U0 LimineDirMake(U8 drv_let, U8 *path)
+{
+	U8 *st = MStrPrint("%C:%s", drv_let, path);
+
+	DirMake(st);
+	Free(st);
+}
+
+Bool LimineEnsureFile(U8 drv_let, U8 *dst_path, U8 *src_a, U8 *src_b=NULL)
+{
+	U8 *dst = MStrPrint("%C:%s", drv_let, dst_path);
+	Bool ok;
+
+	if (FileFind(dst,, FUF_JUST_FILES))
+	{
+		"%s present.\n", dst;
+		Free(dst);
+		return TRUE;
+	}
+	ok = LimineCopyIfPresent(src_a, dst);
+	if (!ok && src_b)
+		ok = LimineCopyIfPresent(src_b, dst);
+	if (!ok)
+		PrintErr("Missing %s\n", dst);
+	Free(dst);
+	return ok;
+}
+
+Bool LimineESPCFGWrite(U8 drv_let)
+{
+	CDrive	*drive;
+	U8		*filename_cfg, *filename_efi, *cfg, *entry;
+	I64		 cfg_len, entry_len, prt;
+
+	drive = Letter2Drive(drv_let, FALSE);
+	if (!drive)
+		return FALSE;
+	prt = drive->prt_num + 1;
+	filename_cfg = MStrPrint("%C:/Boot/Limine.CONF", drv_let);
+	filename_efi = MStrPrint("%C:/EFI/BOOT/limine.conf", drv_let);
+	cfg = MAlloc(LIMINE_CFG_BUF_SIZE);
+	cfg[0] = 0;
+	CatPrint(cfg,
+			"timeout: 2\n"
+			"interface_resolution: 1024x768\n\n");
+	entry = MStrPrint("/ZealOS %C:/\n"
+			"protocol: limine\n"
+			"resolution: 1024x768\n"
+			"path: boot(%d):/Boot/ZealBooter.ELF\n"
+			"module_path: boot(%d):/Boot/Kernel.ZXE\n"
+			"\n", drv_let, prt, prt);
+	entry_len = StrLen(entry);
+	cfg_len = StrLen(cfg);
+	if (cfg_len + entry_len >= LIMINE_CFG_BUF_SIZE)
+	{
+		PrintErr("Limine.CONF buffer full.\n");
+		Free(entry);
+		Free(cfg);
+		Free(filename_cfg);
+		Free(filename_efi);
+		return FALSE;
+	}
+	CatPrint(cfg, "%s", entry);
+	Free(entry);
+	cfg_len = StrLen(cfg);
+	if (!FileWrite(filename_cfg, cfg, cfg_len))
+	{
+		PrintErr("Failed to write %s\n", filename_cfg);
+		Free(cfg);
+		Free(filename_cfg);
+		Free(filename_efi);
+		return FALSE;
+	}
+	FileWrite(filename_efi, cfg, cfg_len);
+	"Wrote %s and %s\n", filename_cfg, filename_efi;
+	Free(cfg);
+	Free(filename_cfg);
+	Free(filename_efi);
+	return TRUE;
+}
+
+public Bool LimineESPIns(U8 drv_let, Bool scan_all_drives=TRUE)
+{//Install Limine UEFI files onto a FAT32 volume for Option-boot / EFI fallback.
+	CDrive	*drive;
+	Bool	 ok = TRUE;
+
+	no_warn scan_all_drives;
+	drive = Letter2Drive(drv_let, FALSE);
+	if (!drive)
+	{
+		PrintErr("Drive %C: not found.\n", drv_let);
+		return FALSE;
+	}
+	if (drive->fs_type != FSt_FAT32)
+		PrintWarn("%C: is not FAT32; UEFI Limine fallback expects FAT32.\n", drv_let);
+
+	"\nInstalling UEFI Limine fallback on %C: ...\n", drv_let;
+	LimineDirMake(drv_let, "/Boot");
+	LimineDirMake(drv_let, "/EFI");
+	LimineDirMake(drv_let, "/EFI/BOOT");
+
+	if (!LimineEnsureFile(drv_let, "/EFI/BOOT/BOOTX64.EFI",
+			"::/EFI/BOOT/BOOTX64.EFI", "::/Boot/BOOTX64.EFI"))
+		ok = FALSE;
+	if (!LimineEnsureFile(drv_let, "/Boot/ZealBooter.ELF", "::/Boot/ZealBooter.ELF"))
+		ok = FALSE;
+	if (!LimineEnsureFile(drv_let, "/Boot/Kernel.ZXE", "::/Boot/Kernel.ZXE"))
+		ok = FALSE;
+	LimineEnsureFile(drv_let, "/Boot/Limine-BIOS.SYS", "::/Boot/Limine-BIOS.SYS");
+	LimineEnsureFile(drv_let, "/Boot/BOOTX64.EFI",
+			"::/EFI/BOOT/BOOTX64.EFI", "::/Boot/BOOTX64.EFI");
+
+	if (!LimineESPCFGWrite(drv_let))
+		ok = FALSE;
+
+	if (ok)
+	{
+		"\nUEFI fallback ready: %C:/EFI/BOOT/BOOTX64.EFI\n", drv_let;
+		"Mac mini: reboot, hold Option, choose EFI Boot.\n";
+		"If missing from the menu, bless from macOS Recovery.\n\n";
+	}
+	return ok;
+}

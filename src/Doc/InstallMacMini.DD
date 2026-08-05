@@ -1,0 +1,48 @@
+$WW,1$$FG,5$$TX+CX,"Mac mini / UEFI SATA Install"$$FG$
+
+Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA III$FG$ bay. No USB mass storage driver. The stick is boot media only (Apple firmware reads the ISO).
+
+See also $LK,"Install.DD",A="FI:::/Doc/Install.DD"$ and $LK,"USBBoot.DD",A="FI:::/Doc/USBBoot.DD"$.
+
+$FG,5$Not supported$FG$
+* PCIe blade SSD / NVMe (after High Sierra firmware).
+* Installing onto the USB stick itself (no MSC).
+* TinkerOS $FG,2$.img$FG$ live-USB (legacy/RAM, no EFI + no HID).
+
+$FG,5$0) Write the stick (host)$FG$
+Use the $FG,2$BSD2-UEFI$FG$ ISO, not the PublicDomain-BIOS ISO:
+
+  cd ZealOS/build
+  ./write-mac-mini-stick.sh /dev/diskN
+
+Or Balena Etcher / $FG,2$dd$FG$ the $FG,2$ZealOS-BSD2-UEFI-*.iso$FG$ onto the stick. Shut down the mini, plug the stick in, hold $FG,2$Option$FG$ at power-on, choose EFI Boot.
+
+$FG,5$1) Probe$FG$
+Live ISO runs $LK,"MacMiniProbe",A="FI:::/Demo/MacMiniProbe.ZC"$ from $FG,2$/Home/Once.ZC$FG$. Re-run:
+
+  ExeFile("::/Demo/MacMiniProbe");
+
+Green means:
+* $FG,2$USB boot: active=0x3$FG$ (keyboard + mouse; mini has no PS/2)
+* At least one AHCI $FG,2$ATA$FG$ SATA port (2.5" HDD/SSD)
+* Framebuffer usable (Limine requests 1024x768)
+
+If USB fails: Intel xHCI routing / claim — see $LK,"USBBoot.DD",A="FI:::/Doc/USBBoot.DD"$. If no ATA port: blade-only machine; stop (do not add MSC/NVMe here).
+
+$FG,5$2) Install onto SATA$FG$
+  RunFile("::/Misc/OSInstall");
+
+Answer $FG,2$not$FG$ a VM (Apple SMBIOS). New install. Pick the ATA port from the probe. On UEFI you can $FG,2$DiskPart$FG$ the whole disk (erases everything), then $FG,2$Format FAT32$FG$ (required for $FG,2$EFI/BOOT/BOOTX64.EFI$FG$).
+
+The wizard copies the live tree, installs $FG,2$Kernel.ZXE$FG$ with $FG,2$BootHDInsPrebuilt$FG$, then $LK,"LimineESPIns",A="MN:LimineESPIns"$ writes:
+* $FG,2$C:/EFI/BOOT/BOOTX64.EFI$FG$
+* $FG,2$C:/Boot/ZealBooter.ELF$FG$ + $FG,2$Kernel.ZXE$FG$
+* $FG,2$C:/Boot/Limine.CONF$FG$ and $FG,2$C:/EFI/BOOT/limine.conf$FG$
+
+$FG,5$3) Reboot$FG$
+Remove the stick. Hold $FG,2$Option$FG$ and choose EFI Boot. If it does not appear, from macOS Recovery:
+
+  bless --mount /Volumes/YOUR_FAT32 --setBoot --file /Volumes/YOUR_FAT32/EFI/BOOT/BOOTX64.EFI
+
+$FG,5$Manual retry$FG$
+  LimineESPIns('C');

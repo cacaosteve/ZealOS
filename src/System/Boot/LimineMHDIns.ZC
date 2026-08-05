@@ -14,9 +14,10 @@ Bool LimineBootFilesFind(U8 drv_let)
 
 	old_silent = Silent;
 	Silent;
-	res = FileFind(filename_sys,, FUF_JUST_FILES) &&
-			FileFind(filename_elf,, FUF_JUST_FILES) &&
+	res = FileFind(filename_elf,, FUF_JUST_FILES) &&
 			FileFind(filename_zxe,, FUF_JUST_FILES);
+	if (res && !sys_is_uefi_booted)
+		res = FileFind(filename_sys,, FUF_JUST_FILES);
 	Silent(old_silent);
 
 	Free(filename_sys);
@@ -36,9 +37,14 @@ Bool LimineCFGMake(U8 drv_let, Bool scan_all_drives=TRUE)
 	"\nGenerating Limine.CONF ...\n";
 
 	cfg[0] = 0;
-	CatPrint(cfg,
-			"timeout: 2\n"
-			"interface_resolution: 640x480\n\n");
+	if (sys_is_uefi_booted)
+		CatPrint(cfg,
+				"timeout: 2\n"
+				"interface_resolution: 1024x768\n\n");
+	else
+		CatPrint(cfg,
+				"timeout: 2\n"
+				"interface_resolution: 640x480\n\n");
 
 	"Searching drives for Limine bootloader files ...\n";
 	if (!scan_all_drives)
@@ -51,12 +57,20 @@ Bool LimineCFGMake(U8 drv_let, Bool scan_all_drives=TRUE)
 			{
 				if (LimineBootFilesFind(Drive2Letter(drive)))
 				{
-					entry = MStrPrint("/ZealOS %C:/\n"
-						"protocol: limine\n"
-						"resolution: 640x480\n"
-						"path: boot(%d):/Boot/ZealBooter.ELF\n"
-						"module_path: boot(%d):/Boot/Kernel.ZXE\n"
-						"\n", Drive2Letter(drive), drive->prt_num + 1, drive->prt_num + 1);
+					if (sys_is_uefi_booted)
+						entry = MStrPrint("/ZealOS %C:/\n"
+							"protocol: limine\n"
+							"resolution: 1024x768\n"
+							"path: boot(%d):/Boot/ZealBooter.ELF\n"
+							"module_path: boot(%d):/Boot/Kernel.ZXE\n"
+							"\n", Drive2Letter(drive), drive->prt_num + 1, drive->prt_num + 1);
+					else
+						entry = MStrPrint("/ZealOS %C:/\n"
+							"protocol: limine\n"
+							"resolution: 640x480\n"
+							"path: boot(%d):/Boot/ZealBooter.ELF\n"
+							"module_path: boot(%d):/Boot/Kernel.ZXE\n"
+							"\n", Drive2Letter(drive), drive->prt_num + 1, drive->prt_num + 1);
 					cfg_len		= StrLen(cfg);
 					entry_len	= StrLen(entry);
 					if (cfg_len + entry_len < LIMINE_CFG_BUF_SIZE)

@@ -42,7 +42,10 @@ Doc/Requirements.DD
 Doc/Strategy.DD
 Doc/WhyNotMore.DD
 Doc/USBBoot.DD
+Doc/Install.DD
+Doc/InstallMacMini.DD
 Demo/USBInput.ZC
+Demo/MacMiniProbe.ZC
 Doc/Tips.DD
 Doc/Start.DD
 Home/BootInsAuto.DD
@@ -56,6 +59,8 @@ System/Boot/BootHDIns.ZC
 System/Boot/BootMHD.ZC
 System/Boot/BootMHD2.ZC
 System/Boot/BootMHDIns.ZC
+System/Boot/LimineMHDIns.ZC
+System/Boot/LimineESPIns.ZC
 System/Boot/BootRAM.ZC
 System/Boot/DiskISO9660.ZC
 System/Boot/DiskISORedSea.ZC
@@ -115,6 +120,7 @@ System/BlkDev/ZDiskB.ZC
 System/DolDoc/DocGr.ZC
 System/Utils/ToTXT.ZC
 System/WinMgr.ZC
+Misc/OSInstall.ZC
 "
 
 [ -f "$DISK" ] || { echo "Missing VM disk: $DISK"; exit 1; }
