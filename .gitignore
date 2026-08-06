@@ -1,5 +1,7 @@
 *.BIN
 *.bin
+!src/Home/Net/Drivers/Firmware/*.bin
+!src/Home/Net/Drivers/Firmware/*.BIN
 *.ZXE
 *.MAP
 /src/Boot

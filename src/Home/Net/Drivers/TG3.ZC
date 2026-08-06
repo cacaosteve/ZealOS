@@ -1,0 +1,779 @@
+/*	Broadcom BCM57766 (tg3) Ethernet - Mac mini 2014 (Macmini7,1)
+	Clean-room ZealC driver. Register/flow reference only from Linux tg3;
+	do not paste GPL sources here.
+
+	PCI 14e4:1686. Exports NetDriver* + EthernetFrameAllocate/MACGet
+	(PCNet-style; do not redefine EthernetFrameFinish).
+*/
+
+#define TG3_CMDf_MEMEN	1
+#define TG3_CMDf_BMEN	2
+#define TG3_CMDF_MEMEN	(1 << TG3_CMDf_MEMEN)
+#define TG3_CMDF_BMEN	(1 << TG3_CMDf_BMEN)
+
+#define TG3_64BIT_HIGH		0x00
+#define TG3_64BIT_LOW		0x04
+
+#define TG3_BDINFO_HOST_ADDR	0x00
+#define TG3_BDINFO_MAXLEN_FLAGS	0x08
+#define TG3_BDINFO_NIC_ADDR	0x0C
+#define TG3_BDINFO_SIZE		0x10
+#define TG3_BDINFO_FLAGS_DISABLED	0x00000002
+#define TG3_BDINFO_MAXLEN_SHIFT		16
+
+#define TG3PCI_MISC_HOST_CTRL		0x00000068
+#define  TG3_MHC_CLEAR_INT		0x00000001
+#define  TG3_MHC_MASK_PCI_INT		0x00000002
+#define  TG3_MHC_WORD_SWAP		0x00000008
+#define  TG3_MHC_CHIPREV_MASK		0xFFFF0000
+#define  TG3_MHC_CHIPREV_SHIFT		16
+
+#define TG3PCI_MEM_WIN_BASE_ADDR	0x0000007C
+#define TG3PCI_MEM_WIN_DATA		0x00000084
+#define TG3PCI_PRODID_ASICREV		0x000000BC
+
+#define TG3_MAILBOX_INTERRUPT_0		0x00000200
+#define TG3_MAILBOX_RCV_STD_PROD_IDX	0x00000268
+#define TG3_MAILBOX_RCVRET_CON_IDX_0	0x00000280
+#define TG3_MAILBOX_SNDHOST_PROD_IDX_0	0x00000300
+
+#define TG3_MAC_MODE			0x00000400
+#define  TG3_MAC_MODE_PORT_GMII		0x00000008
+#define  TG3_MAC_MODE_RXSTAT_ENABLE	0x00000800
+#define  TG3_MAC_MODE_TXSTAT_ENABLE	0x00004000
+#define  TG3_MAC_MODE_TDE_ENABLE	0x00200000
+#define  TG3_MAC_MODE_RDE_ENABLE	0x00400000
+#define  TG3_MAC_MODE_FHDE_ENABLE	0x00800000
+#define TG3_MAC_STATUS			0x00000404
+#define  TG3_MAC_STATUS_LNKSTATE_CHANGED 0x00001000
+#define TG3_MAC_EVENT			0x00000408
+#define TG3_MAC_ADDR_0_HIGH		0x00000410
+#define TG3_MAC_ADDR_0_LOW		0x00000414
+#define TG3_MAC_TX_MODE			0x0000045C
+#define  TG3_TX_MODE_ENABLE		0x00000002
+#define TG3_MAC_RX_MODE			0x00000468
+#define  TG3_RX_MODE_ENABLE		0x00000002
+#define TG3_MAC_RX_MTU_SIZE		0x0000043C
+#define TG3_MAC_TX_LENGTHS		0x00000464
+#define TG3_MAC_HASH_REG_0		0x00000470
+#define TG3_MAC_HASH_REG_1		0x00000474
+#define TG3_MAC_HASH_REG_2		0x00000478
+#define TG3_MAC_HASH_REG_3		0x0000047C
+#define TG3_MAC_RCV_RULE_CFG		0x00000500
+#define TG3_MAC_LOW_WMARK_MAX_RX	0x00000504
+
+#define TG3_SNDDATAI_MODE		0x00000C00
+#define TG3_SNDDATAC_MODE		0x00001000
+#define TG3_SNDBDS_MODE			0x00001400
+#define TG3_SNDBDI_MODE			0x00001800
+#define TG3_RCVLPC_MODE			0x00002000
+#define TG3_RCVDBDI_MODE		0x00002400
+#define TG3_RCVDBDI_STD_BD		0x00002450
+#define TG3_RCVDBDI_JUMBO_BD		0x00002440
+#define TG3_RCVDCC_MODE			0x00002800
+#define TG3_RCVBDI_MODE			0x00002C00
+#define TG3_RCVBDI_STD_THRESH		0x00002C18
+#define TG3_RCVCC_MODE			0x00003000
+
+#define TG3_HOSTCC_MODE			0x00003C00
+#define  TG3_HOSTCC_MODE_ENABLE		0x00000002
+#define  TG3_HOSTCC_MODE_ATTN		0x00000004
+#define TG3_HOSTCC_RXCOL_TICKS		0x00003C08
+#define TG3_HOSTCC_TXCOL_TICKS		0x00003C0C
+#define TG3_HOSTCC_RXMAX_FRAMES		0x00003C10
+#define TG3_HOSTCC_TXMAX_FRAMES		0x00003C14
+#define TG3_HOSTCC_RXCOAL_MAXF_INT	0x00003C20
+#define TG3_HOSTCC_TXCOAL_MAXF_INT	0x00003C24
+#define TG3_HOSTCC_STATUS_BLK_HOST_ADDR	0x00003C38
+
+#define TG3_BUFMGR_MODE			0x00004400
+#define  TG3_BUFMGR_MODE_ENABLE		0x00000002
+#define TG3_BUFMGR_MB_POOL_ADDR		0x00004408
+#define TG3_BUFMGR_MB_POOL_SIZE		0x0000440C
+#define TG3_BUFMGR_MB_RDMA_LOW_WATER	0x00004410
+#define TG3_BUFMGR_MB_MACRX_LOW_WATER	0x00004414
+#define TG3_BUFMGR_MB_HIGH_WATER	0x00004418
+#define TG3_BUFMGR_DMA_DESC_POOL_ADDR	0x0000442C
+#define TG3_BUFMGR_DMA_DESC_POOL_SIZE	0x00004430
+#define TG3_BUFMGR_DMA_LOW_WATER	0x00004434
+#define TG3_BUFMGR_DMA_HIGH_WATER	0x00004438
+
+#define TG3_RDMAC_MODE			0x00004800
+#define TG3_WDMAC_MODE			0x00004C00
+#define  TG3_DMA_MODE_ENABLE		0x00000002
+
+#define TG3_GRC_MODE			0x00006800
+#define  TG3_GRC_MODE_WSWAP_NONFRM	0x00000004
+#define  TG3_GRC_MODE_WSWAP_DATA	0x00000020
+#define  TG3_GRC_MODE_HOST_STACKUP	0x00010000
+#define  TG3_GRC_MODE_HOST_SENDBDS	0x00020000
+#define  TG3_GRC_MODE_NO_TX_PHDR_CSUM	0x00100000
+#define  TG3_GRC_MODE_NO_RX_PHDR_CSUM	0x00800000
+#define TG3_GRC_MISC_CFG		0x00006804
+#define  TG3_GRC_MISC_CFG_CORECLK_RESET	0x00000001
+#define TG3_GRC_LOCAL_CTRL		0x00006808
+
+#define TG3_NIC_SRAM_SEND_RCB		0x00000100
+#define TG3_NIC_SRAM_RCV_RET_RCB	0x00000200
+#define TG3_NIC_SRAM_TX_BUFFER_DESC	0x00004000
+#define TG3_NIC_SRAM_RX_BUFFER_DESC	0x00006000
+#define TG3_NIC_SRAM_MBUF_POOL_BASE	0x00010000
+#define TG3_NIC_SRAM_MBUF_POOL_SIZE64	0x0000E000
+#define TG3_NIC_SRAM_DMA_DESC_POOL_BASE	0x00002000
+#define TG3_NIC_SRAM_DMA_DESC_POOL_SIZE	0x00002000
+
+#define TG3_57766_FW_BASE_ADDR		0x00030000
+#define TG3_FW_HDR_LEN			12
+
+#define TG3_TXD_FLAG_END		0x0004
+#define TG3_TXD_LEN_SHIFT		16
+#define TG3_RXD_LEN_MASK		0x0000FFFF
+#define TG3_RXD_FLAG_ERROR		0x0400
+
+#define TG3_SD_STATUS_UPDATED		0x00000001
+#define TG3_SD_STATUS_LINK_CHG		0x00000002
+#define TG3_HW_STATUS_SIZE		0x50
+
+/* Firmware-fixed ring sizes for 57765-class (BCM57766). */
+#define TG3_TX_RING_SIZE		512
+#define TG3_RX_STD_RING_SIZE		512
+#define TG3_RX_RET_RING_SIZE		512
+#define TG3_RX_STD_DMA_SZ		1536
+#define TG3_RX_PENDING			64
+#define TG3_TX_PENDING			64
+
+#define TG3_MODE_ENABLE			0x00000002
+
+class CTG3TxDesc
+{
+	U32 addr_hi;
+	U32 addr_lo;
+	U32 len_flags;
+	U32 vlan_tag;
+};
+
+class CTG3RxDesc
+{
+	U32 addr_hi;
+	U32 addr_lo;
+	U32 idx_len;
+	U32 type_flags;
+	U32 ip_tcp_csum;
+	U32 err_vlan;
+	U32 reserved;
+	U32 opaque;
+};
+
+class CTG3
+{
+	CPCIDev *pci;
+	U64 mmio;
+	U8 mac_address[6];
+	U32 chip_rev;
+	U32 asic_rev;
+	Bool init_ok;
+	Bool firmware_loaded;
+
+	I64 tx_prod;
+	I64 tx_cons;
+	I64 rx_prod;
+	I64 rx_cons;
+	I64 rx_std_prod;
+
+	CTG3TxDesc *tx_ring;
+	U8 *tx_ring_phys;
+	CTG3RxDesc *rx_std;
+	U8 *rx_std_phys;
+	CTG3RxDesc *rx_ret;
+	U8 *rx_ret_phys;
+
+	U8 *tx_bufs;
+	U8 *tx_bufs_phys;
+	U8 *rx_bufs;
+	U8 *rx_bufs_phys;
+
+	U8 *status_phys;
+	U32 *status; /* uncached view of TG3_HW_STATUS_SIZE */
+
+	I64 tx_length[TG3_TX_PENDING];
+	I64 poll_task;
+} tg3;
+
+U32 TG3Read(U32 off)
+{
+	U32 *reg = tg3.mmio + off;
+	return *reg;
+}
+
+U0 TG3Write(U32 off, U32 val)
+{
+	U32 *reg = tg3.mmio + off;
+	*reg = val;
+}
+
+U0 TG3WriteFlush(U32 off, U32 val)
+{
+	TG3Write(off, val);
+	TG3Read(off);
+}
+
+U0 TG3MboxWrite(U32 mbox, U32 val)
+{
+	TG3Write(mbox + TG3_64BIT_LOW, val);
+}
+
+U0 TG3MemWrite(U32 addr, U32 val)
+{
+	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	TG3Write(TG3PCI_MEM_WIN_DATA, val);
+	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+}
+
+U32 TG3MemRead(U32 addr)
+{
+	U32 val;
+	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	val = TG3Read(TG3PCI_MEM_WIN_DATA);
+	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+	return val;
+}
+
+U0 TG3BDInfoWriteMMIO(U32 base, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
+{
+	TG3Write(base + TG3_BDINFO_HOST_ADDR + TG3_64BIT_HIGH, 0);
+	TG3Write(base + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW, host_lo);
+	TG3Write(base + TG3_BDINFO_MAXLEN_FLAGS, maxlen_flags);
+	if (nic_addr)
+		TG3Write(base + TG3_BDINFO_NIC_ADDR, nic_addr);
+}
+
+U0 TG3BDInfoWriteSRAM(U32 sram_off, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
+{
+	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_HIGH, 0);
+	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW, host_lo);
+	TG3MemWrite(sram_off + TG3_BDINFO_MAXLEN_FLAGS, maxlen_flags);
+	TG3MemWrite(sram_off + TG3_BDINFO_NIC_ADDR, nic_addr);
+}
+
+CPCIDev *TG3PCIDevFind()
+{
+	return PCIDevFind(,, 0x14E4, 0x1686);
+}
+
+U0 TG3MACReadHW()
+{
+	U32 hi = TG3Read(TG3_MAC_ADDR_0_HIGH);
+	U32 lo = TG3Read(TG3_MAC_ADDR_0_LOW);
+
+	tg3.mac_address[0] = (hi >> 8) & 0xFF;
+	tg3.mac_address[1] = hi & 0xFF;
+	tg3.mac_address[2] = (lo >> 24) & 0xFF;
+	tg3.mac_address[3] = (lo >> 16) & 0xFF;
+	tg3.mac_address[4] = (lo >> 8) & 0xFF;
+	tg3.mac_address[5] = lo & 0xFF;
+}
+
+U0 TG3MACWriteHW()
+{
+	U32 hi = (tg3.mac_address[0] << 8) | tg3.mac_address[1];
+	U32 lo = (tg3.mac_address[2] << 24) | (tg3.mac_address[3] << 16) |
+		(tg3.mac_address[4] << 8) | tg3.mac_address[5];
+
+	TG3Write(TG3_MAC_ADDR_0_HIGH, hi);
+	TG3Write(TG3_MAC_ADDR_0_LOW, lo);
+}
+
+Bool TG3FirmwareLoad()
+{/* Optional BCM57766 firmware via MEM_WIN. Probe continues if missing. */
+	U8 *fw;
+	I64 size = 0, i, nwords;
+	U32 *words;
+	U32 base_off;
+
+	fw = FileRead("::/Home/Net/Drivers/Firmware/tg357766.bin", &size);
+	if (!fw || size < TG3_FW_HDR_LEN)
+	{
+		NetErr("TG3: firmware tg357766.bin missing or short (size=%d)", size);
+		Free(fw);
+		return FALSE;
+	}
+
+	/* Fragmented image: skip main header (3 U32 BE), load fragment words. */
+	words = fw(U32 *);
+	base_off = TG3_57766_FW_BASE_ADDR;
+	nwords = (size - TG3_FW_HDR_LEN) / 4;
+	for (i = 0; i < nwords; i++)
+		TG3MemWrite(base_off + i * 4, EndianU32(words[3 + i]));
+
+	NetLog("TG3: loaded tg357766.bin (%d bytes) at SRAM 0x%X", size, base_off);
+	Free(fw);
+	tg3.firmware_loaded = TRUE;
+	return TRUE;
+}
+
+U0 TG3ChipReset()
+{
+	U16 cmd;
+	I64 i;
+
+	TG3Write(TG3PCI_MISC_HOST_CTRL,
+		TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT | TG3_MHC_MASK_PCI_INT);
+
+	cmd = PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
+
+	TG3WriteFlush(TG3_GRC_MISC_CFG, TG3_GRC_MISC_CFG_CORECLK_RESET);
+	Sleep(120);
+
+	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
+		cmd | TG3_CMDF_MEMEN | TG3_CMDF_BMEN);
+
+	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+
+	for (i = 0; i < 100; i++)
+	{
+		if (TG3Read(TG3_MAC_MODE) != 0xFFFFFFFF)
+			break;
+		Sleep(10);
+	}
+
+	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+}
+
+U0 TG3RingsAlloc()
+{
+	I64 i;
+	CTG3RxDesc *rd;
+	U32 buf_phys;
+
+	tg3.tx_ring_phys = CAllocAligned(sizeof(CTG3TxDesc) * TG3_TX_RING_SIZE,
+		16, Fs->code_heap);
+	tg3.tx_ring = dev.uncached_alias + tg3.tx_ring_phys;
+
+	tg3.rx_std_phys = CAllocAligned(sizeof(CTG3RxDesc) * TG3_RX_STD_RING_SIZE,
+		16, Fs->code_heap);
+	tg3.rx_std = dev.uncached_alias + tg3.rx_std_phys;
+
+	tg3.rx_ret_phys = CAllocAligned(sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE,
+		16, Fs->code_heap);
+	tg3.rx_ret = dev.uncached_alias + tg3.rx_ret_phys;
+
+	tg3.status_phys = CAllocAligned(TG3_HW_STATUS_SIZE, 16, Fs->code_heap);
+	tg3.status = dev.uncached_alias + tg3.status_phys;
+	MemSet(tg3.status, 0, TG3_HW_STATUS_SIZE);
+
+	tg3.tx_bufs_phys = CAlloc(ETHERNET_FRAME_SIZE * TG3_TX_PENDING, Fs->code_heap);
+	tg3.tx_bufs = dev.uncached_alias + tg3.tx_bufs_phys;
+
+	tg3.rx_bufs_phys = CAlloc(ETHERNET_FRAME_SIZE * TG3_RX_PENDING, Fs->code_heap);
+	tg3.rx_bufs = dev.uncached_alias + tg3.rx_bufs_phys;
+
+	MemSet(tg3.tx_ring, 0, sizeof(CTG3TxDesc) * TG3_TX_RING_SIZE);
+	MemSet(tg3.rx_std, 0, sizeof(CTG3RxDesc) * TG3_RX_STD_RING_SIZE);
+	MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
+
+	for (i = 0; i < TG3_RX_PENDING; i++)
+	{
+		rd = &tg3.rx_std[i];
+		buf_phys = tg3.rx_bufs_phys + i * ETHERNET_FRAME_SIZE;
+		rd->addr_hi = 0;
+		rd->addr_lo = buf_phys;
+		rd->idx_len = (i << 16) | TG3_RX_STD_DMA_SZ;
+		rd->type_flags = 0;
+		rd->opaque = i;
+	}
+
+	tg3.tx_prod = 0;
+	tg3.tx_cons = 0;
+	tg3.rx_prod = 0;
+	tg3.rx_cons = 0;
+	tg3.rx_std_prod = TG3_RX_PENDING;
+}
+
+U0 TG3EnableBlocks()
+{
+	U32 val;
+	I64 i;
+
+	TG3Write(TG3_BUFMGR_MB_POOL_ADDR, TG3_NIC_SRAM_MBUF_POOL_BASE);
+	TG3Write(TG3_BUFMGR_MB_POOL_SIZE, TG3_NIC_SRAM_MBUF_POOL_SIZE64);
+	TG3Write(TG3_BUFMGR_DMA_DESC_POOL_ADDR, TG3_NIC_SRAM_DMA_DESC_POOL_BASE);
+	TG3Write(TG3_BUFMGR_DMA_DESC_POOL_SIZE, TG3_NIC_SRAM_DMA_DESC_POOL_SIZE);
+	TG3Write(TG3_BUFMGR_MB_RDMA_LOW_WATER, 0x50);
+	TG3Write(TG3_BUFMGR_MB_MACRX_LOW_WATER, 0x20);
+	TG3Write(TG3_BUFMGR_MB_HIGH_WATER, 0x60);
+	TG3Write(TG3_BUFMGR_DMA_LOW_WATER, 5);
+	TG3Write(TG3_BUFMGR_DMA_HIGH_WATER, 10);
+	TG3WriteFlush(TG3_BUFMGR_MODE, TG3_BUFMGR_MODE_ENABLE);
+
+	for (i = 0; i < 200; i++)
+	{
+		if (TG3Read(TG3_BUFMGR_MODE) & TG3_BUFMGR_MODE_ENABLE)
+			break;
+		Busy(10);
+	}
+
+	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_PENDING / 8);
+	if (TG3_RX_PENDING / 8 < 1)
+		TG3Write(TG3_RCVBDI_STD_THRESH, 1);
+
+	/* 57765-class: maxlen = ring size; DMA sz in low bits << 2 */
+	val = (TG3_RX_STD_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT) |
+		(TG3_RX_STD_DMA_SZ << 2);
+	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
+		TG3_NIC_SRAM_RX_BUFFER_DESC);
+	TG3Write(TG3_RCVDBDI_JUMBO_BD + TG3_BDINFO_MAXLEN_FLAGS,
+		TG3_BDINFO_FLAGS_DISABLED);
+
+	TG3MboxWrite(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
+
+	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_SEND_RCB, tg3.tx_ring_phys,
+		TG3_TX_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT,
+		TG3_NIC_SRAM_TX_BUFFER_DESC);
+	TG3MemWrite(TG3_NIC_SRAM_SEND_RCB + TG3_BDINFO_SIZE + TG3_BDINFO_MAXLEN_FLAGS,
+		TG3_BDINFO_FLAGS_DISABLED);
+
+	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_RCV_RET_RCB, tg3.rx_ret_phys,
+		TG3_RX_RET_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT, 0);
+	TG3MemWrite(TG3_NIC_SRAM_RCV_RET_RCB + TG3_BDINFO_SIZE + TG3_BDINFO_MAXLEN_FLAGS,
+		TG3_BDINFO_FLAGS_DISABLED);
+
+	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_HIGH, 0);
+	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_LOW, tg3.status_phys);
+
+	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, 0);
+	TG3MboxWrite(TG3_MAILBOX_RCVRET_CON_IDX_0, 0);
+	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
+
+	TG3Write(TG3_HOSTCC_RXCOL_TICKS, 0x48);
+	TG3Write(TG3_HOSTCC_TXCOL_TICKS, 0x48);
+	TG3Write(TG3_HOSTCC_RXMAX_FRAMES, 4);
+	TG3Write(TG3_HOSTCC_TXMAX_FRAMES, 4);
+	TG3Write(TG3_HOSTCC_RXCOAL_MAXF_INT, 4);
+	TG3Write(TG3_HOSTCC_TXCOAL_MAXF_INT, 4);
+
+	TG3Write(TG3_HOSTCC_MODE, 0);
+	for (i = 0; i < 200; i++)
+	{
+		if (!(TG3Read(TG3_HOSTCC_MODE) & TG3_HOSTCC_MODE_ENABLE))
+			break;
+		Busy(10);
+	}
+	TG3Write(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_ATTN);
+
+	TG3Write(TG3_RCVCC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVLPC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVDBDI_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_SNDDATAI_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_SNDDATAC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_SNDBDS_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_SNDBDI_MODE, TG3_MODE_ENABLE);
+	TG3WriteFlush(TG3_RDMAC_MODE, TG3_DMA_MODE_ENABLE);
+	TG3WriteFlush(TG3_WDMAC_MODE, TG3_DMA_MODE_ENABLE);
+
+	TG3MACWriteHW;
+
+	TG3Write(TG3_MAC_RX_MTU_SIZE, 1518);
+	TG3Write(TG3_MAC_TX_LENGTHS, (2 << 12) | (6 << 8) | 0x20);
+	TG3Write(TG3_MAC_HASH_REG_0, 0);
+	TG3Write(TG3_MAC_HASH_REG_1, 0);
+	TG3Write(TG3_MAC_HASH_REG_2, 0);
+	TG3Write(TG3_MAC_HASH_REG_3, 0);
+
+	val = TG3_MAC_MODE_PORT_GMII | TG3_MAC_MODE_RXSTAT_ENABLE |
+		TG3_MAC_MODE_TXSTAT_ENABLE | TG3_MAC_MODE_TDE_ENABLE |
+		TG3_MAC_MODE_RDE_ENABLE | TG3_MAC_MODE_FHDE_ENABLE;
+	TG3WriteFlush(TG3_MAC_MODE, val);
+
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE);
+	TG3WriteFlush(TG3_MAC_TX_MODE, TG3_TX_MODE_ENABLE);
+
+	val = TG3_GRC_MODE_WSWAP_DATA | TG3_GRC_MODE_WSWAP_NONFRM |
+		TG3_GRC_MODE_HOST_SENDBDS | TG3_GRC_MODE_HOST_STACKUP |
+		TG3_GRC_MODE_NO_TX_PHDR_CSUM | TG3_GRC_MODE_NO_RX_PHDR_CSUM;
+	TG3Write(TG3_GRC_MODE, val);
+}
+
+U16 TG3StatusRxConsumer()
+{/* LE status block: word2 = jumbo | std consumer */
+	U32 w = tg3.status[2];
+	return w >> 16;
+}
+
+U16 TG3StatusTxConsumer()
+{
+	U32 w = tg3.status[4]; /* idx[0]: rx_prod | tx_cons */
+	return w >> 16;
+}
+
+U0 TG3RxProcess()
+{
+	U16 hw_cons = TG3StatusRxConsumer;
+	I64 cons = tg3.rx_cons;
+	CTG3RxDesc *rd;
+	U16 pkt_len;
+	U32 opaque;
+	U8 *pkt;
+
+	while (cons != hw_cons)
+	{
+		rd = &tg3.rx_ret[cons];
+		pkt_len = rd->idx_len & TG3_RXD_LEN_MASK;
+		opaque = rd->opaque;
+
+		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) && pkt_len >= 14 &&
+			opaque < TG3_RX_PENDING)
+		{
+			pkt = tg3.rx_bufs + opaque * ETHERNET_FRAME_SIZE;
+			if (pkt_len > ETHERNET_FRAME_SIZE)
+				pkt_len = ETHERNET_FRAME_SIZE;
+			NetQueuePush(pkt, pkt_len);
+		}
+
+		/* Re-post producer descriptor for this buffer index. */
+		if (opaque < TG3_RX_PENDING)
+		{
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].addr_hi = 0;
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].addr_lo =
+				tg3.rx_bufs_phys + opaque * ETHERNET_FRAME_SIZE;
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].idx_len =
+				(opaque << 16) | TG3_RX_STD_DMA_SZ;
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].type_flags = 0;
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].opaque = opaque;
+			tg3.rx_std_prod = (tg3.rx_std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+			TG3MboxWrite(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
+		}
+
+		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
+	}
+
+	if (cons != tg3.rx_cons)
+	{
+		tg3.rx_cons = cons;
+		TG3MboxWrite(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	}
+
+	tg3.tx_cons = TG3StatusTxConsumer;
+}
+
+interrupt U0 TG3IRQ()
+{
+	U32 st;
+
+	if (!tg3.init_ok)
+	{
+		*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
+		return;
+	}
+
+	st = tg3.status[0];
+	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
+
+	if (st & (TG3_SD_STATUS_UPDATED | TG3_SD_STATUS_LINK_CHG))
+		TG3RxProcess;
+
+	tg3.status[0] = 0;
+	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 0);
+
+	*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
+}
+
+U0 TG3PCIInterruptsReroute(I64 base)
+{
+	I64 i;
+	U8 *da = dev.uncached_alias + IOAPIC_REG;
+	U32 *_d = dev.uncached_alias + IOAPIC_DATA;
+
+	for (i = 0; i < 4; i++)
+	{
+		*da = IOREDTAB + i * 2 + 1;
+		*_d = dev.mp_apic_ids[INT_DEST_CPU] << 24;
+		*da = IOREDTAB + i * 2;
+		*_d = 0x4000 + base + i;
+	}
+}
+
+U0 TG3InterruptsSetup()
+{
+	I64 irq, i;
+
+	for (i = 0; i < 4; i++)
+		IntEntrySet((irq = IntEntryAlloc), &TG3IRQ);
+
+	TG3PCIInterruptsReroute(irq);
+	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 0);
+}
+
+U0 TG3PollTask()
+{/* Backup path if INTx delivery is slow/misrouted. */
+	while (tg3.init_ok)
+	{
+		if (tg3.status[0] & TG3_SD_STATUS_UPDATED)
+			TG3RxProcess;
+		Sleep(20);
+	}
+}
+
+I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
+{
+	I64 idx = tg3.tx_prod;
+	I64 slot = idx & (TG3_TX_PENDING - 1);
+	CTG3TxDesc *td;
+
+	if (((idx - tg3.tx_cons) & (TG3_TX_RING_SIZE - 1)) >= TG3_TX_PENDING)
+	{
+		NetErr("TG3: TX ring full");
+		return -1;
+	}
+
+	td = &tg3.tx_ring[idx];
+	td->addr_hi = 0;
+	td->addr_lo = tg3.tx_bufs_phys + slot * ETHERNET_FRAME_SIZE;
+	td->len_flags = (length << TG3_TXD_LEN_SHIFT) | TG3_TXD_FLAG_END;
+	td->vlan_tag = 0;
+	tg3.tx_length[slot] = length;
+
+	*packet_buffer_out = tg3.tx_bufs_phys + slot * ETHERNET_FRAME_SIZE;
+	return idx;
+}
+
+U0 TG3TransmitPacketFinish(I64 de_index)
+{
+	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
+
+	tg3.tx_prod = next;
+	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
+}
+
+U0 NetDriverTransmitPacketFinish(I64 de_index)
+{
+	TG3TransmitPacketFinish(de_index);
+}
+
+I64 NetDriverPacketBufferGet(I64 de_index)
+{
+	I64 slot = de_index & (TG3_TX_PENDING - 1);
+	return tg3.tx_bufs_phys + slot * ETHERNET_FRAME_SIZE;
+}
+
+I64 NetDriverPacketLengthGet(I64 de_index)
+{
+	I64 slot = de_index & (TG3_TX_PENDING - 1);
+	return tg3.tx_length[slot];
+}
+
+U8 *EthernetMACGet()
+{
+	return tg3.mac_address;
+}
+
+I64 EthernetFrameAllocate(U8 **packet_buffer_out,
+	U8 *source_address,
+	U8 *destination_address,
+	U16 ethertype,
+	I64 packet_length)
+{
+	U8 *ethernet_frame;
+	I64 de_index;
+
+	if (packet_length < ETHERNET_MIN_FRAME_SIZE)
+		packet_length = ETHERNET_MIN_FRAME_SIZE;
+
+	de_index = TG3TransmitPacketAllocate(&ethernet_frame,
+		ETHERNET_MAC_HEADER_LENGTH + packet_length);
+	if (de_index < 0)
+	{
+		NetErr("TG3: EthernetFrameAllocate failed");
+		return -1;
+	}
+
+	ethernet_frame += dev.uncached_alias;
+	MemSet(ethernet_frame, 0, ETHERNET_FRAME_SIZE);
+	MemCopy(ethernet_frame, destination_address, MAC_ADDRESS_LENGTH);
+	MemCopy(ethernet_frame + MAC_ADDRESS_LENGTH, source_address, MAC_ADDRESS_LENGTH);
+	ethernet_frame[ETHERNET_ETHERTYPE_OFFSET] = ethertype >> 8;
+	ethernet_frame[ETHERNET_ETHERTYPE_OFFSET + 1] = ethertype & 0xFF;
+	*packet_buffer_out = ethernet_frame + ETHERNET_MAC_HEADER_LENGTH;
+	return de_index;
+}
+
+U0 NetStop()
+{
+	TG3Write(TG3_MAC_RX_MODE, 0);
+	TG3Write(TG3_MAC_TX_MODE, 0);
+}
+
+U0 NetStart()
+{
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE);
+	TG3WriteFlush(TG3_MAC_TX_MODE, TG3_TX_MODE_ENABLE);
+}
+
+U0 TG3Init()
+{
+	U32 mhc, mac_stat;
+
+	MemSet(&tg3, 0, sizeof(CTG3));
+
+	tg3.pci = TG3PCIDevFind;
+	if (!tg3.pci)
+	{
+		NetErr("TG3: PCI 14e4:1686 not found");
+		return;
+	}
+
+	ClassRep(tg3.pci);
+
+	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
+		TG3_CMDF_MEMEN | TG3_CMDF_BMEN);
+
+	tg3.mmio = dev.uncached_alias + (tg3.pci->base[0] & ~0xF);
+	NetLog("TG3: MMIO at 0x%X (BAR0=0x%X)", tg3.mmio, tg3.pci->base[0]);
+
+	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	mhc = TG3Read(TG3PCI_MISC_HOST_CTRL);
+	tg3.chip_rev = (mhc & TG3_MHC_CHIPREV_MASK) >> TG3_MHC_CHIPREV_SHIFT;
+	tg3.asic_rev = TG3Read(TG3PCI_PRODID_ASICREV) & 0xFFFFFFFF;
+	NetLog("TG3: chip_rev=0x%X asic/prodid=0x%X", tg3.chip_rev, tg3.asic_rev);
+
+	TG3MACReadHW;
+	NetLog("TG3: MAC %02X:%02X:%02X:%02X:%02X:%02X",
+		tg3.mac_address[0], tg3.mac_address[1], tg3.mac_address[2],
+		tg3.mac_address[3], tg3.mac_address[4], tg3.mac_address[5]);
+
+	TG3ChipReset;
+	TG3FirmwareLoad;
+	TG3MACReadHW;
+	if (!(tg3.mac_address[0] | tg3.mac_address[1] | tg3.mac_address[2] |
+		tg3.mac_address[3] | tg3.mac_address[4] | tg3.mac_address[5]))
+	{
+		NetWarn("TG3: MAC still zero after reset; check NVRAM/firmware");
+	}
+	else
+	{
+		NetLog("TG3: MAC after reset %02X:%02X:%02X:%02X:%02X:%02X",
+			tg3.mac_address[0], tg3.mac_address[1], tg3.mac_address[2],
+			tg3.mac_address[3], tg3.mac_address[4], tg3.mac_address[5]);
+	}
+
+	TG3RingsAlloc;
+	TG3EnableBlocks;
+
+	mac_stat = TG3Read(TG3_MAC_STATUS);
+	NetLog("TG3: MAC_STATUS=0x%X link_chg=%d", mac_stat,
+		!!(mac_stat & TG3_MAC_STATUS_LNKSTATE_CHANGED));
+
+	tg3.init_ok = TRUE;
+	TG3InterruptsSetup;
+	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
+
+	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
+	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
+		tg3.mac_address[0], tg3.mac_address[1], tg3.mac_address[2],
+		tg3.mac_address[3], tg3.mac_address[4], tg3.mac_address[5];
+}
+
+TG3Init;

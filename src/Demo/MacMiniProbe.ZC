@@ -33,6 +33,7 @@ public U0 MacMiniProbe()
 	CAHCIPort *port;
 	U8 *st, *p;
 	Bool usb_ok, ata_ok, fb_ok;
+	CPCIDev *tg3_pci;
 
 	st = MAlloc(4096);
 	st[0] = 0;
@@ -74,6 +75,21 @@ public U0 MacMiniProbe()
 	bdf = PCIClassFind(PCIC_SERIAL << 16 | PCISC_USB << 8 | PCIP_USB_XHCI, 0);
 	"xHCI BDF: 0x%X\n", bdf;
 	CatPrint(p, "xhci_bdf=0x%X\n", bdf);
+
+	tg3_pci = PCIDevFind(,, 0x14E4, 0x1686);
+	if (tg3_pci)
+	{
+		"$$GREEN$$TG3 Ethernet PCI 14e4:1686 present (BCM57766).$$FG$$\n";
+		"  bus=%d dev=%d fun=%d BAR0=0x%X\n",
+				tg3_pci->bus, tg3_pci->dev, tg3_pci->fun, tg3_pci->base[0];
+		CatPrint(p, "tg3=1 bus=%d dev=%d fun=%d bar0=0x%X\n",
+				tg3_pci->bus, tg3_pci->dev, tg3_pci->fun, tg3_pci->base[0]);
+	}
+	else
+	{
+		"$$RED$$TG3 Ethernet PCI 14e4:1686 NOT found.$$FG$$\n";
+		CatPrint(p, "tg3=0\n");
+	}
 
 	"Framebuffer: %dx%d bpp=%d\n", sys_framebuffer_width, sys_framebuffer_height, sys_framebuffer_bpp;
 	fb_ok = sys_framebuffer_width >= 640 && sys_framebuffer_height >= 480 && sys_framebuffer_addr;

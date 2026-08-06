@@ -63,3 +63,22 @@ Stack progress: (# done, ~ WIP, . N/A)
 			then directly calls the appropriate handler.
 
 		- IPV4Handler was moved to NetHandler file.
+
+BCM57766 / TG3 (Mac mini 2014, Macmini7,1)
+
+	PCI ID: 14e4:1686. Driver: $FG,4$::/Home/Net/Drivers/TG3.ZC$FG,0$.
+
+	Registered in $FG,4$Drivers/Run.ZC$FG,0$ after VirtIO/E1000/PCNet so VMs keep
+	their NICs; bare-metal Mac mini matches Broadcom first-hit among installed
+	hardware (no VirtIO on mini).
+
+	Firmware blobs under $FG,4$::/Home/Net/Drivers/Firmware/$FG,0$:
+		tg357766.bin (57766 path), tg3.bin (optional sibling).
+	Loaded via FileRead + MEM_WIN into chip SRAM when present; missing
+	firmware prints NetErr and still allows probe/MAC dump.
+
+	Clean-room ZealC only. Linux tg3 is register/flow reference outside the
+	tree ($FG,4$~/github/tg3-linux-ref$FG,0$); do not vendor GPL sources into src/.
+
+	Scope of this milestone: single queue, INTx, DHCP + Ping. No TSO, MSI-X,
+	multi-queue, or Wi-Fi (BCM4360).
