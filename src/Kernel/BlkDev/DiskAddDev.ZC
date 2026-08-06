@@ -249,6 +249,7 @@ U0 BlkDevsInitAll()
 	}
 
 	#exe {
+		StreamPrint("MountLiveRam;");
 		if (kernel_config->opts[CONFIG_MOUNT_AHCI_AUTO])
 			StreamPrint("MountAHCIAuto;");
 		StreamPrint("#exe {Option(OPTf_WARN_PAREN, OFF);}");

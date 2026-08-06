@@ -576,6 +576,9 @@ class CKernel
 	Bool			sys_is_uefi_booted;
 	U8				sys_bootloader_id;
 	CVideoInfo		sys_framebuffer_list[VBE_MODES_NUM];
+	// Limine live USB: contiguous RedSea image kept in RAM (see MountLiveRam).
+	U64				sys_live_addr;
+	U64				sys_live_size;
 };
 
 // Bootloader IDs

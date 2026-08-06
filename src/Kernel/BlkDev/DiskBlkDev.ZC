@@ -58,10 +58,17 @@ Bool BlkDevInit(CBlkDev *bd)
 				drive->fs_type = FSt_REDSEA;
 				drive->size = bd->max_blk + 1 - bd->drv_offset;
 				if (RedSeaValidate(bd->first_drive_let))
+				{
 					RedSeaInit(drive);
+					res = TRUE;
+				}
+				else if (bd->flags & BDF_READ_ONLY)
+					PrintErr("Live RAM image is not RedSea\n");
 				else
+				{
 					RedSeaFormat(bd->first_drive_let);
-				res = TRUE;
+					res = TRUE;
+				}
 				break;
 
 			case BDT_ISO_FILE_READ:

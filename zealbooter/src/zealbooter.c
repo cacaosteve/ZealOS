@@ -137,6 +137,8 @@ struct CKernel {
 	uint8_t sys_is_uefi_booted;
     uint8_t sys_bootloader_id;
 	struct CVideoInfo sys_framebuffer_list[VBE_MODES_NUM];
+	uint64_t sys_live_addr;
+	uint64_t sys_live_size;
 } __attribute__((packed));
 
 #define BL_ZEAL    0
@@ -183,12 +185,39 @@ void kmain(void) {
     printf("ZealBooter prekernel\n");
     printf("____________________\n\n");
 
+    if (!module_request.response || module_request.response->module_count < 1) {
+        printf("ERROR: no Limine modules\n");
+        for (;;) { asm("hlt"); }
+    }
+
     struct limine_file *module_kernel = module_request.response->modules[0];
+    struct limine_file *module_live = NULL;
+    for (uint64_t mi = 1; mi < module_request.response->module_count; mi++) {
+        struct limine_file *m = module_request.response->modules[mi];
+        if (m && m->path) {
+            // Prefer Live.ISO.C; otherwise take the first extra module.
+            const char *p = m->path;
+            const char *leaf = p;
+            for (const char *q = p; *q; q++)
+                if (*q == '/')
+                    leaf = q + 1;
+            if (leaf[0] == 'L' && leaf[1] == 'i' && leaf[2] == 'v' && leaf[3] == 'e') {
+                module_live = m;
+                break;
+            }
+            if (!module_live)
+                module_live = m;
+        }
+    }
+
     struct CKernel *kernel = module_kernel->address;
 
     const size_t trampoline_size = (uintptr_t)trampoline_end - (uintptr_t)trampoline;
     const size_t boot_stack_size = 32768;
-    const size_t final_size = align_up_u64(module_kernel->size + trampoline_size, 16) + boot_stack_size;
+    const size_t live_size = module_live ? (size_t)module_live->size : 0;
+    const size_t live_size_aligned = align_up_u64(live_size, 4096);
+    const size_t kernel_region = align_up_u64(module_kernel->size + trampoline_size, 16) + boot_stack_size;
+    const size_t final_size = kernel_region + live_size_aligned;
 
     uintptr_t final_address = (uintptr_t)-1;
     for (size_t i = 0; i < memmap_request.response->entry_count; i++) {
@@ -204,11 +233,13 @@ void kmain(void) {
         }
     }
     if (final_address == (uintptr_t)-1) {
-        printf("ERROR: could not find valid final address");
+        printf("ERROR: could not find valid final address (need 0x%X bytes)\n", final_size);
         for (;;) { asm("hlt"); }
     }
 
 	printf("final_address: 0x%X\n", final_address);
+	if (module_live)
+		printf("live module: %s size=0x%X\n", module_live->path ? module_live->path : "(null)", live_size);
 
     struct limine_framebuffer *fb = framebuffer_request.response->framebuffers[0];
     kernel->sys_framebuffer_pitch = fb->pitch;
@@ -248,12 +279,16 @@ void kmain(void) {
 
     printf("entry_point: 0x%X\n", entry_point);
 
-    if (module_kernel->media_type == LIMINE_MEDIA_TYPE_OPTICAL)
-        kernel->boot_src = BOOT_SRC_DVD;
-    else if (module_kernel->media_type == LIMINE_MEDIA_TYPE_GENERIC)
-        kernel->boot_src = BOOT_SRC_HDD;
-    else
+    if (module_live) {
+        // USB stick / GENERIC media: root is the RedSea image in RAM, not the HD.
         kernel->boot_src = BOOT_SRC_RAM;
+    } else if (module_kernel->media_type == LIMINE_MEDIA_TYPE_OPTICAL) {
+        kernel->boot_src = BOOT_SRC_DVD;
+    } else if (module_kernel->media_type == LIMINE_MEDIA_TYPE_GENERIC) {
+        kernel->boot_src = BOOT_SRC_HDD;
+    } else {
+        kernel->boot_src = BOOT_SRC_RAM;
+    }
     kernel->boot_blk = 0;
     kernel->boot_patch_table_base = (uintptr_t)kernel + kernel->h.patch_table_offset;
     kernel->boot_patch_table_base -= (uintptr_t)module_kernel->address;
@@ -366,6 +401,17 @@ void kmain(void) {
     }
 
     kernel->sys_bootloader_id = BL_LIMINE;
+
+    kernel->sys_live_addr = 0;
+    kernel->sys_live_size = 0;
+    if (module_live && live_size >= 512) {
+        uintptr_t live_phys = final_address + kernel_region;
+        memcpy((void *)live_phys, module_live->address, live_size);
+        // RedSea I/O is block-sized; drop a partial trailing block if any.
+        kernel->sys_live_addr = live_phys;
+        kernel->sys_live_size = live_size & ~((uint64_t)511);
+        printf("sys_live_addr: 0x%X size: 0x%X\n", kernel->sys_live_addr, kernel->sys_live_size);
+    }
 
     memcpy(trampoline_phys, trampoline, trampoline_size);
     memcpy((void *)final_address, kernel, module_kernel->size);

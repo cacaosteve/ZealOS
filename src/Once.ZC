@@ -99,15 +99,26 @@ U0 Tmp()
 			}
 			break;
 		case BOOT_SRC_DVD:
+		case BOOT_SRC_RAM:
 			DocBottom;
-			"\nLive ISO boot ready.\n";
+			if (sys_boot_src.u16[0] == BOOT_SRC_RAM && sys_live_size)
+				"\nLive USB (RAM) boot ready.\n";
+			else if (sys_boot_src.u16[0] == BOOT_SRC_DVD)
+				"\nLive ISO boot ready.\n";
+			else
+			{
+				"\n$$PURPLE$$$$TX+CX,\"Tips of the Day\"$$$$FG$$\n";
+				TipOfDay;Yield;
+				TipOfDay;
+				Type("::/Doc/Customize.DD");
+				break;
+			}
 			ExeFile("::/Demo/MacMiniProbe");
 			"\nRun $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n"
 			"Mac mini / UEFI: $$LK,\"InstallMacMini.DD\",A=\"FI:::/Doc/InstallMacMini.DD\"$$\n";
 			Cd("::/Home");
 			break;
 		case BOOT_SRC_HARDDRIVE:
-		case BOOT_SRC_RAM:
 			"\n$$PURPLE$$$$TX+CX,\"Tips of the Day\"$$$$FG$$\n";
 			TipOfDay;Yield;
 			TipOfDay;

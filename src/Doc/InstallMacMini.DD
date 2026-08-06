@@ -1,6 +1,6 @@
 $WW,1$$FG,5$$TX+CX,"Mac mini / UEFI SATA Install"$$FG$
 
-Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA III$FG$ bay. No USB mass storage driver. The stick is boot media only (Apple firmware reads the ISO).
+Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA III$FG$ bay. The stick is boot media only: Limine loads $FG,2$Kernel.ZXE$FG$ and a RedSea $FG,2$Live.ISO.C$FG$ into RAM (no USB mass storage driver required for install).
 
 See also $LK,"Install.DD",A="FI:::/Doc/Install.DD"$ and $LK,"USBBoot.DD",A="FI:::/Doc/USBBoot.DD"$.
 
@@ -16,6 +16,8 @@ Use the $FG,2$BSD2-UEFI$FG$ ISO, not the PublicDomain-BIOS ISO:
   ./write-mac-mini-stick.sh /dev/diskN
 
 Or Balena Etcher / $FG,2$dd$FG$ the $FG,2$ZealOS-BSD2-UEFI-*.iso$FG$ onto the stick. Shut down the mini, plug the stick in, hold $FG,2$Option$FG$ at power-on, choose EFI Boot.
+
+Booter prints $FG,2$live module$FG$ / $FG,2$sys_live_addr$FG$, then ZealOS should say $FG,2$Live USB (RAM) boot ready$FG$ with root on $FG,2$A:$FG$ (RAM RedSea). The internal SSD may still show as $FG,2$C UNKNOWN$FG$ until you format it — that is expected.
 
 $FG,5$1) Probe$FG$
 Live ISO runs $LK,"MacMiniProbe",A="FI:::/Demo/MacMiniProbe.ZC"$ from $FG,2$/Home/Once.ZC$FG$. Re-run:

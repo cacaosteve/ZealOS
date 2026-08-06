@@ -1,6 +1,7 @@
 #!/bin/sh
 # Write ZealOS BSD2-UEFI ISO to a USB stick for Mac mini Option-boot.
-# Firmware reads the stick (no ZealOS USB MSC). Do not use TinkerOS .img.
+# Limine loads Kernel.ZXE + Boot/Live.ISO.C into RAM (no ZealOS USB MSC).
+# Do not use TinkerOS .img.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"

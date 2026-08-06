@@ -274,7 +274,9 @@ U0 InstallDriveFrom(U8 drv_let, U8 *src_root)
 
 	StrPrint(dst_root, "%C:/", drv_let);
 	"Copying system files to %s ...\n", dst_root;
-	if (sys_boot_src.u16[0] == BOOT_SRC_DVD && sys_usb_input_active)
+	if ((sys_boot_src.u16[0] == BOOT_SRC_DVD ||
+		(sys_boot_src.u16[0] == BOOT_SRC_RAM && sys_live_size)) &&
+		sys_usb_input_active)
 	{
 		"Pausing USB input polling during live-CD copy.\n";
 		UsbPollPause;

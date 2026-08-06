@@ -182,6 +182,12 @@ U0 KMain()
 	"BlkDevsInitAll;\n";
 	BlkDevsInitAll;
 	boot_drv_let = 0;
+	if (sys_boot_src.u16[0] == BOOT_SRC_RAM && sys_live_size &&
+		(boot_drive = Letter2Drive('A', FALSE)) && boot_drive->bd->type == BDT_RAM)
+	{
+		boot_drv_let = 'A';
+		blkdev.boot_drive_let = 'A';
+	}
 	if (sys_boot_src.u16[0] == BOOT_SRC_DVD)
 		for (i = 'T'; i <= 'Z'; i++)
 			if ((boot_drive = Letter2Drive(i, FALSE)) && boot_drive->bd->type == BDT_ATAPI)

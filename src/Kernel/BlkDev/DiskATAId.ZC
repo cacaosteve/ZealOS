@@ -77,3 +77,26 @@ I64 MountAHCIAuto()
 
 	return res;
 }
+
+Bool MountLiveRam()
+{//Mount Limine-provided RedSea image as A: (BDT_RAM letters are A-B only).
+	CBlkDev *bd;
+
+	if (!sys_live_addr || sys_live_size < BLK_SIZE)
+		return FALSE;
+	"MountLiveRam(0x%X, %d blks);\n", sys_live_addr, sys_live_size >> BLK_SIZE_BITS;
+	bd = BlkDevNextFreeSlot('A', BDT_RAM);
+	bd->RAM_disk = sys_live_addr;
+	bd->max_blk = (sys_live_size >> BLK_SIZE_BITS) - 1;
+	bd->drv_offset = 0;
+	bd->flags |= BDF_READ_ONLY;
+	bd->flags &= ~BDF_READ_CACHE;
+	if (!BlkDevAdd(bd,, FALSE, TRUE))
+	{
+		PrintErr("MountLiveRam failed\n");
+		return FALSE;
+	}
+	blkdev.boot_drive_let = 'A';
+
+	return TRUE;
+}
