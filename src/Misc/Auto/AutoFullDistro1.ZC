@@ -2,6 +2,9 @@ U0 Auto()
 {
 	WinMax;
 	BootMHDIns('C');
+//Grow CKernel + SYS_LIVE_* labels first so the rebuilt Kernel.ZXE exports them.
+//Do not copy KernelB.HH yet ΓÇö Comp Compiler (EXTERNS_TO_IMPORTS) still runs on
+//the AUTO.ISO kernel, which lacks SYS_LIVE_* until this BootHDIns finishes.
 	Copy("C:/Tmp/OSBuild/Kernel/KStart16.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KernelA.HH", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KConfig.ZC", "C:/Kernel/");

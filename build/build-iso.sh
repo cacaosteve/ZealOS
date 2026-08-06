@@ -68,6 +68,8 @@ verify_current_usb_tree() {
 	require_same_file "../src/Kernel/BlkDev/DiskATAId.ZC" "$root/Kernel/BlkDev/DiskATAId.ZC"
 	require_same_file "../src/Kernel/KMain.ZC" "$root/Kernel/KMain.ZC"
 	require_same_file "../src/Kernel/KStart16.ZC" "$root/Kernel/KStart16.ZC"
+	require_same_file "../src/Kernel/KernelB.HH" "$root/Kernel/KernelB.HH"
+	require_file "$root/Kernel/Usb/MakeKUsb.ZC"
 	require_same_file "../src/Kernel/SerialDev/Keyboard.ZC" "$root/Kernel/SerialDev/Keyboard.ZC"
 	require_same_file "../src/Kernel/SerialDev/MakeSerialDev.ZC" "$root/Kernel/SerialDev/MakeSerialDev.ZC"
 	require_same_file "../src/Kernel/SerialDev/Mouse.ZC" "$root/Kernel/SerialDev/Mouse.ZC"
@@ -174,6 +176,8 @@ require_file "$TMPMOUNT/Tmp/DVDKernel.ZXE"
 verify_current_usb_tree "$TMPMOUNT"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "MountLiveRam"
+require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "SYS_LIVE_ADDR"
+require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "UsbKernelBusInit"
 cp "$TMPMOUNT/Tmp/MyDistro.ISO.C" ./ZealOS-MyDistro.iso
 # Keep a copy for the Limine RAM-live module before clearing the mount copy.
 cp "$TMPMOUNT/Tmp/MyDistro.ISO.C" ./Live.ISO.C
@@ -200,6 +204,8 @@ require_file "$TMPISODIR/Boot/Live.ISO.C"
 verify_current_usb_tree "$TMPISODIR"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "MountLiveRam"
+require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "SYS_LIVE_ADDR"
+require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "UsbKernelBusInit"
 umount_tempdisk
 
 truncate -s 32K bios_boot.img

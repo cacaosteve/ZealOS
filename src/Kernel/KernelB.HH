@@ -259,7 +259,25 @@ public _extern SYS_SMBIOS_ENTRY U8	*sys_smbios_entry;
 public _extern SYS_DISK_UUID  U64	sys_disk_uuid[2];
 public _extern SYS_IS_UEFI_BOOTED	Bool	sys_is_uefi_booted;
 public _extern SYS_BOOTLOADER_ID	U8		sys_bootloader_id;
+// Live-RAM (Limine). AOT Kernel always binds KStart16 labels. JIT (StartOS /
+// AUTO.ISO bootstrap) stubs to 0 when the running Kernel.ZXE predates SYS_LIVE_*.
+#ifaot
 public _extern SYS_LIVE_ADDR		U64		sys_live_addr;
 public _extern SYS_LIVE_SIZE		U64		sys_live_size;
+#endif
+#ifjit
+#exe {
+	if (HashFind("SYS_LIVE_ADDR", Fs->hash_table, HTT_EXPORT_SYS_SYM))
+	{
+		StreamPrint("public _extern SYS_LIVE_ADDR\tU64\tsys_live_addr;\n");
+		StreamPrint("public _extern SYS_LIVE_SIZE\tU64\tsys_live_size;\n");
+	}
+	else
+	{
+		StreamPrint("public U64 sys_live_addr = 0;\n");
+		StreamPrint("public U64 sys_live_size = 0;\n");
+	}
+};
+#endif
 
 #help_index ""
