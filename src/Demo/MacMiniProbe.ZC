@@ -29,11 +29,12 @@ U0 MacMiniProbeWrite(U8 *st)
 
 public U0 MacMiniProbe()
 {
-	I64 i, ata_count = 0, atapi_count = 0, bdf;
+	I64 i, ata_count = 0, atapi_count = 0, bdf, usb_msd = 0;
 	CAHCIPort *port;
 	U8 *st, *p;
 	Bool usb_ok, ata_ok, fb_ok;
 	CPCIDev *tg3_pci;
+	CDrive *drive;
 
 	st = MAlloc(4096);
 	st[0] = 0;
@@ -89,6 +90,48 @@ public U0 MacMiniProbe()
 	{
 		"$$RED$$TG3 Ethernet PCI 14e4:1686 NOT found.$$FG$$\n";
 		CatPrint(p, "tg3=0\n");
+	}
+
+	if (HashFind("UsbKernelBusInit", Fs->hash_table, HTT_FUN))
+	{
+		"Kernel USB (xHCI bus): linked.\n";
+		CatPrint(p, "kusb=1\n");
+		if (HashFind("UsbRep", Fs->hash_table, HTT_FUN))
+			ExePrint("UsbRep;");
+	}
+	else
+	{
+		"$$RED$$Kernel USB not linked.$$FG$$\n";
+		CatPrint(p, "kusb=0\n");
+	}
+
+	usb_msd = 0;
+	for (i = 0; i < DRIVES_NUM; i++)
+	{
+		drive = &blkdev.drvs[i];
+		if (drive->drive_signature == DRIVE_SIGNATURE_VAL && drive->bd &&
+				drive->bd->type == BDT_USB)
+		{
+			"  USB MSD drive %C: (BDT_USB)\n", Drive2Letter(drive);
+			CatPrint(p, "usb_msd %C\n", Drive2Letter(drive));
+			usb_msd++;
+		}
+	}
+	"USB MSD mounts: %d\n", usb_msd;
+	CatPrint(p, "usb_msd_count=%d\n", usb_msd);
+
+	if (HashFind("UsbEcmPresent", Fs->hash_table, HTT_FUN))
+	{
+		if (UsbEcmPresent)
+		{
+			"$$GREEN$$UsbEcmPresent (CDC-ECM dongle bound).$$FG$$\n";
+			CatPrint(p, "usb_ecm=1\n");
+		}
+		else
+		{
+			"UsbEcmPresent=0 (no ECM NIC; TG3 or none).\n";
+			CatPrint(p, "usb_ecm=0\n");
+		}
 	}
 
 	"Framebuffer: %dx%d bpp=%d\n", sys_framebuffer_width, sys_framebuffer_height, sys_framebuffer_bpp;

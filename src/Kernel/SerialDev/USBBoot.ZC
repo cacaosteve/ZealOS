@@ -1,9 +1,10 @@
 // Boot-time USB orchestration. Included last in MakeSerialDev.ZC so EhciCoreInit
 // and UsbCoreInit are both fully defined (no forward-decl stubs).
+// Public $LK,"UsbBootInit",A="MN:UsbBootInit"$ lives in Kernel/Usb (dual-stack wrapper).
 
 public U0 UsbInputCoreInit()
-{
-	I64 uhci_active, ehci_active, xhci_active, best_score, best_backend;
+{//UHCI/EHCI HID only. SerialDev xHCI skipped ΓÇö Kernel USB owns xHCI.
+	I64 uhci_active, ehci_active, best_score, best_backend;
 
 	sys_usb_input_active = 0;
 	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
@@ -19,11 +20,6 @@ public U0 UsbInputCoreInit()
 	EhciCoreInit;
 	ehci_active = sys_usb_input_active;
 
-	sys_usb_input_active = 0;
-	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
-	UsbCoreInit;
-	xhci_active = sys_usb_input_active;
-
 	// UTM/Q35 can let UHCI enumerate companion devices while EHCI owns the
 	// usable UI path. Prefer EHCI when both claim the same input coverage.
 	best_score = UsbActiveScore(ehci_active);
@@ -33,11 +29,6 @@ public U0 UsbInputCoreInit()
 		best_score = UsbActiveScore(uhci_active);
 		best_backend = 0;
 	}
-	if (UsbActiveScore(xhci_active) > best_score)
-	{
-		best_score = UsbActiveScore(xhci_active);
-		best_backend = 2;
-	}
 
 	if (!best_score)
 		return;
@@ -45,10 +36,8 @@ public U0 UsbInputCoreInit()
 	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
 	if (best_backend == 0)
 		UhciCoreInit;
-	else if (best_backend == 1)
-		EhciCoreInit;
 	else
-		UsbCoreInit;
+		EhciCoreInit;
 }
 
 public U0 UsbInit()
@@ -178,11 +167,12 @@ public U0 UsbBootLastWrite()
 	Free(st);
 }
 
-public U0 UsbBootInit()
-{
-	I64 i;
+public U0 UsbLegacyInputInit()
+{//SerialDev UHCI/EHCI HID. Called from Kernel USB $LK,"UsbBootInit",A="MN:UsbBootInit"$.
+	I64 i, prev_active;
 
-	if ((sys_usb_input_active & (UK | UM)) == (UK | UM))
+	prev_active = sys_usb_input_active; //preserve Kernel USB HID bits (UK/UM)
+	if ((prev_active & (UK | UM)) == (UK | UM))
 		return;
 	sys_usb_suppress_single_step = 1;
 	usb_verbose = 0;
@@ -191,6 +181,7 @@ public U0 UsbBootInit()
 	usb_debug_stage = 900;
 	UsbBootLastWrite;
 	UsbInputCoreInit;
+	sys_usb_input_active |= prev_active;
 	UsbBootLastWrite;
 	if (sys_usb_input_active & UK)
 		XhkIntrSub;
@@ -209,8 +200,7 @@ public U0 UsbBootInit()
 	}
 	else
 		UsbPollEvt;
-	// Poll-only at boot: IOAPIC remap in UsbIntrEnable broke timer/keyboard on xHCI.
-	// Use UdRun or UsbInit after the system is up to enable xHCI IRQs.
+	// Poll-only at boot for SerialDev path.
 	if (!(sys_usb_input_active & UM))
 		UdBgResume;
 	else

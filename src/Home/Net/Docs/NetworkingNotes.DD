@@ -82,3 +82,23 @@ BCM57766 / TG3 (Mac mini 2014, Macmini7,1)
 
 	Scope of this milestone: single queue, INTx, DHCP + Ping. No TSO, MSI-X,
 	multi-queue, or Wi-Fi (BCM4360).
+
+$FG,5$USB stacks (UTM + Mac mini)$FG,0$
+
+	Two complementary USB stacks share one tree:
+
+	* $FG,4$SerialDev$FG,0$ UHCI/EHCI HID (keyboard/mouse/tablet) for UTM/Q35 UI input.
+	  SerialDev xHCI is idle when Kernel USB is built in.
+	* $FG,4$Kernel/Usb$FG,0$ (y4mOS-derived) xHCI bus: HID, mass storage ($FG,4$BDT_USB$FG,0$),
+	  hubs, and CDC-ECM. Letters $FG,4$V–Z$FG,0$.
+
+	$FG,4$UsbBootInit$FG,0$ runs both: legacy HID then Kernel bus.
+	$FG,4$BlkDevsInitAll$FG,0$ calls $FG,4$UsbKernelBusInit$FG,0$ early so USB volumes exist
+	before mount config finishes. Live RAM boot ($FG,4$MountLiveRam$FG,0$) is unchanged.
+
+$FG,5$USB CDC-ECM net fallback$FG,0$
+
+	Kernel binds CDC-ECM dongles ($FG,4$UsbEcmPresent$FG,0$). If no PCI NIC matches
+	(VirtIO/RTL/E1000/PCNet/TG3), $FG,4$Drivers/Run.ZC$FG,0$ loads $FG,4$UsbEcm.ZC$FG,0$.
+	Built-in TG3 always wins over a USB ethernet dongle when both exist.
+	No Broadcom Wi‑Fi (BCM4360).

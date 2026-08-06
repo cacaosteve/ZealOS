@@ -1,0 +1,12 @@
+// Sourced from y4mOS Kernel USB (ZealOS fork); adapted for this tree (dual-stack with SerialDev UHCI/EHCI).
+
+#exe {Cd(__DIR__);};
+#include "KUsb.HH"
+#include "KXhci"
+#include "KUsbCore"
+#include "KUsbHid"
+#include "KUsbMsd"
+#include "KUsbEcm"
+#include "KUsbHub"
+#include "KUsbBoot"
+#exe {Cd("..");};

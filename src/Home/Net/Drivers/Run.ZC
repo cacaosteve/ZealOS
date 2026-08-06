@@ -82,8 +82,16 @@ U0 NetDriverInit()
 
 	if (!found)
 	{
-		ClassRep(net_pci);
-		throw('NODRIVER');
+		if (UsbEcmPresent)
+		{
+			NetLog("Net: no PCI NIC; falling back to USB CDC-ECM");
+			NetDriverInclude("UsbEcm");
+		}
+		else
+		{
+			ClassRep(net_pci);
+			throw('NODRIVER');
+		}
 	}
 }
 

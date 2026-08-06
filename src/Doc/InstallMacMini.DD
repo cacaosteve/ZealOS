@@ -1,14 +1,16 @@
 $WW,1$$FG,5$$TX+CX,"Mac mini / UEFI SATA Install"$$FG$
 
-Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA III$FG$ bay. The stick is boot media only: Limine loads $FG,2$Kernel.ZXE$FG$ and a RedSea $FG,2$Live.ISO.C$FG$ into RAM (no USB mass storage driver required for install).
+Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA III$FG$ bay. The stick is boot media only: Limine loads $FG,2$Kernel.ZXE$FG$ and a RedSea $FG,2$Live.ISO.C$FG$ into RAM (primary install path; no USB MSC required).
+
+Kernel USB ($FG,2$BDT_USB$FG$) can also mount a USB stick as drive letters $FG,2$V–Z$FG$ when present — useful for copying files, not required for live install.
 
 See also $LK,"Install.DD",A="FI:::/Doc/Install.DD"$ and $LK,"USBBoot.DD",A="FI:::/Doc/USBBoot.DD"$.
 
 $FG,5$Not supported$FG$
 * PCIe blade SSD / NVMe (after High Sierra firmware).
-* Installing onto the USB stick itself (no MSC).
+* Installing onto the USB stick as the only boot volume without ESP/SATA (live RAM remains the install source).
 * TinkerOS $FG,2$.img$FG$ live-USB (legacy/RAM, no EFI + no HID).
-
+* Broadcom Wi?Fi (BCM4360). Ethernet: built-in TG3 ($FG,2$14e4:1686$FG$) or USB CDC-ECM dongle fallback.
 $FG,5$0) Write the stick (host)$FG$
 Use the $FG,2$BSD2-UEFI$FG$ ISO, not the PublicDomain-BIOS ISO:
 
