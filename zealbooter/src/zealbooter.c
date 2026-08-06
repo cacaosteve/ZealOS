@@ -181,14 +181,50 @@ static struct E801 get_E801(void) {
     return E801;
 }
 
+static void halt_forever(void) {
+    for (;;) { asm("hlt"); }
+}
+
 void kmain(void) {
+    struct limine_framebuffer *fb = NULL;
+    bool have_fb = false;
+
+    /* Paint diagnostics ASAP. Limine text disappears once we clear the FB. */
+    if (framebuffer_request.response &&
+        framebuffer_request.response->framebuffer_count > 0 &&
+        framebuffer_request.response->framebuffers &&
+        framebuffer_request.response->framebuffers[0] &&
+        framebuffer_request.response->framebuffers[0]->address) {
+        fb = framebuffer_request.response->framebuffers[0];
+        have_fb = fb_console_init(fb);
+    }
+
     printf("ZealBooter prekernel\n");
     printf("____________________\n\n");
 
+    if (!have_fb) {
+        /* No way to show text; avoid null deref and stop. */
+        halt_forever();
+    }
+
+    printf("fb: %ux%u bpp=%u pitch=%u\n",
+           (unsigned)fb->width, (unsigned)fb->height,
+           (unsigned)fb->bpp, (unsigned)fb->pitch);
+
+    if (!hhdm_request.response) {
+        printf("ERROR: no HHDM response\n");
+        halt_forever();
+    }
+    if (!memmap_request.response || !memmap_request.response->entries) {
+        printf("ERROR: no memmap response\n");
+        halt_forever();
+    }
     if (!module_request.response || module_request.response->module_count < 1) {
         printf("ERROR: no Limine modules\n");
-        for (;;) { asm("hlt"); }
+        halt_forever();
     }
+
+    printf("modules: %u\n", (unsigned)module_request.response->module_count);
 
     struct limine_file *module_kernel = module_request.response->modules[0];
     struct limine_file *module_live = NULL;
@@ -208,6 +244,11 @@ void kmain(void) {
             if (!module_live)
                 module_live = m;
         }
+    }
+
+    if (!module_kernel || !module_kernel->address) {
+        printf("ERROR: kernel module missing\n");
+        halt_forever();
     }
 
     struct CKernel *kernel = module_kernel->address;
@@ -234,29 +275,33 @@ void kmain(void) {
     }
     if (final_address == (uintptr_t)-1) {
         printf("ERROR: could not find valid final address (need 0x%X bytes)\n", final_size);
-        for (;;) { asm("hlt"); }
+        halt_forever();
     }
 
-	printf("final_address: 0x%X\n", final_address);
+	printf("final_address: 0x%X need: 0x%X\n", final_address, final_size);
 	if (module_live)
 		printf("live module: %s size=0x%X\n", module_live->path ? module_live->path : "(null)", live_size);
+	else
+		printf("WARNING: no Live.ISO.C module\n");
 
-    struct limine_framebuffer *fb = framebuffer_request.response->framebuffers[0];
     kernel->sys_framebuffer_pitch = fb->pitch;
     kernel->sys_framebuffer_width = fb->width;
     kernel->sys_framebuffer_height = fb->height;
     kernel->sys_framebuffer_bpp = fb->bpp;
     kernel->sys_framebuffer_addr = (uintptr_t)fb->address - hhdm_request.response->offset;
+    printf("fb phys: 0x%X\n", kernel->sys_framebuffer_addr);
 
     struct limine_video_mode *mode;
-    for (size_t i = 0, j = 0; i < fb->mode_count && i < VBE_MODES_NUM; i++)
-    {
-        mode = fb->modes[i];
-        if (mode->bpp == 32)
+    if (fb->modes) {
+        for (size_t i = 0, j = 0; i < fb->mode_count && i < VBE_MODES_NUM; i++)
         {
-            kernel->sys_framebuffer_list[j].height = mode->height;
-            kernel->sys_framebuffer_list[j].width = mode->width;
-            j++;
+            mode = fb->modes[i];
+            if (mode && mode->bpp == 32)
+            {
+                kernel->sys_framebuffer_list[j].height = mode->height;
+                kernel->sys_framebuffer_list[j].width = mode->width;
+                j++;
+            }
         }
     }
 
@@ -406,17 +451,27 @@ void kmain(void) {
     kernel->sys_live_size = 0;
     if (module_live && live_size >= 512) {
         uintptr_t live_phys = final_address + kernel_region;
+        printf("copying live image to 0x%X (%u bytes)...\n",
+               live_phys, (unsigned)live_size);
+        if (!module_live->address) {
+            printf("ERROR: live module address is NULL\n");
+            halt_forever();
+        }
         memcpy((void *)live_phys, module_live->address, live_size);
         // RedSea I/O is block-sized; drop a partial trailing block if any.
         kernel->sys_live_addr = live_phys;
         kernel->sys_live_size = live_size & ~((uint64_t)511);
         printf("sys_live_addr: 0x%X size: 0x%X\n", kernel->sys_live_addr, kernel->sys_live_size);
+    } else {
+        printf("skipping live copy (no usable Live module)\n");
     }
 
+    printf("installing trampoline + kernel at 0x%X...\n", final_address);
     memcpy(trampoline_phys, trampoline, trampoline_size);
     memcpy((void *)final_address, kernel, module_kernel->size);
 
-//    printf("\nDEBUG: halting."); for (;;);
+    printf("jumping to trampoline 0x%X\n", trampoline_phys);
+//    printf("\nDEBUG: halting."); halt_forever();
     asm volatile (
         "jmp *%0"
         :
