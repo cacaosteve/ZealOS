@@ -1,0 +1,72 @@
+// One-shot recovery when StartOS JIT fails on _extern SYS_LIVE_ADDR
+// (KernelB.HH newer than running Kernel.ZXE). Synced by patch-utm-disk.sh
+// when RECOVER_SYS_LIVE=1. Restores StartOS.ZC from StartOS.Real.ZC after Comp.
+
+public U0 BootKernelRecoverSysLive()
+{
+	I64 errs = -1, size, was_srv;
+	U8 *st, *buf;
+
+	Cd("C:/");
+	Option(0, 1);
+	Del("C:/Home/BootInsErrs.DD",, FALSE, FALSE);
+	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/BootInsStage.DD", "recover", 7);
+	"BootKernelRecover: Comp /Kernel/Kernel (exports SYS_LIVE_ADDR)...\n";
+	was_srv = Bt(&sys_run_level, RLf_SYSTEM_SERVER);
+	if (!was_srv)
+		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
+	try
+		errs = Comp("C:/Kernel/Kernel", "Kernel",, ':');
+	catch
+	{
+		Fs->catch_except = TRUE;
+		errs = -1;
+	}
+	if (!was_srv)
+		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
+	"BootKernelRecover: Comp errs=%d\n", errs;
+
+	st = MStrPrint("errs=%d\n", errs);
+	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
+	Free(st);
+	if (errs)
+	{
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		Cd("C:/Home");
+		return;
+	}
+
+	FileWrite("C:/Home/BootInsStage.DD", "copy", 4);
+	Del("/Boot/Kernel.ZXE",, FALSE, FALSE);
+	buf = FileRead("/Kernel/Kernel.ZXE", &size);
+	if (!buf)
+	{
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		FileWrite("C:/Home/BootInsErrs.DD", "read\n", 5);
+		return;
+	}
+	if (!FileWrite("/Boot/Kernel.ZXE", buf, size))
+	{
+		Free(buf);
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		FileWrite("C:/Home/BootInsErrs.DD", "write\n", 6);
+		return;
+	}
+	Free(buf);
+
+//Put real StartOS back before reboot so the next boot is normal.
+	if (buf = FileRead("C:/StartOS.Real.ZC", &size))
+	{
+		FileWrite("C:/StartOS.ZC", buf, size);
+		Free(buf);
+		"BootKernelRecover: restored StartOS.ZC\n";
+	}
+	else
+		"BootKernelRecover: WARNING missing StartOS.Real.ZC\n";
+
+	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
+	Reboot;
+}
+
+BootKernelRecoverSysLive;

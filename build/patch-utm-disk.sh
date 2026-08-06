@@ -25,9 +25,17 @@ Kernel/KConfig.ZC
 Kernel/KMain.ZC
 Kernel/Kernel.PRJ
 Kernel/KernelA.HH
+Kernel/KernelB.HH
+Kernel/KernelC.HH
+Kernel/KStart16.ZC
+Kernel/KDefine.ZC
 Kernel/KDebug.ZC
 Kernel/PCI.ZC
 Kernel/BlkDev/DiskAddDev.ZC
+Kernel/BlkDev/DiskBlk.ZC
+Kernel/BlkDev/DiskBlkDev.ZC
+Kernel/BlkDev/DiskDrive.ZC
+Kernel/BlkDev/DiskATAId.ZC
 Kernel/SerialDev/MakeSerialDev.ZC
 Kernel/SerialDev/Mouse.ZC
 Kernel/SerialDev/USB.ZC
@@ -38,6 +46,15 @@ Kernel/SerialDev/USBControl.ZC
 Kernel/SerialDev/USBKbd.ZC
 Kernel/SerialDev/USBMouse.ZC
 Kernel/SerialDev/USBBoot.ZC
+Kernel/Usb/MakeKUsb.ZC
+Kernel/Usb/KUsb.HH
+Kernel/Usb/KXhci.ZC
+Kernel/Usb/KUsbCore.ZC
+Kernel/Usb/KUsbHid.ZC
+Kernel/Usb/KUsbMsd.ZC
+Kernel/Usb/KUsbEcm.ZC
+Kernel/Usb/KUsbHub.ZC
+Kernel/Usb/KUsbBoot.ZC
 Doc/Requirements.DD
 Doc/Strategy.DD
 Doc/WhyNotMore.DD
@@ -52,6 +69,11 @@ Home/BootInsAuto.DD
 Home/BootInsAuto.ZC
 Home/BootKernelOnly.ZC
 Home/BootKernelFull.ZC
+Home/BootKernelRecover.ZC
+Home/Net/Docs/NetworkingNotes.DD
+Home/Net/Drivers/Run.ZC
+Home/Net/Drivers/UsbEcm.ZC
+Home/Net/Drivers/TG3.ZC
 System/Boot/BootDVD.ZC
 System/Boot/BootDVDIns.ZC
 System/Boot/BootHD.ZC
@@ -183,11 +205,21 @@ if [ -n "$SYNC_HOME_KEY_PLUGINS" ]; then
 fi
 "$SCRIPT_DIR/check-zealc-encoding.sh" $ENCODING_FILES || exit 1
 
+ensure_fat_dirs() {
+	off=$1
+	# mtools needs parent dirs for new paths (Kernel/Usb, Home/Net/Drivers, ...).
+	for d in 		::/Kernel/Usb 		::/Home/Net 		::/Home/Net/Docs 		::/Home/Net/Drivers
+	do
+		mmd -i "$RAW@@${off}" "$d" 2>/dev/null || true
+	done
+}
+
 sync_partition() {
 	off=$1
 	label=$2
 	echo "Patching partition $label..."
 	mattrib -i "$RAW@@${off}" -r -/ ::/ >/dev/null 2>&1 || true
+	ensure_fat_dirs "$off"
 	for rel in $SYNC_FILES; do
 		local=$(local_path "$rel")
 		[ -f "$local" ] || { echo "Missing local file: $local"; exit 1; }
@@ -195,6 +227,12 @@ sync_partition() {
 		echo "  $rel"
 		mcopy -o -i "$RAW@@${off}" "$local" "$dest"
 	done
+	if [ -n "$RECOVER_SYS_LIVE" ]; then
+		echo "  RECOVER_SYS_LIVE: stash StartOS.ZC -> StartOS.Real.ZC, install recovery StartOS"
+		mcopy -o -i "$RAW@@${off}" "$SRC_DIR/StartOS.ZC" ::/StartOS.Real.ZC
+		mcopy -o -i "$RAW@@${off}" "$SRC_DIR/Home/StartOS.RecoverSysLive.ZC" ::/StartOS.ZC
+		mcopy -o -i "$RAW@@${off}" "$SRC_DIR/Home/BootKernelRecover.ZC" ::/Home/BootKernelRecover.ZC
+	fi
 }
 
 sync_partition "$PART1_OFF" "1"
@@ -317,13 +355,20 @@ verify_one() {
 }
 
 echo "Verifying checksums:"
-verify_one "StartOS.ZC"
+if [ -z "$RECOVER_SYS_LIVE" ]; then
+	verify_one "StartOS.ZC"
+fi
 verify_one "Home/Once.ZC"
 verify_one "Home/BootKernelFull.ZC"
+verify_one "Home/BootKernelRecover.ZC"
 verify_one "Kernel/KConfig.ZC"
 verify_one "Kernel/Kernel.PRJ"
 verify_one "Kernel/KernelA.HH"
+verify_one "Kernel/KernelB.HH"
+verify_one "Kernel/KStart16.ZC"
+verify_one "Kernel/Usb/MakeKUsb.ZC"
 verify_one "Kernel/KMain.ZC"
+verify_one "Home/Net/Drivers/UsbEcm.ZC"
 verify_one "Kernel/SerialDev/USBXHCI.ZC"
 verify_one "System/Math/Math.ZC"
 verify_one "System/Gr/GrMath.ZC"
@@ -380,6 +425,10 @@ elif [ -n "$AUTO_BOOT_INS" ]; then
 	else
 		echo "UTM recovery boot: keep Input USB = USB 3.0 (XHCI), turn PS/2 on, and no Additional Arguments."
 	fi
+elif [ -n "$RECOVER_SYS_LIVE" ]; then
+	echo "RECOVER_SYS_LIVE: next boot runs recovery StartOS (no KernelB JIT),"
+	echo "Compiles Kernel with SYS_LIVE_ADDR exports, restores StartOS.ZC, reboots."
+	echo "Leave the VM alone for several minutes. Then cold-boot once more."
 else
 	echo "Boot ZealOS, run BootHDInsAuto; then Reboot;"
 fi

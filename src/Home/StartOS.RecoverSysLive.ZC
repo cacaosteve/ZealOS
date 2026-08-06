@@ -1,0 +1,20 @@
+// Temporary StartOS for SYS_LIVE_ADDR skew recovery.
+// Do not #include KernelB.HH ù running Kernel.ZXE may lack SYS_LIVE_* exports.
+// BootKernelRecover Compiles a matching Kernel, restores StartOS.ZC, reboots.
+
+Option(0, 0); //(0,0)=EchoOff
+
+#include "/Kernel/KernelA.HH"
+#include "/Compiler/CompilerA.HH"
+#include "/Compiler/CompilerB.HH"
+
+"\n$$RED$$SYS_LIVE_ADDR recovery boot$$FG$$\n";
+"Compiling Kernel so SYS_LIVE_ADDR/SIZE export; then restore StartOS and reboot.\n";
+"This can take several minutes. Leave the VM alone.\n\n";
+
+Cd("C:/Home");
+ExeFile("C:/Home/BootKernelRecover");
+
+"\n$$RED$$Recovery did not reboot. Check C:/Home/BootInsErrs.DD$$FG$$\n";
+while (TRUE)
+	Sleep(1000);
