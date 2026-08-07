@@ -2,7 +2,6 @@ CHashFun *tmpf;
 if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&
 		!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))
 {
-	// Do not reference sys_usb_* here ΓÇö StartOS JIT parses them as sys_usb.member
-	// (Invalid lval). UsbBootInit prints status itself.
+	// Status print lives in UsbBootInit; compound USB globals are unsafe here.
 	ExePrint("UsbBootInit;");
 }
