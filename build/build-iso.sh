@@ -16,6 +16,11 @@ then
 fi
 
 [ "$1" = "--headless" ] && QEMU_HEADLESS='-display none'
+# SSH / no GUI: GTK display fails with "gtk initialization failed" and leaves an empty disk.
+if [ -z "${QEMU_HEADLESS:-}" ] && { [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; }; then
+	echo "No DISPLAY/WAYLAND_DISPLAY; using QEMU -display none (pass --headless explicitly to silence this)."
+	QEMU_HEADLESS='-display none'
+fi
 
 KVM=''
 (lsmod | grep -q kvm) && KVM=' -accel kvm'
@@ -23,6 +28,19 @@ QEMU_USB_INPUT='-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb
 
 # Set this true if you want to test ISOs in QEMU after building.
 TESTING=false
+
+# Change this if your default QEMU version does not work and you have installed a different version elsewhere.
+if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+	echo "ERROR: qemu-system-x86_64 not found. On Fedora: sudo dnf install -y qemu-system-x86 qemu-img qemu-kvm xorriso" >&2
+	exit 1
+fi
+QEMU_BIN_PATH="$(dirname "$(command -v qemu-system-x86_64)")"
+for need in qemu-img qemu-nbd; do
+	if [ ! -x "$QEMU_BIN_PATH/$need" ] && ! command -v "$need" >/dev/null 2>&1; then
+		echo "ERROR: $need not found next to qemu-system-x86_64 ($QEMU_BIN_PATH). Install qemu-img / qemu-kvm." >&2
+		exit 1
+	fi
+done
 
 TMPDIR="$(mktemp -d)"
 TMPISODIR="$TMPDIR/iso"
@@ -87,13 +105,16 @@ verify_current_usb_tree() {
 	require_file "$root/Demo/USBInput.ZC"
 }
 
-# Change this if your default QEMU version does not work and you have installed a different version elsewhere.
-QEMU_BIN_PATH="$(dirname "$(which qemu-system-x86_64)")"
-
 mount_tempdisk() {
 	sudo modprobe nbd
 	sudo "$QEMU_BIN_PATH/qemu-nbd" -c /dev/nbd0 -f raw "$TMPDISK"
+	# Give the kernel a moment; partprobe alone is flaky right after nbd connect.
+	sleep 1
 	sudo partprobe /dev/nbd0 || true
+	sleep 1
+	if [ ! -b /dev/nbd0p1 ]; then
+		fail_build "no /dev/nbd0p1 after auto-install (QEMU likely failed — use --headless over SSH, check AUTO.ISO ran)"
+	fi
 	sudo mount /dev/nbd0p1 "$TMPMOUNT"
 }
 
