@@ -122,12 +122,16 @@ public Bool Move(U8 *f1, U8 *f2)
 I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U8 *copy_buf)
 {
 	U8 *st;
-	I64 res = 1;
-	Bool trace;
+	I64 res = 1, n = 0;
 
 	while (tmpde)
 	{
-		trace = ToBool(StrIMatch("/StartOS.ZC", tmpde->full_name));
+		// Corrupt/partial FilesFind nodes: skip rather than GPF on full_name.
+		if (!tmpde->full_name)
+		{
+			tmpde = tmpde->next;
+			next;
+		}
 		st = MAlloc(StrLen(tmpde->full_name) + dst_dir_len + 2);
 		MemCopy(st, dst_dir, dst_dir_len);
 		StrCopy(st + dst_dir_len, tmpde->full_name + src_dir_len);
@@ -139,11 +143,13 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 		else
 			if (CopySingle(tmpde->full_name, st, copy_buf))
 				res++;
-		if (trace)
-			"StartOS copy trace: releasing destination path\n";
 		Free(st);
-		if (trace)
-			"StartOS copy trace: destination path released\n";
+		// Bound DolDoc growth during huge overlays (AutoFullDistro3 / live install).
+		if (!(++n & 63))
+		{
+			DocClear;
+			DocBottom;
+		}
 		tmpde = tmpde->next;
 	}
 

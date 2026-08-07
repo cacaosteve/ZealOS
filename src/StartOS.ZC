@@ -66,35 +66,55 @@ if (Letter2Drive('C', FALSE))
 	}
 	if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build"))
 	{
+		// Prefer staged OSBuild scripts when present so AUTO.ISO leftovers
+		// (In(ata_port), old stage3) do not run after the host copies src/.
 		if (FileFind("AutoISOStage5.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 5.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro5.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro5.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro5.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro5.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 		else if (FileFind("AutoISOStage4.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 4.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro4.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro4.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro4.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro4.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 		else if (FileFind("AutoISOStage3.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 3.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro3.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro3.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro3.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro3.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 		else if (FileFind("AutoISOStage2.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 2.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro2.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro2.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 		else if (FileFind("AutoISOStage1.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 1.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro1.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro1.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 		else
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 0.\\n\";\n"
-					"ExeFile(\"/Misc/Auto/AutoFullDistro0.ZC\");\n"
+					"if (FileFind(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro0.ZC\"))\n"
+					"\tExeFile(\"/Tmp/OSBuild/Misc/Auto/AutoFullDistro0.ZC\");\n"
+					"else\n"
+					"\tExeFile(\"/Misc/Auto/AutoFullDistro0.ZC\");\n"
 					"while (TRUE)\n\tSleep(1000);\n";
 	}
 	else if (FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||

@@ -1,7 +1,43 @@
 U0 Auto()
 {
+	Bool old_silent, usb_paused = FALSE;
+
 	WinMax;
+	// Prefer running from OSBuild/host-patched Misc/Auto (see StartOS + build-iso.sh).
+	// Reload CopyTree from staged sources so DocClear/null guards apply even when
+	// AUTO.ISO's in-memory System predates those fixes.
+	"Auto ISO stage 3: refresh CopyTree, overlay OSBuild -> C:/\n";
+	try
+	{
+		Copy("C:/Tmp/OSBuild/System/BlkDev/ZDiskA.ZC", "C:/System/BlkDev/ZDiskA.ZC");
+		ExeFile("/System/BlkDev/ZDiskA.ZC");
+	}
+	catch
+		Fs->catch_except = TRUE;
+
+	if (sys_usb_input_active)
+	{
+		try
+		{
+			UsbPollPause;
+			usb_paused = TRUE;
+		}
+		catch
+			Fs->catch_except = TRUE;
+	}
+	old_silent = Silent;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
+	Silent(old_silent);
+	DocClear;
+	DocBottom;
+	"OSBuild overlay complete.\n";
+	if (usb_paused)
+	{
+		try
+			UsbPollPause(FALSE);
+		catch
+			Fs->catch_except = TRUE;
+	}
 	BootHDIns;
 	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);

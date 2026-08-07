@@ -57,6 +57,8 @@ verify_current_usb_tree() {
 	require_same_file "../src/Misc/OSInstall.ZC" "$root/Misc/OSInstall.ZC"
 	require_same_file "../src/Once.ZC" "$root/Once.ZC"
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
+	require_same_file "../src/System/BlkDev/ZDiskA.ZC" "$root/System/BlkDev/ZDiskA.ZC"
+	require_same_file "../src/Misc/Auto/AutoFullDistro3.ZC" "$root/Misc/Auto/AutoFullDistro3.ZC"
 	require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
 	require_same_file "../src/System/Boot/BootHDIns.ZC" "$root/System/Boot/BootHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineMHDIns.ZC" "$root/System/Boot/LimineMHDIns.ZC"
@@ -137,11 +139,19 @@ mount_tempdisk
 sudo mkdir -p "$TMPMOUNT/Tmp/OSBuild"
 sudo cp -r ../src/* "$TMPMOUNT/Tmp/OSBuild/"
 sudo rm -f "$TMPMOUNT/Tmp/OSBuild/Home/UsbBootLast.DD"
+# AUTO.ISO leftovers under Misc/Auto and StartOS still drive stages until
+# OSBuild overlays C:/. Install current stage scripts + StartOS on the live
+# tree so stage 3 does not run the stock In(ata_port) AutoFullDistro3.
+sudo mkdir -p "$TMPMOUNT/Misc/Auto"
+sudo cp -f ../src/Misc/Auto/AutoFullDistro*.ZC "$TMPMOUNT/Misc/Auto/"
+sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
+sudo cp -f ../src/System/BlkDev/ZDiskA.ZC "$TMPMOUNT/System/BlkDev/ZDiskA.ZC"
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
 umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -device isa-debug-exit $QEMU_HEADLESS || true
+# Single CPU: ZealOS heap/USB is not SMP-hardened; stage3 CopyTree has GPF'd on -smp 4.
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 $QEMU_USB_INPUT -device isa-debug-exit $QEMU_HEADLESS || true
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 
