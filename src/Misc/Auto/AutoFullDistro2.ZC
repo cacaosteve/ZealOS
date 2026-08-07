@@ -3,12 +3,10 @@ U0 Auto()
 	I64 errs;
 
 	WinMax;
-	// No BootMHDIns ΓÇö interactive MBR menu hangs / looks like a reboot loop
-	// on headless AutoISO. BootRAM softboots the new Kernel without Selection.
-	// Do not call BootHDIns(): AUTO.ISO's BootHDIns swallows Comp failures and
-	// still returns, which advances the stage and reboot-loops. Comp here, then
-	// BootHDInsPrebuilt only on success.
-	"AutoISO stage 2: CopyTree Kernel + Comp + BootHDInsPrebuilt...\n";
+	// Comp first and stop on failure. AUTO.ISO BootHDIns swallows Comp errors,
+	// so a bare BootHDIns after a failed Comp would still advance the stage.
+	// BootHDInsPrebuilt is WIP-only ΓÇö not in AUTO.ISO System (Undefined Extern).
+	"AutoISO stage 2: CopyTree Kernel + Comp + BootHDIns...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
 	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
 	if (errs)
@@ -24,7 +22,8 @@ U0 Auto()
 		while (TRUE)
 			Sleep(1000);
 	}
-	BootHDInsPrebuilt;
+	// Install boot record + move Kernel.ZXE. MakeAll inside runs again (harmless).
+	BootHDIns;
 	Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
 	"AutoISO stage 2 ok; BootRAM to stage 3.\n";

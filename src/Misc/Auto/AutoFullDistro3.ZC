@@ -44,7 +44,7 @@ U0 Auto()
 		while (TRUE)
 			Sleep(1000);
 	}
-	BootHDInsPrebuilt;
+	BootHDIns;
 	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
