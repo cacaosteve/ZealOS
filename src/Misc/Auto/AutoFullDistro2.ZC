@@ -1,13 +1,15 @@
 U0 Auto()
 {
 	WinMax;
-	BootMHDIns('C');
+	// No BootMHDIns ΓÇö interactive MBR menu hangs AutoISO/headless QEMU.
+	"AutoISO stage 2: CopyTree Kernel + BootHDIns...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
 	try
 	{
 		BootHDIns;
 		Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
 		FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
+		"AutoISO stage 2 ok; rebooting to stage 3.\n";
 		Reboot;
 	}
 	catch

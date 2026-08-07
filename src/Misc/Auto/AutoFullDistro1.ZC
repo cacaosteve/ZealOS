@@ -1,7 +1,9 @@
 U0 Auto()
 {
 	WinMax;
-	BootMHDIns('C');
+	// Do not BootMHDIns here: it installs an interactive MBR "Selection:" prompt
+	// (INT 0x16) that hangs headless/AutoISO after Reboot. Partition boot from
+	// BootHDIns is enough; AUTO.ISO install already wrote an MBR.
 //Grow CKernel + SYS_LIVE_* labels first so the rebuilt Kernel.ZXE exports them.
 //Do not copy KernelB.HH yet ΓÇö Comp Compiler (EXTERNS_TO_IMPORTS) still runs on
 //the AUTO.ISO kernel, which lacks SYS_LIVE_* until this BootHDIns finishes.
@@ -12,11 +14,13 @@ U0 Auto()
 	Copy("C:/Tmp/OSBuild/Kernel/KConfig.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/BlkDev/DiskDrive.ZC", "C:/Kernel/BlkDev/");
 	Copy("C:/Tmp/OSBuild/Kernel/KDefine.ZC", "C:/Kernel/");
+	"AutoISO stage 1: BootHDIns (Comp Compiler + Kernel)...\n";
 	try
 	{
 		BootHDIns;
 		Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
 		FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
+		"AutoISO stage 1 ok; rebooting to stage 2.\n";
 		Reboot;
 	}
 	catch
