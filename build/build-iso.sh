@@ -145,7 +145,8 @@ sudo rm -f "$TMPMOUNT/Tmp/OSBuild/Home/UsbBootLast.DD"
 sudo mkdir -p "$TMPMOUNT/Misc/Auto"
 sudo cp -f ../src/Misc/Auto/AutoFullDistro*.ZC "$TMPMOUNT/Misc/Auto/"
 sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
-sudo cp -f ../src/System/BlkDev/ZDiskA.ZC "$TMPMOUNT/System/BlkDev/ZDiskA.ZC"
+# Do NOT copy ZDiskA onto live System yet: MakeSystem would JIT it against the
+# AUTO.ISO Kernel before stage2 installs 3-arg CopySingle (Missing ')' at ",").
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
 umount_tempdisk
 

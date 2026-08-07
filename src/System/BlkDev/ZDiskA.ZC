@@ -124,6 +124,9 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 	U8 *st;
 	I64 res = 1, n = 0;
 
+	// Kept for API compat with CopyTree; not passed to CopySingle (AUTO.ISO arity).
+	no_warn copy_buf;
+
 	while (tmpde)
 	{
 		// Corrupt/partial FilesFind nodes: skip rather than GPF on full_name.
@@ -138,7 +141,9 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 				res += CopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir, copy_buf);
 			}
 			else
-				if (CopySingle(tmpde->full_name, st, copy_buf))
+				// 2-arg only: AUTO.ISO Kernel may lack 3-arg CopySingle
+				// (Missing ')' at "," if a 3rd arg is passed too early in ISO stages).
+				if (CopySingle(tmpde->full_name, st))
 					res++;
 			Free(st);
 			// Bound DolDoc growth during huge overlays (AutoFullDistro3 / live install).
