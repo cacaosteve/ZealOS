@@ -5,12 +5,27 @@ U0 Auto()
 //Grow CKernel + SYS_LIVE_* labels first so the rebuilt Kernel.ZXE exports them.
 //Do not copy KernelB.HH yet ΓÇö Comp Compiler (EXTERNS_TO_IMPORTS) still runs on
 //the AUTO.ISO kernel, which lacks SYS_LIVE_* until this BootHDIns finishes.
+//KernelA adds BDT_USB / BDT_TYPES_NUM=7 ΓÇö must also refresh DiskDrive + KDefine
+//or BootHDIns fails (array init length) then still advances the stage and reboot-loops.
 	Copy("C:/Tmp/OSBuild/Kernel/KStart16.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KernelA.HH", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KConfig.ZC", "C:/Kernel/");
-	BootHDIns;
-	Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
-	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
-	Reboot;
+	Copy("C:/Tmp/OSBuild/Kernel/BlkDev/DiskDrive.ZC", "C:/Kernel/BlkDev/");
+	Copy("C:/Tmp/OSBuild/Kernel/KDefine.ZC", "C:/Kernel/");
+	try
+	{
+		BootHDIns;
+		Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
+		FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
+		Reboot;
+	}
+	catch
+	{
+		Fs->catch_except = TRUE;
+		"$$RED$$AutoISO stage 1 BootHDIns failed; not advancing stage.$$FG$$\n";
+		PutExcept;
+		while (TRUE)
+			Sleep(1000);
+	}
 }
 Auto;

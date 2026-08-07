@@ -3,9 +3,20 @@ U0 Auto()
 	WinMax;
 	BootMHDIns('C');
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
-	BootHDIns;
-	Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
-	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
-	Reboot;
+	try
+	{
+		BootHDIns;
+		Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
+		FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
+		Reboot;
+	}
+	catch
+	{
+		Fs->catch_except = TRUE;
+		"$$RED$$AutoISO stage 2 BootHDIns failed; not advancing stage.$$FG$$\n";
+		PutExcept;
+		while (TRUE)
+			Sleep(1000);
+	}
 }
 Auto;

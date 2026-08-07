@@ -3,8 +3,6 @@ U0 Auto()
 	Bool old_silent, usb_paused = FALSE;
 
 	WinMax;
-	// Do not ExeFile ZDiskA here: isolated JIT does not see Kernel's 3-arg
-	// CopySingle the same way MakeSystem does (Missing ')' at ",").
 	// Silent + DocClear avoid the DolDoc blow-up that GPFd the old overlay.
 	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
 	if (sys_usb_input_active)
@@ -30,10 +28,21 @@ U0 Auto()
 		catch
 			Fs->catch_except = TRUE;
 	}
-	BootHDIns;
-	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
-	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
-	DelTree("C:/Tmp/OSBuild");
-	Reboot;
+	try
+	{
+		BootHDIns;
+		Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+		FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
+		DelTree("C:/Tmp/OSBuild");
+		Reboot;
+	}
+	catch
+	{
+		Fs->catch_except = TRUE;
+		"$$RED$$AutoISO stage 3 BootHDIns failed; not advancing stage.$$FG$$\n";
+		PutExcept;
+		while (TRUE)
+			Sleep(1000);
+	}
 }
 Auto;
