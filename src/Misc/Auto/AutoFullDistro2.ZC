@@ -26,7 +26,7 @@ U0 Auto()
 	BootHDIns;
 	Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
-	"AutoISO stage 2 ok; rebooting to stage 3.\n";
-	Reboot;
+	"AutoISO stage 2 ok; BootRAM to stage 3.\n";
+	BootRAM("C:/Boot/Kernel.ZXE");
 }
 Auto;

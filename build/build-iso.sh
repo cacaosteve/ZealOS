@@ -169,6 +169,14 @@ sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
 # Do NOT copy ZDiskA onto live System yet: MakeSystem would JIT it against the
 # AUTO.ISO Kernel before stage2 installs 3-arg CopySingle (Missing ')' at ",").
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
+# AUTO.ISO BootMHD2 blocks forever at Selection:. Patch the on-disk stage-2
+# loader to return '1' (Drive C) immediately. QMP send-key is not reliable here.
+if [ -f "$TMPMOUNT/Boot/BootMHD2.BIN" ]; then
+	sudo python3 "$SCRIPT_DIR/patch-bootmhd2-autoselect.py" "$TMPMOUNT/Boot/BootMHD2.BIN" \
+		|| fail_build "BootMHD2.BIN autoselect patch failed"
+else
+	fail_build "missing $TMPMOUNT/Boot/BootMHD2.BIN after auto-install"
+fi
 umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."

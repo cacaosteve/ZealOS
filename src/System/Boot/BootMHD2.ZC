@@ -56,41 +56,10 @@ BMHD2_PUTS::
 				JMP 		@@1
 
 BMHD2_GETCHAR:
-// AutoISO / headless: prefer a waiting key, else after ~0.5s default to '1'
-// (Drive C when Old Boot Record is choice 0). Keep this short so stage
-// softboots are not mistaken for a Selection reboot-loop.
-				PUSH		DS
-				PUSH		CX
-				PUSH		DX
-				XOR			AX, AX
-				MOV			DS, AX
-				MOV			DX, U16 [0x046C] // start tick
-				MOV			CX, DX
-				ADD			CX, 9 // ~0.5 seconds at 18.2 Hz
-@@gc_wait:
-				MOV			AH, 0x01
-				INT			0x16
-				JNZ			@@gc_got
-				MOV			AX, U16 [0x046C]
-				CMP			AX, DX
-				JB			@@gc_default // midnight wrap ΓåÆ timeout
-				CMP			AX, CX
-				JB			@@gc_wait
-@@gc_default:
+// AutoISO / headless: never block on INT 0x16. Always pick '1' (Drive C when
+// Old Boot Record is choice 0). Interactive dual-boot can use BootMHDIns with
+// a custom menu after install; automated rebuilds must not stop at Selection.
 				MOV			AL, '1'
-				JMP			@@gc_echo
-@@gc_got:
-				XOR			AH, AH
-				INT			0x16
-@@gc_echo:
-				PUSH		AX
-				MOV			AH, 0x0E
-				MOV			BX, 0x07
-				INT			0x10
-				POP			AX
-				POP			DX
-				POP			CX
-				POP			DS
 				RET
 
 BMHD2_HISTART:
