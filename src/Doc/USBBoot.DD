@@ -22,7 +22,8 @@ $FG,5$Boot Sequence$FG$
 5. Reboot before $FG,2$BootHDInsAuto;$FG$ if USB already ran this session (frees RAM for the kernel compile).
 
 $FG,5$Dual USB stacks$FG$
-* $FG,2$SerialDev$FG$: UHCI/EHCI HID for UTM (tablet/mouse/kbd). SerialDev xHCI is not probed when Kernel USB is linked.
+* $FG,2$No duplicate globals across SerialDev and Kernel/Usb.$FG$ SerialDev $FG,2$UsbDevEnum$FG$ must be named $FG,2$UsbLegacyDevEnum$FG$ — a clash with Kernel $FG,2$Usb/UsbDevEnum$FG$ causes Fun header mismatch / Unused extern Comp storms.
+
 * $FG,2$Kernel/Usb$FG$: xHCI + HID + $FG,2$BDT_USB$FG$ mass storage (drive letters V–Z) + hubs + CDC-ECM. Used on Mac mini and for USB sticks/dongles.
 * $FG,2$UsbTaskMain$FG$ (spawned from $FG,2$KMain$FG$) polls Kernel HID/ECM and hotplug.
 $FG,5$Recovery (no keyboard at all)$FG$

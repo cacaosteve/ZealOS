@@ -1,16 +1,12 @@
 U0 Auto()
 {
 	WinMax;
-	// No BootMHDIns here ΓÇö AutoInstall already installed MBR. Reinstalling
-	// only refreshes the interactive Selection menu used on cold boots.
-	// Do not Reboot: Stage1 no longer rebuilds Kernel.ZXE. Chain into Stage2
-	// in-process so we never bounce through Selection between these stages.
+	// Advance to Stage2 and Reboot so StartOS re-reads stage markers.
+	// Do not ExeFile Stage2 here: nested Comp under ExeFile + BootRAM made
+	// failures hard to see and skipped a clean StartOS stage dispatch.
 	Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
-	"AutoISO stage 1: chaining to stage 2 (no BootHDIns / no Reboot).\n";
-	if (FileFind("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC"))
-		ExeFile("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC");
-	else
-		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
+	"AutoISO stage 1 ok; rebooting to stage 2.\n";
+	Reboot;
 }
 Auto;

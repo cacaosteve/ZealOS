@@ -48,7 +48,7 @@ U0 Auto()
 	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
-	"AutoISO stage 3 ok; BootRAM to stage 4.\n";
-	BootRAM("C:/Boot/Kernel.ZXE");
+	"AutoISO stage 3 ok; rebooting to stage 4.\n";
+	Reboot;
 }
 Auto;

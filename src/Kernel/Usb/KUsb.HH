@@ -446,7 +446,8 @@ public extern I64 UsbKernelBusInit();
 public extern U0  UsbBootInit();
 public extern U0  UsbBootDriveFallback();
 public extern U0  UsbTaskMain(I64 dummy=0);
-public extern U0  UsbLegacyInputInit();
+// UsbLegacyInputInit is defined in SerialDev/USBBoot.ZC (compiled earlier).
+// Do not re-extern it here ΓÇö Fun header mismatch / Unused extern storm.
 public extern I64  XhciInitAll();
 
 //CDC-ECM NIC interface for $LK,"UsbEcm.ZC",A="FF:::/Home/Net/Drivers/UsbEcm.ZC"$.

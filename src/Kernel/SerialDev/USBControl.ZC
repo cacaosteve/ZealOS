@@ -718,7 +718,7 @@ U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 	}
 }
 
-U0 UsbDevEnum(I64 slot, I64 port_speed)
+U0 UsbLegacyDevEnum(I64 slot, I64 port_speed)
 {
 	U8 *buf = usb.ctrl_buf;
 	I64 len, mps, active_before;
@@ -880,7 +880,7 @@ U0 UsbPortScan()
 					if (XHCIAddressDevice(slot, port_idx + 1, port_speed))
 					{
 						active_before = sys_usb_input_active;
-						UsbDevEnum(slot, port_speed);
+						UsbLegacyDevEnum(slot, port_speed);
 						if (sys_usb_input_active == active_before)
 							XHCIDisableSlot(slot);
 					}

@@ -164,6 +164,14 @@ if [ -d "$SRC_DIR/Kernel/BlkDev" ]; then
 		"$SRC_DIR/Kernel/BlkDev" --glob '*.ZC'
 fi
 
+# SerialDev and Kernel/Usb are both linked into Kernel.ZXE. Duplicate global
+# names (e.g. UsbDevEnum) cause Fun header mismatch storms and Comp hang.
+if [ -d "$SRC_DIR/Kernel/SerialDev" ] && [ -d "$SRC_DIR/Kernel/Usb" ]; then
+	check "SerialDev must not define UsbDevEnum (Kernel Usb owns it)" \
+		'^\s*(public\s+)?(U0|I64|Bool|CUsbDev\s*\*)\s+UsbDevEnum\s*\(' \
+		"$SRC_DIR/Kernel/SerialDev" --glob '*.ZC'
+fi
+
 # KbdMouseHandler already owns poll-mode USB after startup. A second task races
 # the same UHCI/EHCI transfer state and can replay raw HID bytes as input.
 check "duplicate USB background poller" 'Spawn\s*\(&UsbPollBgTask' \
