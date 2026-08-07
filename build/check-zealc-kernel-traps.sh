@@ -156,6 +156,14 @@ if [ -d "$SRC_DIR/Kernel/SerialDev" ]; then
 		"$SRC_DIR/Kernel/SerialDev" --glob '*.ZC'
 fi
 
+# BlkDev is included before Usb/MakeKUsb. Calls to Usb* from BlkDev fail Comp
+# with "Undefined identifier" when AUTO.ISO's kernel lacks those symbols as
+# imports (EXTERNS_TO_IMPORTS). Defer to UsbBootInit / UsbKernelBusInit.
+if [ -d "$SRC_DIR/Kernel/BlkDev" ]; then
+	check "Usb* call from BlkDev before MakeKUsb" '^\s*Usb[A-Za-z0-9_]+\s*;' \
+		"$SRC_DIR/Kernel/BlkDev" --glob '*.ZC'
+fi
+
 # KbdMouseHandler already owns poll-mode USB after startup. A second task races
 # the same UHCI/EHCI transfer state and can replay raw HID bytes as input.
 check "duplicate USB background poller" 'Spawn\s*\(&UsbPollBgTask' \

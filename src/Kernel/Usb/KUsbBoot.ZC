@@ -205,6 +205,7 @@ public U0 UsbBootInit()
 {//Dual-stack entry: SerialDev UHCI/EHCI HID (UTM) then Kernel xHCI bus (Mac mini).
 	UsbLegacyInputInit;
 	UsbKernelBusInit;
+	UsbBootDriveFallback;
 }
 
 U0 UsbBootDriveFallback()
