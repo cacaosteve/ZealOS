@@ -118,6 +118,8 @@ mkdir -p "$TMPMOUNT"
 mkdir -p "$TMPISODIR"
 
 echo "Checking ZealC kernel compile traps..."
+# Default SerialDev: Spawn/etc. are normal in core Kernel but fatal in SerialDev.
+# HashFind-in-#exe is always scanned under Kernel/*.HH from this script.
 ./check-zealc-kernel-traps.sh "${ZEALC_TRAP_SCOPE:-Kernel/SerialDev}" || exit 1
 
 echo "Building ZealBooter..."

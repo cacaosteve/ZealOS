@@ -100,3 +100,13 @@ Bool MountLiveRam()
 
 	return TRUE;
 }
+
+public U64 SysLiveAddrGet()
+{//JIT-safe: StartOS KernelB stubs sys_live_*; real values live in Kernel AOT.
+	return sys_live_addr;
+}
+
+public U64 SysLiveSizeGet()
+{
+	return sys_live_size;
+}

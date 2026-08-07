@@ -113,6 +113,30 @@ check "Spawn assignment in kernel" '=\s*Spawn\(' \
 check "Spawn call in kernel" '\bSpawn\(' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
 
+# #exe { if (HashFind(...)) } in headers → Invalid lval at HashFind (StartOS JIT).
+# Prefer #ifaot/_extern + #ifjit stubs, or runtime HashFind outside #exe.
+# (rg needs -U for #exe ... HashFind across lines.)
+check_exe_hashfind() {
+	name=$1
+	shift
+	matches=""
+	if command -v rg >/dev/null 2>&1; then
+		matches=$(rg -n -U --glob '*.HH' --glob '*.ZC' '#exe[\s\S]{0,500}?HashFind' "$@" 2>/dev/null || true)
+	fi
+	if [ -n "$matches" ]; then
+		echo "FAIL: $name"
+		printf '%s\n' "$matches"
+		echo
+		FAIL=1
+		ISSUES=$((ISSUES + 1))
+	fi
+}
+check_exe_hashfind "HashFind inside #exe (Invalid lval)" \
+	"$SRC_DIR/Kernel" "$SRC_DIR/$SCOPE"
+
+check "if (HashFind(...)) in headers" 'if\s*\(\s*HashFind\s*\(' \
+	"$SRC_DIR/Kernel" --glob '*.HH'
+
 # SerialDev is included before BlkDev/MakeBlkDev in Kernel.PRJ.  Do not call
 # block-device helpers that are only defined later in the kernel build.
 if [ -d "$SRC_DIR/Kernel/SerialDev" ]; then

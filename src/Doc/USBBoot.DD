@@ -64,6 +64,7 @@ When $FG,2$Comp("/Kernel/Kernel")$FG$ fails during $FG,2$BootHDInsAuto$FG$, chec
 * $FG,2$Call kernel functions without () when there are no args.$FG$ $FG,2$UsbCoreInit;$FG$ not $FG,2$UsbCoreInit();$FG$ (same as $FG,2$TimerInit;$FG$ in $LK,"KMain.ZC",A="FI:::/Kernel/KMain.ZC"$).
 * $FG,2$Define before use.$FG$ Include order in $LK,"MakeSerialDev.ZC",A="FI:::/Kernel/SerialDev/MakeSerialDev.ZC"$: $FG,2$USB.ZC -> USBXHCI -> USBControl -> USBKbd -> USBMouse -> USBUHCI -> USBEHCI -> USBBoot$FG$.
 * $FG,2$Spawn() in .ZC kernel files.$FG$ Assignment like $FG,2$t = Spawn(...)$FG$ often hits $FG,2$Invalid lval at Spawn$FG$, and direct $FG,2$Spawn(...)$FG$ calls can fail too. Call init inline or spawn from $FG,2$StartOS$FG$/$FG,2$System$FG$ code only.
+* $FG,2$No HashFind inside #exe in headers.$FG$ $FG,2$#exe { if (HashFind(...)) }$FG$ fails StartOS JIT with $FG,2$Invalid lval at HashFind$FG$. For new $FG,2$SYS_*$FG$ symbols use $FG,2$#ifaot$FG$ $FG,2$_extern$FG$ + $FG,2$#ifjit$FG$ stubs, and expose getters compiled into the Kernel for JIT callers. $FG,2$build/check-zealc-kernel-traps.sh$FG$ scans for this.
 * $FG,2$No bare no-arg kernel calls inside if (...).$FG$ $FG,2$if (UsbPollBgNeeded)$FG$ fails with $FG,2$Invalid lval$FG$; use a global flag or spawn from kernel boot code instead.
 * $FG,2$Local names vs globals.$FG$ Locals can clash with globals ($FG,2$speed$FG$ vs $FG,2$mouse.speed$FG$) — use distinct names ($FG,2$port_speed$FG$).
 * $FG,2$StrCompare$FG$, not $FG,2$StrCmp$FG$.

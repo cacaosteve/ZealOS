@@ -358,6 +358,8 @@ extern			U0				 DiskCacheInit(I64 size_in_U8s);
 public extern	U0				 DiskCacheInvalidate(CDrive *drive);
 public extern	I64				 MountAHCIAuto();
 public extern	Bool			 MountLiveRam();
+public extern	U64				 SysLiveAddrGet();
+public extern	U64				 SysLiveSizeGet();
 extern			U0				 AHCIHbaReset();
 extern			U0				 AHCIPortReset(I64 port_num);
 extern			U0				 AHCIDebug(    I64 port_num);

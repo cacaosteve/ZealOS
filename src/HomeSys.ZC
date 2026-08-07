@@ -17,12 +17,12 @@ U0 UserStartUp()
 		"Run $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n\n";
 		return;
 	}
-	if (sys_boot_src.u16[0] == BOOT_SRC_RAM && sys_live_size)
+	if (sys_boot_src.u16[0] == BOOT_SRC_RAM && SysLiveSizeGet())
 	{
 		Cd("::/Home");
 		"Live USB (RAM) boot ready.\n";
 		"USB boot: active=0x%X stage=%d live=%d MB\n",
-				sys_usb_input_active, usb_debug_stage, sys_live_size / 0x100000;
+				sys_usb_input_active, usb_debug_stage, SysLiveSizeGet() / 0x100000;
 		"Run $$GREEN$$RunFile(\"::/Misc/OSInstall\");$$FG$$ to install.\n\n";
 		return;
 	}
@@ -50,7 +50,7 @@ U0 StartUpTasks()
 	CTask *user = User;
 
 	if (sys_boot_src.u16[0] != BOOT_SRC_DVD &&
-		!(sys_boot_src.u16[0] == BOOT_SRC_RAM && sys_live_size))
+		!(sys_boot_src.u16[0] == BOOT_SRC_RAM && SysLiveSizeGet()))
 		User;
 
 	WinToTop(user);

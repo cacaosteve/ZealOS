@@ -44,15 +44,15 @@ public U0 MacMiniProbe()
 
 	CatPrint(p, "uefi=%d boot_src=%d stage=%d usb_active=0x%X live=%d MB\n",
 			sys_is_uefi_booted, sys_boot_src.u16[0], usb_debug_stage, sys_usb_input_active,
-			sys_live_size / 0x100000);
+			SysLiveSizeGet() / 0x100000);
 	CatPrint(p, "fb=%dx%d bpp=%d pitch=%d addr=0x%X\n",
 			sys_framebuffer_width, sys_framebuffer_height, sys_framebuffer_bpp,
 			sys_framebuffer_pitch, sys_framebuffer_addr);
 
 	"UEFI boot: %d\n", sys_is_uefi_booted;
 	"Boot src: %d  live RAM: %d MB (addr=0x%X)\n",
-			sys_boot_src.u16[0], sys_live_size / 0x100000, sys_live_addr;
-	if (sys_live_size)
+			sys_boot_src.u16[0], SysLiveSizeGet() / 0x100000, SysLiveAddrGet();
+	if (SysLiveSizeGet())
 		"$$GREEN$$Live RedSea module in RAM (root should be A:).$$FG$$\n";
 	else if (sys_boot_src.u16[0] == BOOT_SRC_DVD)
 		"Live optical boot (no RAM module).\n";
