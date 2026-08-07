@@ -181,10 +181,10 @@ U0 UsbTaskMain(I64 dummy=0)
 
 public I64 UsbKernelBusInit()
 {//Init xHCI + enumerate + auto-mount USB storage. Called from
-//$LK,"BlkDevsInitAll",A="FF:::/Kernel/BlkDev/DiskAddDev.ZC,UsbKernelBusInit"$ before
-//the kernel config's mount code runs, so USB drives exist at boot.
-//Idempotent HC bring-up; always rescans ports so late-ready devices bind on
-//the StartOS $LK,"UsbBootInit",A="MN:UsbBootInit"$ pass.
+//$LK,"UsbBootInit",A="MN:UsbBootInit"$ (StartOS), not from BlkDevsInitAll ΓÇö
+//early xHCI probe can hang AutoISO/QEMU for a very long time.
+//Idempotent HC bring-up; always rescans ports so late-ready devices bind.
+
 	I64 i, count = 0;
 
 	if (!usb_hc_count)

@@ -93,7 +93,7 @@ $FG,5$USB stacks (UTM + Mac mini)$FG,0$
 	  hubs, and CDC-ECM. Letters $FG,4$V–Z$FG,0$.
 
 	$FG,4$UsbBootInit$FG,0$ runs both: legacy HID then Kernel bus.
-	$FG,4$BlkDevsInitAll$FG,0$ calls $FG,4$UsbKernelBusInit$FG,0$ early so USB volumes exist
+	$FG,4$UsbBootInit$FG,0$ / $FG,4$UsbKernelBusInit$FG,0$ bring up USB volumes after StartOS (not in BlkDevsInitAll)
 	before mount config finishes. Live RAM boot ($FG,4$MountLiveRam$FG,0$) is unchanged.
 
 $FG,5$USB CDC-ECM net fallback$FG,0$

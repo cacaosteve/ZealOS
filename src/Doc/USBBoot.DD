@@ -15,8 +15,8 @@ Default QEMU PS/2 (no extra flags) matches the legacy ZealOS path:
 For UTM/Q35 UI USB input testing, use UTM's Input USB = USB 3.0 (XHCI), PS/2 Off, and no Additional Arguments.
 
 $FG,5$Boot Sequence$FG$
-1. $FG,2$BlkDevsInitAll$FG$ brings up Kernel xHCI ($FG,2$UsbKernelBusInit$FG$) for MSD/ECM/hubs before mounts. Live RAM ($FG,2$MountLiveRam$FG$) is unchanged.
-2. $FG,2$StartOS$FG$ calls $LK,"UsbBootInit",A="MN:UsbBootInit"$ — dual stack: SerialDev UHCI/EHCI HID (UTM), then Kernel bus again (idempotent). PS/2 is used only if USB did not bind.
+1. $FG,2$BlkDevsInitAll$FG$ mounts AHCI/live RAM only. Kernel xHCI is not probed here (QEMU usb-xhci can hang AutoISO for hours).
+2. $FG,2$StartOS$FG$ calls $LK,"UsbBootInit",A="MN:UsbBootInit"$ — dual stack: SerialDev UHCI/EHCI HID (UTM), then $FG,2$UsbKernelBusInit$FG$ (Mac mini MSD/ECM/hubs/HID). PS/2 is used only if USB did not bind.
 3. Live DVD/ISO install with an empty hard disk is normal — $FG,2$UsbBootLastWrite$FG$ only writes $FG,2$C:/Home/UsbBootLast.DD$FG$ when C: is installed FAT32/RedSea and writable (never on blank C:).
 4. Kernel changes still require a rebuilt $FG,2$Kernel.ZXE$FG$ — patched $FG,2$.ZC$FG$ files alone are not enough.
 5. Reboot before $FG,2$BootHDInsAuto;$FG$ if USB already ran this session (frees RAM for the kernel compile).

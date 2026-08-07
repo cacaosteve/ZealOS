@@ -1,35 +1,19 @@
 U0 Auto()
 {
 	WinMax;
-	// Do not BootMHDIns here: it installs an interactive MBR "Selection:" prompt
-	// (INT 0x16) that hangs headless/AutoISO after Reboot. Partition boot from
-	// BootHDIns is enough; AUTO.ISO install already wrote an MBR.
-//Grow CKernel + SYS_LIVE_* labels first so the rebuilt Kernel.ZXE exports them.
-//Do not copy KernelB.HH yet ΓÇö Comp Compiler (EXTERNS_TO_IMPORTS) still runs on
-//the AUTO.ISO kernel, which lacks SYS_LIVE_* until this BootHDIns finishes.
-//KernelA adds BDT_USB / BDT_TYPES_NUM=7 ΓÇö must also refresh DiskDrive + KDefine
-//or BootHDIns fails (array init length) then still advances the stage and reboot-loops.
+	// Stage1 must NOT BootHDIns. A half-updated Kernel tree (new KernelA /
+	// DiskDrive / KConfig over AUTO.ISO sources) can leave Comp hung after
+	// Compiler succeeds ΓÇö hours at 100% CPU with the same Errs:0 screen.
+	// SYS_LIVE_* stubs in KernelB no longer require a Stage1 Kernel.ZXE grow.
+	// Stage2 CopyTree + BootHDIns does the one full rebuild.
 	Copy("C:/Tmp/OSBuild/Kernel/KStart16.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KernelA.HH", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/KConfig.ZC", "C:/Kernel/");
 	Copy("C:/Tmp/OSBuild/Kernel/BlkDev/DiskDrive.ZC", "C:/Kernel/BlkDev/");
 	Copy("C:/Tmp/OSBuild/Kernel/KDefine.ZC", "C:/Kernel/");
-	"AutoISO stage 1: BootHDIns (Comp Compiler + Kernel)...\n";
-	try
-	{
-		BootHDIns;
-		Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
-		FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
-		"AutoISO stage 1 ok; rebooting to stage 2.\n";
-		Reboot;
-	}
-	catch
-	{
-		Fs->catch_except = TRUE;
-		"$$RED$$AutoISO stage 1 BootHDIns failed; not advancing stage.$$FG$$\n";
-		PutExcept;
-		while (TRUE)
-			Sleep(1000);
-	}
+	Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
+	"AutoISO stage 1: staged Kernel headers; rebooting to stage 2.\n";
+	Reboot;
 }
 Auto;

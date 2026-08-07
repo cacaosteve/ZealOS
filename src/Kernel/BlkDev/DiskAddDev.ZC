@@ -272,10 +272,6 @@ U0 BlkDevsInitAll()
 		Reboot;
 	}
 
-//Kernel xHCI bus (MSD/ECM/hubs/HID) before mount config so USB volumes exist.
-	"\nUsbKernelBusInit;\n";
-	UsbKernelBusInit;
-
 	#exe {
 		StreamPrint("MountLiveRam;");
 		if (kernel_config->opts[CONFIG_MOUNT_AHCI_AUTO])
@@ -284,5 +280,8 @@ U0 BlkDevsInitAll()
 		StreamPrint("#exe {Option(OPTf_WARN_PAREN, OFF);}");
 	};
 
+	// USB xHCI bus init is deferred to UsbBootInit (StartOS). Doing it here
+	// can spin for a very long time on QEMU usb-xhci during AutoISO rebuilds.
 	UsbBootDriveFallback;
 }
+
