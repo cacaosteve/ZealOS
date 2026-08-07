@@ -94,6 +94,9 @@ public U0 BootHDIns(U8 drv_let=0)
 	{
 		PutExcept;
 		Beep;
+		// Rethrow so AutoISO stages do not advance after a failed Comp and
+		// reboot-loop on a half-updated tree / StartOS panic.
+		throw;
 	}
 }
 

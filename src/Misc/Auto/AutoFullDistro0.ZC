@@ -1,7 +1,8 @@
 U0 Auto()
 {
 	WinMax;
-	BootMHDIns('C');
+	// MBR already written by AutoInstall. Do not BootMHDIns again ΓÇö that only
+	// refreshes the Selection menu. Exit QEMU so the host can copy OSBuild.
 	Del("C:/Home/AutoISOStage0.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage1.DD", "1", 1);
 	OutU8(0x501,0x31);

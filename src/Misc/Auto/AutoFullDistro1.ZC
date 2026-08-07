@@ -1,19 +1,16 @@
 U0 Auto()
 {
 	WinMax;
-	// Stage1 must NOT BootHDIns. A half-updated Kernel tree (new KernelA /
-	// DiskDrive / KConfig over AUTO.ISO sources) can leave Comp hung after
-	// Compiler succeeds ΓÇö hours at 100% CPU with the same Errs:0 screen.
-	// SYS_LIVE_* stubs in KernelB no longer require a Stage1 Kernel.ZXE grow.
-	// Stage2 CopyTree + BootHDIns does the one full rebuild.
-	Copy("C:/Tmp/OSBuild/Kernel/KStart16.ZC", "C:/Kernel/");
-	Copy("C:/Tmp/OSBuild/Kernel/KernelA.HH", "C:/Kernel/");
-	Copy("C:/Tmp/OSBuild/Kernel/KConfig.ZC", "C:/Kernel/");
-	Copy("C:/Tmp/OSBuild/Kernel/BlkDev/DiskDrive.ZC", "C:/Kernel/BlkDev/");
-	Copy("C:/Tmp/OSBuild/Kernel/KDefine.ZC", "C:/Kernel/");
+	// No BootMHDIns here ΓÇö AutoInstall already installed MBR. Reinstalling
+	// only refreshes the interactive Selection menu used on cold boots.
+	// Do not Reboot: Stage1 no longer rebuilds Kernel.ZXE. Chain into Stage2
+	// in-process so we never bounce through Selection between these stages.
 	Del("C:/Home/AutoISOStage1.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
-	"AutoISO stage 1: staged Kernel headers; rebooting to stage 2.\n";
-	Reboot;
+	"AutoISO stage 1: chaining to stage 2 (no BootHDIns / no Reboot).\n";
+	if (FileFind("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC"))
+		ExeFile("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC");
+	else
+		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
 }
 Auto;

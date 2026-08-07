@@ -109,6 +109,9 @@ U0 VMInstallWiz()
 	if (VMPartDisk(task, ata_port))
 	{
 		VMInstallDrive(task, 'C', ata_port, atapi_port);
+		// Install MBR once so the second QEMU cold-boot can start. BootMHD2
+		// times out to Drive C; later AutoISO stages use BootRAM to avoid
+		// bouncing through Selection on every kernel rebuild.
 		BootMHDIns('C');
 	}
 

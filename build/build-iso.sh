@@ -173,7 +173,43 @@ umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
 # Single CPU: ZealOS heap/USB is not SMP-hardened; stage3 CopyTree has GPF'd on -smp 4.
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 $QEMU_USB_INPUT -device isa-debug-exit $QEMU_HEADLESS || true
+# AUTO.ISO's BootMHD2 has no Selection timeout — cold boot would hang forever at
+# "Selection:" unless we send '1' (Drive C). Later stages use BootRAM and skip MBR.
+QMP_SOCK="$TMPDIR/qmp.sock"
+rm -f "$QMP_SOCK"
+(
+	# Wait for SeaBIOS + BootMHD Selection prompt, then pick Drive C.
+	sleep 8
+	if command -v python3 >/dev/null 2>&1; then
+		python3 - "$QMP_SOCK" <<'PY' || true
+import json, socket, sys, time
+path = sys.argv[1]
+deadline = time.time() + 60
+sock = None
+while time.time() < deadline:
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        break
+    except OSError:
+        time.sleep(0.25)
+else:
+    sys.exit(0)
+sock.settimeout(5)
+# QMP greeting
+sock.recv(4096)
+sock.sendall(b'{"execute":"qmp_capabilities"}\n')
+sock.recv(4096)
+sock.sendall(b'{"execute":"send-key","arguments":{"keys":[{"type":"qcode","data":"digit1"}]}}\n')
+sock.recv(4096)
+sock.close()
+PY
+	fi
+) &
+QMP_SENDER_PID=$!
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 $QEMU_USB_INPUT -device isa-debug-exit -qmp "unix:$QMP_SOCK,server,nowait" $QEMU_HEADLESS || true
+wait "$QMP_SENDER_PID" 2>/dev/null || true
+rm -f "$QMP_SOCK"
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 

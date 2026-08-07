@@ -1,6 +1,7 @@
 U0 Auto()
 {
 	Bool old_silent, usb_paused = FALSE;
+	I64 errs;
 
 	WinMax;
 	// Silent + DocClear avoid the DolDoc blow-up that GPFd the old overlay.
@@ -28,21 +29,26 @@ U0 Auto()
 		catch
 			Fs->catch_except = TRUE;
 	}
-	try
+	"AutoISO stage 3: Comp Compiler + Kernel...\n";
+	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
+	if (errs)
 	{
-		BootHDIns;
-		Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
-		FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
-		DelTree("C:/Tmp/OSBuild");
-		Reboot;
-	}
-	catch
-	{
-		Fs->catch_except = TRUE;
-		"$$RED$$AutoISO stage 3 BootHDIns failed; not advancing stage.$$FG$$\n";
-		PutExcept;
+		"$$RED$$AutoISO stage 3 Comp Compiler failed errs=%d; stopping.$$FG$$\n", errs;
 		while (TRUE)
 			Sleep(1000);
 	}
+	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
+	if (errs)
+	{
+		"$$RED$$AutoISO stage 3 Comp Kernel failed errs=%d; stopping.$$FG$$\n", errs;
+		while (TRUE)
+			Sleep(1000);
+	}
+	BootHDInsPrebuilt;
+	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
+	DelTree("C:/Tmp/OSBuild");
+	"AutoISO stage 3 ok; BootRAM to stage 4.\n";
+	BootRAM("C:/Boot/Kernel.ZXE");
 }
 Auto;
