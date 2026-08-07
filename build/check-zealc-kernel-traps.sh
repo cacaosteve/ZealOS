@@ -72,6 +72,12 @@ echo
 check "continue statement" '\bcontinue\s*;' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
 
+# next; is not a loop continue (Undefined identifier at ";"). Restructure with if.
+check "next; pseudo-continue" '^\s*next\s*;' \
+	"$SRC_DIR/System" --glob '*.ZC'
+check "next; pseudo-continue in Auto" '^\s*next\s*;' \
+	"$SRC_DIR/Misc/Auto" --glob '*.ZC'
+
 # compound assign on postfix-cast lvalue: *(x)(U32 *) |= ...
 check "compound assign on postfix cast" '\)\(U[0-9]+ \*\)\s*[|&]=' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
