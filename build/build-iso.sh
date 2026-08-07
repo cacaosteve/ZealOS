@@ -181,8 +181,7 @@ umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
 # Single CPU: ZealOS heap/USB is not SMP-hardened; stage3 CopyTree has GPF'd on -smp 4.
-# AUTO.ISO's BootMHD2 has no Selection timeout. Every Stage Reboot returns to
-# "Selection:" — keep sending Drive C ('1') for the whole rebuild QEMU run.
+# BootMHD2.BIN was patched above to auto-select Drive C. Keep QMP digit1 as backup.
 QMP_SOCK="$TMPDIR/qmp.sock"
 rm -f "$QMP_SOCK"
 (
@@ -210,7 +209,6 @@ try:
     sock.recv(4096)
 except OSError:
     sys.exit(0)
-# Resend after every AutoISO Reboot hits BootMHD Selection again.
 key = b'{"execute":"send-key","arguments":{"keys":[{"type":"qcode","data":"digit1"}]}}\n'
 while True:
     try:
@@ -219,7 +217,7 @@ while True:
             sock.recv(4096)
         except socket.timeout:
             pass
-        time.sleep(3)
+        time.sleep(4)
     except OSError:
         break
 sock.close()
