@@ -9,7 +9,6 @@ U0 MakeMyISO()
 			"\t\t!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))\n"
 			"{\n"
 			"\tExePrint(\"UsbBootInit;\");\n"
-			"\t\"USB boot: active=0x%X stage=%d\\n\", sys_usb_input_active, usb_debug_stage;\n"
 			"}\n";
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
 

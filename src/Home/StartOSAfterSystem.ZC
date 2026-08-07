@@ -2,6 +2,7 @@ CHashFun *tmpf;
 if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&
 		!Bt(&tmpf->flags, Cf_EXTERN) && !Bt(&tmpf->flags, Ff__EXTERN))
 {
+	// Do not reference sys_usb_* here ΓÇö StartOS JIT parses them as sys_usb.member
+	// (Invalid lval). UsbBootInit prints status itself.
 	ExePrint("UsbBootInit;");
-	"USB boot: active=0x%X stage=%d\n", sys_usb_input_active, usb_debug_stage;
 }

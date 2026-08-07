@@ -78,6 +78,12 @@ check "next; pseudo-continue" '^\s*next\s*;' \
 check "next; pseudo-continue in Auto" '^\s*next\s*;' \
 	"$SRC_DIR/Misc/Auto" --glob '*.ZC'
 
+# StartOS JIT parses sys_usb_foo as sys_usb.foo → Invalid lval (USBBoot.DD).
+check "sys_usb_* in StartOSAfterSystem" '\bsys_usb_' \
+	"$SRC_DIR/Home/StartOSAfterSystem.ZC"
+check "sys_usb_* in StartOS generator" '\bsys_usb_' \
+	"$SRC_DIR/StartOS.ZC"
+
 # compound assign on postfix-cast lvalue: *(x)(U32 *) |= ...
 check "compound assign on postfix cast" '\)\(U[0-9]+ \*\)\s*[|&]=' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
