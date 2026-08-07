@@ -3,18 +3,10 @@ U0 Auto()
 	Bool old_silent, usb_paused = FALSE;
 
 	WinMax;
-	// Prefer running from OSBuild/host-patched Misc/Auto (see StartOS + build-iso.sh).
-	// Reload CopyTree from staged sources so DocClear/null guards apply even when
-	// AUTO.ISO's in-memory System predates those fixes.
-	"Auto ISO stage 3: refresh CopyTree, overlay OSBuild -> C:/\n";
-	try
-	{
-		Copy("C:/Tmp/OSBuild/System/BlkDev/ZDiskA.ZC", "C:/System/BlkDev/ZDiskA.ZC");
-		ExeFile("/System/BlkDev/ZDiskA.ZC");
-	}
-	catch
-		Fs->catch_except = TRUE;
-
+	// Do not ExeFile ZDiskA here: isolated JIT does not see Kernel's 3-arg
+	// CopySingle the same way MakeSystem does (Missing ')' at ",").
+	// Silent + DocClear avoid the DolDoc blow-up that GPFd the old overlay.
+	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
 	if (sys_usb_input_active)
 	{
 		try

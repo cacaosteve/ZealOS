@@ -142,7 +142,8 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 					res++;
 			Free(st);
 			// Bound DolDoc growth during huge overlays (AutoFullDistro3 / live install).
-			if (!(++n & 63))
+			n++;
+			if (!(n & 63))
 			{
 				DocClear;
 				DocBottom;
