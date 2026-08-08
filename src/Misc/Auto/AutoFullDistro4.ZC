@@ -2,6 +2,7 @@ U0 Auto()
 {
 	Del("C:/Home/AutoISOStage4.DD");
 	FileWrite("C:/Home/AutoISOStage5.DD", "5", 1);
-	ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
+	"AutoISO stage 4 ok; rebooting to stage 5.\n";
+	Reboot;
 }
 Auto;
