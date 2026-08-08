@@ -74,6 +74,12 @@ require_line() {
 	fi
 }
 
+require_text() {
+	if ! grep -Fq "$2" "$1"; then
+		fail_build "missing required text '$2' in $1"
+	fi
+}
+
 require_kernel_symbol() {
 	if ! strings "$1" | grep -q "$2"; then
 		fail_build "kernel image missing symbol/text '$2': $1"
@@ -82,6 +88,7 @@ require_kernel_symbol() {
 
 verify_current_usb_tree() {
 	root="$1"
+	tree_kind="${2:-source}"
 	echo "Verifying staged USB input tree in $root ..."
 	require_same_file "../src/HomeSys.ZC" "$root/HomeSys.ZC"
 	require_same_file "../src/Misc/OSInstall.ZC" "$root/Misc/OSInstall.ZC"
@@ -92,7 +99,15 @@ verify_current_usb_tree() {
 		stage_name="$(basename "$stage")"
 		require_same_file "$stage" "$root/Misc/Auto/$stage_name"
 	done
-	require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
+	if [ "$tree_kind" = "live" ]; then
+		# AutoFullDistro5 generates this startup hook specifically for the live ISO.
+		require_file "$root/Home/StartOSAfterSystem.ZC"
+		require_line "$root/Home/StartOSAfterSystem.ZC" 'CHashFun *tmpf;'
+		require_line "$root/Home/StartOSAfterSystem.ZC" 'if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&'
+		require_text "$root/Home/StartOSAfterSystem.ZC" 'ExePrint("UsbBootInit;");'
+	else
+		require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
+	fi
 	require_same_file "../src/System/Boot/BootHDIns.ZC" "$root/System/Boot/BootHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineMHDIns.ZC" "$root/System/Boot/LimineMHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineESPIns.ZC" "$root/System/Boot/LimineESPIns.ZC"
@@ -312,7 +327,7 @@ mount_tempdisk
 echo "Extracting MyDistro ISO from vdisk ..."
 require_file "$TMPMOUNT/Tmp/MyDistro.ISO.C"
 require_file "$TMPMOUNT/Tmp/DVDKernel.ZXE"
-verify_current_usb_tree "$TMPMOUNT"
+verify_current_usb_tree "$TMPMOUNT" live
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "MountLiveRam"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "SYS_LIVE_ADDR"
@@ -340,7 +355,7 @@ sudo rm -f "$TMPISODIR/Tmp/DVDKernel.ZXE"
 echo "Installing Limine RAM-live RedSea module Boot/Live.ISO.C ..."
 sudo cp ./Live.ISO.C "$TMPISODIR/Boot/Live.ISO.C"
 require_file "$TMPISODIR/Boot/Live.ISO.C"
-verify_current_usb_tree "$TMPISODIR"
+verify_current_usb_tree "$TMPISODIR" live
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "MountLiveRam"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "SYS_LIVE_ADDR"
