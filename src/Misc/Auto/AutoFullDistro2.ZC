@@ -1,30 +1,36 @@
 U0 Auto()
 {
-	I64 errs;
+	I64 i, ata_port = 0;
+	CAHCIPort *port;
+	U8 *in_str;
 
 	WinMax;
-	// Comp first and stop on failure. Never BootRAM after Kernel rebuild:
-	// CKernel layout changed; AUTO.ISO BootRAM sizeof mismatches and softboot
-	// reboot-loops at Load("Compiler"). Use Reboot; host patched BootMHD2.BIN
-	// to auto-select Drive C.
-	"AutoISO stage 2: CopyTree Kernel + Comp + BootHDIns...\n";
+	// Match master: feed KConfig answers via In() before BootHDIns/MakeAll.
+	// Bare Comp/BootHDIns without In() hangs headless on Kernel config prompts
+	// (seen as multi-hour QEMU with no MyDistro.ISO.C).
+	// No BootMHDIns ΓÇö host already patched Boot/BootMHD2.BIN to auto-pick C.
+	"AutoISO stage 2: CopyTree Kernel + BootHDIns...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
-	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
-	if (errs)
+	if (blkdev.ahci_hba)
 	{
-		"AutoISO stage 2 Comp Compiler failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
+		for (i = 0; i < AHCI_MAX_PORTS; i++)
+		{
+			if (PCIBt(&blkdev.ahci_hba->ports_implemented, i))
+			{
+				port = &blkdev.ahci_hba->ports[i];
+				if (port->signature == AHCI_PxSIG_ATA)
+				{
+					ata_port = i;
+					break;
+				}
+			}
+		}
 	}
-	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
-	if (errs)
-	{
-		"AutoISO stage 2 Comp Kernel failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
+	in_str = MStrPrint("CC\n%d\n\n\n\n", ata_port);
+	Sleep(700);
+	In(in_str);
 	BootHDIns;
-	// Stage3 marker wins StartOS dispatch even if Stage2 remains.
+	Free(in_str);
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
 	"AutoISO stage 2 ok; Reboot to stage 3.\n";
 	Reboot;

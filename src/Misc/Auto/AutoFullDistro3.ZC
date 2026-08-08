@@ -1,11 +1,13 @@
 U0 Auto()
 {
+	I64 i, ata_port = 0;
+	CAHCIPort *port;
+	U8 *in_str;
 	Bool old_silent;
-	I64 errs;
 
 	WinMax;
-	// No UsbPollPause / sys_usb_input_active here: those symbols are WIP-only
-	// and missing from AUTO.ISO System (Undefined identifier at JIT).
+	// Overlay full OSBuild, then BootHDIns with In() so KConfig is non-interactive.
+	// Do not call UsbPollPause/sys_usb_input_active ΓÇö missing on AUTO.ISO System.
 	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
 	old_silent = Silent;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
@@ -13,22 +15,26 @@ U0 Auto()
 	DocClear;
 	DocBottom;
 	"OSBuild overlay complete.\n";
-	"AutoISO stage 3: Comp Compiler + Kernel...\n";
-	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
-	if (errs)
+	if (blkdev.ahci_hba)
 	{
-		"AutoISO stage 3 Comp Compiler failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
+		for (i = 0; i < AHCI_MAX_PORTS; i++)
+		{
+			if (PCIBt(&blkdev.ahci_hba->ports_implemented, i))
+			{
+				port = &blkdev.ahci_hba->ports[i];
+				if (port->signature == AHCI_PxSIG_ATA)
+				{
+					ata_port = i;
+					break;
+				}
+			}
+		}
 	}
-	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
-	if (errs)
-	{
-		"AutoISO stage 3 Comp Kernel failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
+	in_str = MStrPrint("CC\n%d\n\n\n\n", ata_port);
+	Sleep(700);
+	In(in_str);
 	BootHDIns;
+	Free(in_str);
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
 	"AutoISO stage 3 ok; Reboot to stage 4.\n";
