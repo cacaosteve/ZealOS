@@ -1,18 +1,16 @@
 U0 Auto()
 {
 	WinMax;
-	Del("C:/Home/AutoISOStage0.DD");
+	if (FileFind("C:/Home/AutoISOStage0.DD"))
+		Del("C:/Home/AutoISOStage0.DD");
 	FileWrite("C:/Home/AutoISOStage1.DD", "1", 1);
-	// First QEMU (AUTO.ISO): no OSBuild yet ΓåÆ exit so the host can copy src/.
-	// Second QEMU: host already staged Tmp/OSBuild ΓåÆ must NOT OutU8 or the
+	// First QEMU (AUTO.ISO): no OSBuild yet -> exit so the host can copy src/.
+	// Second QEMU: host already staged Tmp/OSBuild -> must NOT OutU8 or the
 	// rebuild aborts before Comp and MyDistro.ISO.C is never made.
 	if (FileFind("/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC"))
 	{
-		"AutoISO stage 0: OSBuild present; chaining to stage 1.\n";
-		ExeFile("/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC");
-		"$$RED$$AutoISO stage 1 returned; stopping.$$FG$$\n";
-		while (TRUE)
-			Sleep(1000);
+		"AutoISO stage 0: OSBuild present; rebooting to stage 1.\n";
+		Reboot;
 	}
 	if (FileFind("/Tmp/OSBuild"))
 	{

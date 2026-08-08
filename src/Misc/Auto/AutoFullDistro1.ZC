@@ -1,19 +1,13 @@
 U0 Auto()
 {
 	WinMax;
-	// Do NOT BootRAM here. Softboot sets BOOT_SRC_RAM and with our larger
-	// CKernel / live-USB fields it reboot-loops at Load("Compiler").
-	// Do NOT Reboot here either until BootMHD2 is patched (host does that
-	// between QEMU runs). Chain Stage2 in-process; Stage2 Reboots after Comp.
-	Del("C:/Home/AutoISOStage1.DD");
+	// Advance markers and Reboot. Do not ExeFile Stage2 in-process: nested
+	// #include while Auto() is running has LexExcept'd inside Stage2 under
+	// AUTO.ISO JIT. BootMHD2.BIN is host-patched to auto-select Drive C.
+	if (FileFind("C:/Home/AutoISOStage1.DD"))
+		Del("C:/Home/AutoISOStage1.DD");
 	FileWrite("C:/Home/AutoISOStage2.DD", "2", 1);
-	"AutoISO stage 1: chaining to stage 2 in-process.\n";
-	if (FileFind("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC"))
-		ExeFile("/Tmp/OSBuild/Misc/Auto/AutoFullDistro2.ZC");
-	else
-		ExeFile("/Misc/Auto/AutoFullDistro2.ZC");
-	"$$RED$$AutoISO stage 2 returned unexpectedly; stopping.$$FG$$\n";
-	while (TRUE)
-		Sleep(1000);
+	"AutoISO stage 1 ok; rebooting to stage 2.\n";
+	Reboot;
 }
 Auto;

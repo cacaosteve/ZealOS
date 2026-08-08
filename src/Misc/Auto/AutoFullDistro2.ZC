@@ -3,30 +3,30 @@ U0 Auto()
 	I64 errs;
 
 	WinMax;
-	// Comp first and stop on failure. Never BootRAM after Kernel rebuild ΓÇö
-	// CKernel layout changed (sys_live_*); AUTO.ISO BootRAM sizeof mismatches
-	// and softboot reboot-loops at Load("Compiler"). Use Reboot; host patched
-	// BootMHD2.BIN to auto-select Drive C.
+	// Comp first and stop on failure. Never BootRAM after Kernel rebuild:
+	// CKernel layout changed; AUTO.ISO BootRAM sizeof mismatches and softboot
+	// reboot-loops at Load("Compiler"). Use Reboot; host patched BootMHD2.BIN
+	// to auto-select Drive C.
 	"AutoISO stage 2: CopyTree Kernel + Comp + BootHDIns...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
 	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
 	if (errs)
 	{
-		"$$RED$$AutoISO stage 2 Comp Compiler failed errs=%d; stopping.$$FG$$\n", errs;
+		"AutoISO stage 2 Comp Compiler failed errs=%d; stopping.\n", errs;
 		while (TRUE)
 			Sleep(1000);
 	}
 	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
 	if (errs)
 	{
-		"$$RED$$AutoISO stage 2 Comp Kernel failed errs=%d; stopping.$$FG$$\n", errs;
+		"AutoISO stage 2 Comp Kernel failed errs=%d; stopping.\n", errs;
 		while (TRUE)
 			Sleep(1000);
 	}
 	BootHDIns;
-	Del("C:/Home/AutoISOStage2.DD");
+	// Stage3 marker wins StartOS dispatch even if Stage2 remains.
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
-	"AutoISO stage 2 ok; Reboot to stage 3 (BootMHD2 autoselect).\n";
+	"AutoISO stage 2 ok; Reboot to stage 3.\n";
 	Reboot;
 }
 Auto;

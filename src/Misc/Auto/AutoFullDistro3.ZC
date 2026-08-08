@@ -1,53 +1,37 @@
 U0 Auto()
 {
-	Bool old_silent, usb_paused = FALSE;
+	Bool old_silent;
 	I64 errs;
 
 	WinMax;
+	// No UsbPollPause / sys_usb_input_active here: those symbols are WIP-only
+	// and missing from AUTO.ISO System (Undefined identifier at JIT).
 	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
-	if (sys_usb_input_active)
-	{
-		try
-		{
-			UsbPollPause;
-			usb_paused = TRUE;
-		}
-		catch
-			Fs->catch_except = TRUE;
-	}
 	old_silent = Silent;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
 	Silent(old_silent);
 	DocClear;
 	DocBottom;
 	"OSBuild overlay complete.\n";
-	if (usb_paused)
-	{
-		try
-			UsbPollPause(FALSE);
-		catch
-			Fs->catch_except = TRUE;
-	}
 	"AutoISO stage 3: Comp Compiler + Kernel...\n";
 	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
 	if (errs)
 	{
-		"$$RED$$AutoISO stage 3 Comp Compiler failed errs=%d; stopping.$$FG$$\n", errs;
+		"AutoISO stage 3 Comp Compiler failed errs=%d; stopping.\n", errs;
 		while (TRUE)
 			Sleep(1000);
 	}
 	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
 	if (errs)
 	{
-		"$$RED$$AutoISO stage 3 Comp Kernel failed errs=%d; stopping.$$FG$$\n", errs;
+		"AutoISO stage 3 Comp Kernel failed errs=%d; stopping.\n", errs;
 		while (TRUE)
 			Sleep(1000);
 	}
 	BootHDIns;
-	Del("C:/Home/AutoISOStage3.DD");
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
-	"AutoISO stage 3 ok; Reboot to stage 4 (BootMHD2 autoselect).\n";
+	"AutoISO stage 3 ok; Reboot to stage 4.\n";
 	Reboot;
 }
 Auto;
