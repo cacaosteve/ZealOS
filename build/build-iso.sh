@@ -163,6 +163,7 @@ done
 for stage in 2 3 5; do
 	require_line "../src/Misc/Auto/AutoFullDistro${stage}.ZC" '#include "/System/Boot/MakeBoot"'
 done
+require_line "../src/Misc/Auto/AutoFullDistro5.ZC" '#include "/System/Utils/LineRep"'
 
 echo "Checking ZealC kernel compile traps..."
 # Default SerialDev: Spawn/etc. are normal in core Kernel but fatal in SerialDev.

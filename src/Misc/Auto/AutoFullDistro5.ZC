@@ -1,4 +1,5 @@
 #include "/System/Boot/MakeBoot"
+#include "/System/Utils/LineRep"
 
 #define STD_DISTRO_DVD_CONFIG 	"TB\nScale2Mem(2048,0x40000)\nT\n\n\n\n"
 
