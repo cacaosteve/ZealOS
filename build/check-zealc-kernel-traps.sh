@@ -187,7 +187,10 @@ check "text-driven BootHDIns installer job" 'XTalkWait.*BootHDIns' \
 
 # The full-distro stages rebuild the kernel across reboots. Queued keystrokes
 # are timing-sensitive and can stop at a prompt or execute as HolyC commands.
-check "queued input in automatic distro stage" '\bIn\s*\(' \
+# WIP KConfig.ZC is noninteractive — stages must not call In(...). (Master
+# still uses In() because stock KConfig prompts; do not copy that here.)
+# Only flag real calls, not comments that mention In().
+check "queued input in automatic distro stage" '^\s*In\s*\(' \
 	"$SRC_DIR/Misc/Auto/AutoFullDistro1.ZC" \
 	"$SRC_DIR/Misc/Auto/AutoFullDistro2.ZC" \
 	"$SRC_DIR/Misc/Auto/AutoFullDistro3.ZC"
