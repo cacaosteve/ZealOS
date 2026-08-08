@@ -1,10 +1,9 @@
 U0 Auto()
 {
 	Bool old_silent;
-	I64 errs;
 
 	WinMax;
-	// WIP KConfig is noninteractive. No StdIn queue; no UsbPollPause (AUTO.ISO).
+	// Overlay OSBuild then BootHDIns. No StdIn queue; no UsbPollPause.
 	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
 	old_silent = Silent;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
@@ -12,22 +11,7 @@ U0 Auto()
 	DocClear;
 	DocBottom;
 	"OSBuild overlay complete.\n";
-	"AutoISO stage 3: Comp Compiler + Kernel...\n";
-	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
-	if (errs)
-	{
-		"AutoISO stage 3 Comp Compiler failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
-	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
-	if (errs)
-	{
-		"AutoISO stage 3 Comp Kernel failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
-	BootHDIns;
+	BootHDIns('C');
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
 	"AutoISO stage 3 ok; Reboot to stage 4.\n";

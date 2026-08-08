@@ -1,29 +1,11 @@
 U0 Auto()
 {
-	I64 errs;
-
 	WinMax;
-	// WIP KConfig is noninteractive (defaults only). Do not queue StdIn ΓÇö
-	// the host trap linter rejects that in AutoFullDistro1-3, and master only
-	// needs it because stock KConfig still prompts.
-	// Comp first: AUTO.ISO BootHDIns swallows Comp failures.
-	"AutoISO stage 2: CopyTree Kernel + Comp + BootHDIns...\n";
+	// WIP KConfig is noninteractive (defaults only). No StdIn queue.
+	// Host-patched BootMHD2.BIN auto-selects Drive C after Reboot.
+	"AutoISO stage 2: CopyTree Kernel + BootHDIns...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
-	errs = Comp("/Compiler/Compiler", "Compiler",, ':');
-	if (errs)
-	{
-		"AutoISO stage 2 Comp Compiler failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
-	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
-	if (errs)
-	{
-		"AutoISO stage 2 Comp Kernel failed errs=%d; stopping.\n", errs;
-		while (TRUE)
-			Sleep(1000);
-	}
-	BootHDIns;
+	BootHDIns('C');
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
 	"AutoISO stage 2 ok; Reboot to stage 3.\n";
 	Reboot;
