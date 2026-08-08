@@ -166,6 +166,10 @@ sudo rm -f "$TMPMOUNT/Tmp/OSBuild/Home/UsbBootLast.DD"
 sudo mkdir -p "$TMPMOUNT/Misc/Auto"
 sudo cp -f ../src/Misc/Auto/AutoFullDistro*.ZC "$TMPMOUNT/Misc/Auto/"
 sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
+# AUTO.ISO AutoInstall only writes ".auto_iso_build"; FileFind can miss dotfiles.
+# Ensure a non-dot AutoISO marker so Stage2+ never runs UsbBootInit.
+sudo mkdir -p "$TMPMOUNT/Home"
+echo 1 | sudo tee "$TMPMOUNT/Home/AutoISOBuild.DD" >/dev/null
 # Do NOT copy ZDiskA onto live System yet: MakeSystem would JIT it against the
 # AUTO.ISO Kernel before stage2 installs 3-arg CopySingle (Missing ')' at ",").
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"

@@ -203,6 +203,12 @@ public I64 UsbKernelBusInit()
 
 public U0 UsbBootInit()
 {//Dual-stack entry: SerialDev UHCI/EHCI HID (UTM) then Kernel xHCI bus (Mac mini).
+//Never probe USB during AutoISO rebuilds ΓÇö xHCI GET_DESCRIPTOR can hang QEMU.
+	if (FileFind("C:/Home/AutoISOBuild.DD") || FileFind("C:/Home/.auto_iso_build") ||
+		FileFind("C:/Home/AutoISOStage0.DD") || FileFind("C:/Home/AutoISOStage1.DD") ||
+		FileFind("C:/Home/AutoISOStage2.DD") || FileFind("C:/Home/AutoISOStage3.DD") ||
+		FileFind("C:/Home/AutoISOStage4.DD") || FileFind("C:/Home/AutoISOStage5.DD"))
+		return;
 	UsbLegacyInputInit;
 	UsbKernelBusInit;
 	UsbBootDriveFallback;

@@ -14,6 +14,10 @@ U0 InstallDrive(U8 drv_let)
 	st = MStrPrint("%C:/Home/.auto_iso_build", drv_let);
 	FileWrite(st, "1", 1);
 	Free(st);
+	// Non-dot marker too: FileFind on some FAT/RedSea paths misses ".auto_iso_*".
+	st = MStrPrint("%C:/Home/AutoISOBuild.DD", drv_let);
+	FileWrite(st, "1", 1);
+	Free(st);
 
 	st = MStrPrint("%C:/Home/AutoISOStage0.DD", drv_let);
 	FileWrite(st, "0", 1);

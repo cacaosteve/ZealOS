@@ -64,10 +64,14 @@ if (Letter2Drive('C', FALSE))
 		while (TRUE)
 			Sleep(1000);
 	}
-	if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build"))
+	if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build") ||
+		FileFind("AutoISOStage0.DD") || FileFind("AutoISOStage1.DD") ||
+		FileFind("AutoISOStage2.DD") || FileFind("AutoISOStage3.DD") ||
+		FileFind("AutoISOStage4.DD") || FileFind("AutoISOStage5.DD"))
 	{
 		// Prefer staged OSBuild scripts when present so AUTO.ISO leftovers
 		// (In(ata_port), old stage3) do not run after the host copies src/.
+		// Any Stage*.DD means AutoISO ΓÇö never UsbBootInit (xHCI hangs QEMU).
 		if (FileFind("AutoISOStage5.DD"))
 			start_os_after_system = "\"USB boot skipped for automated build.\\n\";\n"
 					"\"Auto ISO build stage 5.\\n\";\n"

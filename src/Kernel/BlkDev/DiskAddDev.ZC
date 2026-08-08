@@ -279,8 +279,5 @@ U0 BlkDevsInitAll()
 		StreamPrint("#exe {Option(OPTf_WARN_PAREN, OFF);}");
 		StreamPrint("#exe {Option(OPTf_WARN_PAREN, OFF);}");
 	};
-
-	// UsbBootDriveFallback lives in Usb/ (after BlkDev in Kernel.PRJ). Call it
-	// from UsbBootInit after the bus is up ΓÇö not here (Undefined identifier).
 }
 
