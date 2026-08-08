@@ -1,6 +1,6 @@
 U0 Auto()
 {
-	Del("C:/Home/AutoISOStage4.DD",, FALSE, FALSE);
+	Del("C:/Home/AutoISOStage4.DD");
 	FileWrite("C:/Home/AutoISOStage5.DD", "5", 1);
 	ExeFile("/Misc/Auto/AutoFullDistro5.ZC");
 }

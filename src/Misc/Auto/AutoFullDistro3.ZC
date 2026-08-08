@@ -44,7 +44,7 @@ U0 Auto()
 			Sleep(1000);
 	}
 	BootHDIns;
-	Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+	Del("C:/Home/AutoISOStage3.DD");
 	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
 	DelTree("C:/Tmp/OSBuild");
 	"AutoISO stage 3 ok; Reboot to stage 4 (BootMHD2 autoselect).\n";

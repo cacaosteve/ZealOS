@@ -24,7 +24,7 @@ U0 Auto()
 			Sleep(1000);
 	}
 	BootHDIns;
-	Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
+	Del("C:/Home/AutoISOStage2.DD");
 	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
 	"AutoISO stage 2 ok; Reboot to stage 3 (BootMHD2 autoselect).\n";
 	Reboot;

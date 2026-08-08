@@ -1,7 +1,7 @@
 U0 Auto()
 {
 	WinMax;
-	Del("C:/Home/AutoISOStage0.DD",, FALSE, FALSE);
+	Del("C:/Home/AutoISOStage0.DD");
 	FileWrite("C:/Home/AutoISOStage1.DD", "1", 1);
 	// First QEMU (AUTO.ISO): no OSBuild yet ΓåÆ exit so the host can copy src/.
 	// Second QEMU: host already staged Tmp/OSBuild ΓåÆ must NOT OutU8 or the
