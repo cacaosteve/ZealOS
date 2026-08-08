@@ -62,6 +62,10 @@ require_file() {
 	[ -f "$1" ] || fail_build "missing required file: $1"
 }
 
+require_nonempty_file() {
+	[ -s "$1" ] || fail_build "missing or empty required file: $1"
+}
+
 require_same_file() {
 	if ! cmp -s "$1" "$2"; then
 		fail_build "staged file differs from source: $2"
@@ -86,6 +90,15 @@ require_kernel_symbol() {
 	fi
 }
 
+verify_live_hook_generator() {
+	generator="../src/Misc/Auto/AutoFullDistro5.ZC"
+	echo "Verifying generated live ISO startup hook in $generator ..."
+	require_text "$generator" 'CHashFun *tmpf;\n'
+	require_text "$generator" 'HashFind(\"UsbBootInit\", Fs->hash_table, HTT_FUN)'
+	require_text "$generator" 'ExePrint(\"UsbBootInit;\");\n'
+	require_text "$generator" 'FileWrite("/Distro/Home/StartOSAfterSystem.ZC", start_os_after_system'
+}
+
 verify_current_usb_tree() {
 	root="$1"
 	tree_kind="${2:-source}"
@@ -99,15 +112,19 @@ verify_current_usb_tree() {
 		stage_name="$(basename "$stage")"
 		require_same_file "$stage" "$root/Misc/Auto/$stage_name"
 	done
-	if [ "$tree_kind" = "live" ]; then
-		# AutoFullDistro5 generates this startup hook specifically for the live ISO.
-		require_file "$root/Home/StartOSAfterSystem.ZC"
-		require_line "$root/Home/StartOSAfterSystem.ZC" 'CHashFun *tmpf;'
-		require_line "$root/Home/StartOSAfterSystem.ZC" 'if ((tmpf = HashFind("UsbBootInit", Fs->hash_table, HTT_FUN)) &&'
-		require_text "$root/Home/StartOSAfterSystem.ZC" 'ExePrint("UsbBootInit;");'
-	else
-		require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
-	fi
+	case "$tree_kind" in
+		source)
+			require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
+			;;
+		container)
+			# This is the outer Limine filesystem. AutoFullDistro5 writes the
+			# generated live hook inside the nested RedSea Boot/Live.ISO.C image.
+			require_file "$root/Home/StartOSAfterSystem.ZC"
+			;;
+		*)
+			fail_build "unknown staged USB tree kind: $tree_kind"
+			;;
+	esac
 	require_same_file "../src/System/Boot/BootHDIns.ZC" "$root/System/Boot/BootHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineMHDIns.ZC" "$root/System/Boot/LimineMHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineESPIns.ZC" "$root/System/Boot/LimineESPIns.ZC"
@@ -179,6 +196,7 @@ for stage in 2 3 5; do
 	require_line "../src/Misc/Auto/AutoFullDistro${stage}.ZC" '#include "/System/Boot/MakeBoot"'
 done
 require_line "../src/Misc/Auto/AutoFullDistro5.ZC" '#include "/System/Utils/LineRep"'
+verify_live_hook_generator
 
 echo "Checking ZealC kernel compile traps..."
 # Default SerialDev: Spawn/etc. are normal in core Kernel but fatal in SerialDev.
@@ -325,9 +343,9 @@ sed -i "s/\[\]/\[$(grep -o "0x" ./limine/limine-bios-hdd.h | wc -l)\]/g" limine/
 
 mount_tempdisk
 echo "Extracting MyDistro ISO from vdisk ..."
-require_file "$TMPMOUNT/Tmp/MyDistro.ISO.C"
+require_nonempty_file "$TMPMOUNT/Tmp/MyDistro.ISO.C"
 require_file "$TMPMOUNT/Tmp/DVDKernel.ZXE"
-verify_current_usb_tree "$TMPMOUNT" live
+verify_current_usb_tree "$TMPMOUNT" container
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "MountLiveRam"
 require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "SYS_LIVE_ADDR"
@@ -354,8 +372,8 @@ sudo mv "$TMPMOUNT/Tmp/DVDKernel.ZXE" "$TMPISODIR/Boot/Kernel.ZXE"
 sudo rm -f "$TMPISODIR/Tmp/DVDKernel.ZXE"
 echo "Installing Limine RAM-live RedSea module Boot/Live.ISO.C ..."
 sudo cp ./Live.ISO.C "$TMPISODIR/Boot/Live.ISO.C"
-require_file "$TMPISODIR/Boot/Live.ISO.C"
-verify_current_usb_tree "$TMPISODIR" live
+require_nonempty_file "$TMPISODIR/Boot/Live.ISO.C"
+verify_current_usb_tree "$TMPISODIR" container
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "UsbBootInit"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "MountLiveRam"
 require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "SYS_LIVE_ADDR"
