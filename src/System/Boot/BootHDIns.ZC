@@ -37,6 +37,7 @@ U0 BootHDInsKernelFinish(CDrive *drive, Bool move_kernel)
 	{
 		case BDT_RAM:
 		case BDT_ATA:
+		case BDT_USB:
 			if (move_kernel)
 				Move("/Kernel/Kernel.ZXE", BOOT_DIR_KERNEL_ZXE);
 			else

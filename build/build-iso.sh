@@ -68,6 +68,12 @@ require_same_file() {
 	fi
 }
 
+require_line() {
+	if ! grep -Fqx "$2" "$1"; then
+		fail_build "missing required line '$2' in $1"
+	fi
+}
+
 require_kernel_symbol() {
 	if ! strings "$1" | grep -q "$2"; then
 		fail_build "kernel image missing symbol/text '$2': $1"
@@ -153,6 +159,9 @@ SOURCE_REV="$(git -C .. rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 echo "Source revision: $SOURCE_REV"
 for stage in ../src/Misc/Auto/AutoFullDistro*.ZC; do
 	require_ascii_file "$stage"
+done
+for stage in 2 3 5; do
+	require_line "../src/Misc/Auto/AutoFullDistro${stage}.ZC" '#include "/System/Boot/MakeBoot"'
 done
 
 echo "Checking ZealC kernel compile traps..."

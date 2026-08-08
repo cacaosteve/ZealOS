@@ -1,3 +1,5 @@
+#include "/System/Boot/MakeBoot"
+
 U0 Auto()
 {
 	WinMax;
