@@ -52,6 +52,12 @@ fail_build() {
 	false
 }
 
+require_ascii_file() {
+	if LC_ALL=C tr -d '\11\12\15\40-\176' < "$1" | grep -q .; then
+		fail_build "non-ASCII byte(s) found in automatic build script: $1"
+	fi
+}
+
 require_file() {
 	[ -f "$1" ] || fail_build "missing required file: $1"
 }
@@ -76,7 +82,10 @@ verify_current_usb_tree() {
 	require_same_file "../src/Once.ZC" "$root/Once.ZC"
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
 	require_same_file "../src/System/BlkDev/ZDiskA.ZC" "$root/System/BlkDev/ZDiskA.ZC"
-	require_same_file "../src/Misc/Auto/AutoFullDistro3.ZC" "$root/Misc/Auto/AutoFullDistro3.ZC"
+	for stage in ../src/Misc/Auto/AutoFullDistro*.ZC; do
+		stage_name="$(basename "$stage")"
+		require_same_file "$stage" "$root/Misc/Auto/$stage_name"
+	done
 	require_same_file "../src/Home/StartOSAfterSystem.ZC" "$root/Home/StartOSAfterSystem.ZC"
 	require_same_file "../src/System/Boot/BootHDIns.ZC" "$root/System/Boot/BootHDIns.ZC"
 	require_same_file "../src/System/Boot/LimineMHDIns.ZC" "$root/System/Boot/LimineMHDIns.ZC"
@@ -140,6 +149,12 @@ trap 'script_cleanup' EXIT
 mkdir -p "$TMPMOUNT"
 mkdir -p "$TMPISODIR"
 
+SOURCE_REV="$(git -C .. rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+echo "Source revision: $SOURCE_REV"
+for stage in ../src/Misc/Auto/AutoFullDistro*.ZC; do
+	require_ascii_file "$stage"
+done
+
 echo "Checking ZealC kernel compile traps..."
 # Default SerialDev: Spawn/etc. are normal in core Kernel but fatal in SerialDev.
 # HashFind-in-#exe is always scanned under Kernel/*.HH from this script.
@@ -166,6 +181,8 @@ sudo rm -f "$TMPMOUNT/Tmp/OSBuild/Home/UsbBootLast.DD"
 sudo mkdir -p "$TMPMOUNT/Misc/Auto"
 sudo cp -f ../src/Misc/Auto/AutoFullDistro*.ZC "$TMPMOUNT/Misc/Auto/"
 sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
+echo "Staged AutoISO stage 2 source:"
+sudo sed -n '1,14p' "$TMPMOUNT/Misc/Auto/AutoFullDistro2.ZC"
 # AUTO.ISO AutoInstall only writes ".auto_iso_build"; FileFind can miss dotfiles.
 # Ensure a non-dot AutoISO marker so Stage2+ never runs UsbBootInit.
 sudo mkdir -p "$TMPMOUNT/Home"
