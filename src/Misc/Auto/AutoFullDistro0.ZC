@@ -1,10 +1,25 @@
 U0 Auto()
 {
 	WinMax;
-	// MBR already written by AutoInstall. Do not BootMHDIns again ΓÇö that only
-	// refreshes the Selection menu. Exit QEMU so the host can copy OSBuild.
 	Del("C:/Home/AutoISOStage0.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/AutoISOStage1.DD", "1", 1);
+	// First QEMU (AUTO.ISO): no OSBuild yet ΓåÆ exit so the host can copy src/.
+	// Second QEMU: host already staged Tmp/OSBuild ΓåÆ must NOT OutU8 or the
+	// rebuild aborts before Comp and MyDistro.ISO.C is never made.
+	if (FileFind("/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC"))
+	{
+		"AutoISO stage 0: OSBuild present; chaining to stage 1.\n";
+		ExeFile("/Tmp/OSBuild/Misc/Auto/AutoFullDistro1.ZC");
+		"$$RED$$AutoISO stage 1 returned; stopping.$$FG$$\n";
+		while (TRUE)
+			Sleep(1000);
+	}
+	if (FileFind("/Tmp/OSBuild"))
+	{
+		"AutoISO stage 0: OSBuild dir present; Reboot to stage 1.\n";
+		Reboot;
+	}
+	"AutoISO stage 0: exiting QEMU for host OSBuild copy.\n";
 	OutU8(0x501,0x31);
 }
 Auto;

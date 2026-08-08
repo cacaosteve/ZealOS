@@ -170,6 +170,19 @@ sudo cp -f ../src/StartOS.ZC "$TMPMOUNT/StartOS.ZC"
 # Ensure a non-dot AutoISO marker so Stage2+ never runs UsbBootInit.
 sudo mkdir -p "$TMPMOUNT/Home"
 echo 1 | sudo tee "$TMPMOUNT/Home/AutoISOBuild.DD" >/dev/null
+# Stage0's job is OutU8 so the host can copy OSBuild. If the install left us on
+# Stage0 (or no stage1 marker), the rebuild QEMU would OutU8 again and exit
+# before Comp — MyDistro.ISO.C never appears. Force Stage1 for the rebuild.
+sudo rm -f "$TMPMOUNT/Home/AutoISOStage0.DD"
+if [ ! -f "$TMPMOUNT/Home/AutoISOStage1.DD" ] && \
+   [ ! -f "$TMPMOUNT/Home/AutoISOStage2.DD" ] && \
+   [ ! -f "$TMPMOUNT/Home/AutoISOStage3.DD" ] && \
+   [ ! -f "$TMPMOUNT/Home/AutoISOStage4.DD" ] && \
+   [ ! -f "$TMPMOUNT/Home/AutoISOStage5.DD" ]; then
+	echo 1 | sudo tee "$TMPMOUNT/Home/AutoISOStage1.DD" >/dev/null
+	echo "Placed AutoISOStage1.DD for rebuild QEMU."
+fi
+echo "AutoISO Home markers:"; sudo ls -la "$TMPMOUNT/Home"/AutoISO* "$TMPMOUNT/Home"/.auto_iso_build 2>/dev/null || true
 # Do NOT copy ZDiskA onto live System yet: MakeSystem would JIT it against the
 # AUTO.ISO Kernel before stage2 installs 3-arg CopySingle (Missing ')' at ",").
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
@@ -228,10 +241,17 @@ sock.close()
 PY
 ) &
 QMP_SENDER_PID=$!
+REBUILD_START=$(date +%s)
 "$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 $QEMU_USB_INPUT -device isa-debug-exit -qmp "unix:$QMP_SOCK,server,nowait" $QEMU_HEADLESS || true
+REBUILD_END=$(date +%s)
+REBUILD_SECS=$((REBUILD_END - REBUILD_START))
+echo "Rebuild QEMU exited after ${REBUILD_SECS}s."
 kill "$QMP_SENDER_PID" 2>/dev/null || true
 wait "$QMP_SENDER_PID" 2>/dev/null || true
 rm -f "$QMP_SOCK"
+if [ "$REBUILD_SECS" -lt 90 ]; then
+	fail_build "rebuild QEMU exited after ${REBUILD_SECS}s (need several minutes for Comp). Likely Stage0 isa-debug-exit or early crash — MyDistro was not built."
+fi
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 
