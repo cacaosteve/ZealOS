@@ -1,7 +1,30 @@
+#include "/System/Boot/MakeBoot"
+
 U0 Auto()
 {
+	I64 size;
+	U8 *buf;
+
+	WinMax;
+	buf = FileRead("C:/Kernel/Kernel.ZXE", &size);
+	if (!buf)
+	{
+		"AutoISO stage 4: rebuilt kernel is missing.\n";
+		throw;
+	}
+	Del("C:/Boot/Kernel.ZXE",, FALSE, FALSE);
+	if (!FileWrite("C:/Boot/Kernel.ZXE", buf, size))
+	{
+		Free(buf);
+		"AutoISO stage 4: could not install rebuilt kernel.\n";
+		throw;
+	}
+	Free(buf);
+	"AutoISO stage 4: installing prebuilt kernel boot files.\n";
+	BootHDInsPrebuilt('C');
 	Del("C:/Home/AutoISOStage4.DD");
 	FileWrite("C:/Home/AutoISOStage5.DD", "5", 1);
+	DelTree("C:/Tmp/OSBuild");
 	"AutoISO stage 4 ok; rebooting to stage 5.\n";
 	Reboot;
 }

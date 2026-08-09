@@ -1,11 +1,9 @@
-#include "/System/Boot/MakeBoot"
-
 U0 Auto()
 {
 	Bool old_silent;
 
 	WinMax;
-	// Overlay OSBuild then BootHDIns. No StdIn queue; no UsbPollPause.
+	// Overlay OSBuild, then compile during the next early-boot pass.
 	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
 	old_silent = Silent;
 	CopyTree("C:/Tmp/OSBuild/", "C:/");
@@ -13,10 +11,9 @@ U0 Auto()
 	DocClear;
 	DocBottom;
 	"OSBuild overlay complete.\n";
-	BootHDIns('C');
-	FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
-	DelTree("C:/Tmp/OSBuild");
-	"AutoISO stage 3 ok; Reboot to stage 4.\n";
+	FileWrite("C:/Home/AutoISORebuildStage3.DD", "3", 1);
+	FileWrite("C:/Home/BootInsPending.DD", "1", 1);
+	"AutoISO stage 3 staged; rebooting for early compile.\n";
 	Reboot;
 }
 Auto;

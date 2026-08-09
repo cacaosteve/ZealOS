@@ -113,6 +113,8 @@ public U0 BootHDInsPrebuilt(U8 drv_let=0)
 	{
 		PutExcept;
 		Beep;
+		// Callers need to stop stage progression if boot installation failed.
+		throw;
 	}
 }
 

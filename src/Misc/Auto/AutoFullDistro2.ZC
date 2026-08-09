@@ -1,15 +1,13 @@
-#include "/System/Boot/MakeBoot"
-
 U0 Auto()
 {
 	WinMax;
 	// WIP KConfig is noninteractive (defaults only). No StdIn queue.
 	// Host-patched BootMHD2.BIN auto-selects Drive C after Reboot.
-	"AutoISO stage 2: CopyTree Kernel + BootHDIns...\n";
+	"AutoISO stage 2: staging low-memory kernel rebuild...\n";
 	CopyTree("C:/Tmp/OSBuild/Kernel/", "C:/Kernel/");
-	BootHDIns('C');
-	FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
-	"AutoISO stage 2 ok; Reboot to stage 3.\n";
+	FileWrite("C:/Home/AutoISORebuildStage2.DD", "2", 1);
+	FileWrite("C:/Home/BootInsPending.DD", "1", 1);
+	"AutoISO stage 2 staged; rebooting for early compile.\n";
 	Reboot;
 }
 Auto;

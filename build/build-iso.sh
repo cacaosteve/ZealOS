@@ -86,6 +86,12 @@ require_text() {
 	fi
 }
 
+reject_text() {
+	if grep -Fq "$2" "$1"; then
+		fail_build "unexpected text '$2' in $1"
+	fi
+}
+
 require_kernel_symbol() {
 	if ! strings "$1" | grep -q "$2"; then
 		fail_build "kernel image missing symbol/text '$2': $1"
@@ -122,6 +128,7 @@ verify_current_usb_tree() {
 	tree_kind="${2:-source}"
 	echo "Verifying staged USB input tree in $root ..."
 	require_same_file "../src/HomeSys.ZC" "$root/HomeSys.ZC"
+	require_same_file "../src/Home/BootKernelOnly.ZC" "$root/Home/BootKernelOnly.ZC"
 	require_same_file "../src/Misc/OSInstall.ZC" "$root/Misc/OSInstall.ZC"
 	require_same_file "../src/Once.ZC" "$root/Once.ZC"
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
@@ -211,9 +218,19 @@ echo "Source revision: $SOURCE_REV"
 for stage in ../src/Misc/Auto/AutoFullDistro*.ZC; do
 	require_ascii_file "$stage"
 done
-for stage in 2 3 5; do
+require_ascii_file ../src/Home/BootKernelOnly.ZC
+for stage in 2 3; do
+	require_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" "AutoISORebuildStage${stage}.DD"
+	require_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" 'BootInsPending.DD'
+	reject_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" '#include "/System/Boot/MakeBoot"'
+	reject_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" 'BootHDIns'
+done
+for stage in 4 5; do
 	require_line "../src/Misc/Auto/AutoFullDistro${stage}.ZC" '#include "/System/Boot/MakeBoot"'
 done
+require_text ../src/Misc/Auto/AutoFullDistro4.ZC 'FileRead("C:/Kernel/Kernel.ZXE"'
+require_text ../src/Misc/Auto/AutoFullDistro4.ZC "BootHDInsPrebuilt('C');"
+require_text ../src/Home/BootKernelOnly.ZC 'if (!stage2 && !stage3)'
 require_line "../src/Misc/Auto/AutoFullDistro5.ZC" '#include "/System/Utils/LineRep"'
 verify_live_hook_generator
 
@@ -248,6 +265,7 @@ sudo sed -n '1,14p' "$TMPMOUNT/Misc/Auto/AutoFullDistro2.ZC"
 # AUTO.ISO AutoInstall only writes ".auto_iso_build"; FileFind can miss dotfiles.
 # Ensure a non-dot AutoISO marker so Stage2+ never runs UsbBootInit.
 sudo mkdir -p "$TMPMOUNT/Home"
+sudo cp -f ../src/Home/BootKernelOnly.ZC "$TMPMOUNT/Home/BootKernelOnly.ZC"
 echo 1 | sudo tee "$TMPMOUNT/Home/AutoISOBuild.DD" >/dev/null
 # Stage0's job is OutU8 so the host can copy OSBuild. If the install left us on
 # Stage0 (or no stage1 marker), the rebuild QEMU would OutU8 again and exit

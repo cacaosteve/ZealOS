@@ -1,24 +1,14 @@
-public U0 BootKernelOnlyReboot()
+I64 BootKernelOnlyCompile(U8 *src, U8 *module)
 {
-	I64 errs = -1, size, was_srv;
-	U8 *st, *buf;
+	I64 errs = -1, was_srv;
 
-	Cd("C:/");
-	Option(0, 1);
-	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
-	Del("C:/Home/BootInsErrs.DD",, FALSE, FALSE);
-	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
-	FileWrite("C:/Home/BootInsStage.DD", "compile", 7);
-	"BootKernelOnly: compiling /Kernel/Kernel\n";
-	// LexExcept calls Debug() before throw while still in boot phase; catch never
-	// runs if the debugger stops here. Pretend system server is up for Comp().
-	// DolDoc is not loaded yet ΓÇö do not call DocPut/DocSave here.
+	// Comp() expects the system-server run level even during early boot.
 	was_srv = Bt(&sys_run_level, RLf_SYSTEM_SERVER);
 	if (!was_srv)
 		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
 	try
 	{
-		errs = Comp("C:/Kernel/Kernel", "Kernel",, ':');
+		errs = Comp(src, module,, ':');
 	}
 	catch
 	{
@@ -27,35 +17,92 @@ public U0 BootKernelOnlyReboot()
 	}
 	if (!was_srv)
 		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
-	"BootKernelOnly: Comp errs=%d\n", errs;
+	return errs;
+}
 
-	st = MStrPrint("errs=%d\n", errs);
-	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
-	Free(st);
+U0 BootKernelOnlyFail(U8 *reason)
+{
+	FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+	FileWrite("C:/Home/BootInsErrs.DD", reason, StrLen(reason));
+	// StartOS consumes this marker before launching us. Restore it for retry.
+	FileWrite("C:/Home/BootInsPending.DD", "1", 1);
+	Cd("C:/Home");
+}
+
+public U0 BootKernelOnlyReboot()
+{
+	Bool stage2, stage3;
+	I64 errs, size;
+	U8 *st, *buf;
+
+	Cd("C:/");
+	Option(0, 1);
+	stage2 = FileFind("C:/Home/AutoISORebuildStage2.DD");
+	stage3 = FileFind("C:/Home/AutoISORebuildStage3.DD");
+	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
+	Del("C:/Home/BootInsErrs.DD",, FALSE, FALSE);
+	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
+
+	if (stage3)
+	{
+		FileWrite("C:/Home/BootInsStage.DD", "compiler", 8);
+		"BootKernelOnly: compiling /Compiler/Compiler\n";
+		errs = BootKernelOnlyCompile("C:/Compiler/Compiler", "Compiler");
+		"BootKernelOnly: compiler errs=%d\n", errs;
+		if (errs)
+		{
+			st = MStrPrint("compiler errs=%d\n", errs);
+			BootKernelOnlyFail(st);
+			Free(st);
+			return;
+		}
+	}
+
+	FileWrite("C:/Home/BootInsStage.DD", "kernel", 6);
+	"BootKernelOnly: compiling /Kernel/Kernel\n";
+	errs = BootKernelOnlyCompile("C:/Kernel/Kernel", "Kernel");
+	"BootKernelOnly: kernel errs=%d\n", errs;
 	if (errs)
 	{
-		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
-		Cd("/Home");
+		st = MStrPrint("kernel errs=%d\n", errs);
+		BootKernelOnlyFail(st);
+		Free(st);
 		return;
 	}
 
-	FileWrite("C:/Home/BootInsStage.DD", "copy", 4);
-	Del("/Boot/Kernel.ZXE",, FALSE, FALSE);
-	buf = FileRead("/Kernel/Kernel.ZXE", &size);
-	if (!buf)
+	// AutoISO stage 4 replaces the kernel and updates the boot record together.
+	// Keep the current boot kernel intact across stage 2 and stage 3 reboots.
+	if (!stage2 && !stage3)
 	{
-		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
-		FileWrite("C:/Home/BootInsErrs.DD", "read\n", 5);
-		throw;
-	}
-	if (!FileWrite("/Boot/Kernel.ZXE", buf, size))
-	{
+		FileWrite("C:/Home/BootInsStage.DD", "copy", 4);
+		buf = FileRead("C:/Kernel/Kernel.ZXE", &size);
+		if (!buf)
+		{
+			BootKernelOnlyFail("kernel read failed\n");
+			return;
+		}
+		Del("C:/Boot/Kernel.ZXE",, FALSE, FALSE);
+		if (!FileWrite("C:/Boot/Kernel.ZXE", buf, size))
+		{
+			Free(buf);
+			BootKernelOnlyFail("kernel write failed\n");
+			return;
+		}
 		Free(buf);
-		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
-		FileWrite("C:/Home/BootInsErrs.DD", "write\n", 6);
-		throw;
 	}
-	Free(buf);
+
+	if (stage2)
+	{
+		Del("C:/Home/AutoISORebuildStage2.DD",, FALSE, FALSE);
+		Del("C:/Home/AutoISOStage2.DD",, FALSE, FALSE);
+		FileWrite("C:/Home/AutoISOStage3.DD", "3", 1);
+	}
+	else if (stage3)
+	{
+		Del("C:/Home/AutoISORebuildStage3.DD",, FALSE, FALSE);
+		Del("C:/Home/AutoISOStage3.DD",, FALSE, FALSE);
+		FileWrite("C:/Home/AutoISOStage4.DD", "4", 1);
+	}
 
 	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
 	Reboot;
