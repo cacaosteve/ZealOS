@@ -1,4 +1,4 @@
-I64 BootKernelOnlyCompile(U8 *src, U8 *module)
+I64 BootKernelOnlyCompile(U8 *src)
 {
 	I64 errs = -1, was_srv;
 
@@ -8,7 +8,8 @@ I64 BootKernelOnlyCompile(U8 *src, U8 *module)
 		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
 	try
 	{
-		errs = Comp(src, module,, ':');
+		// MapFileWrite uses DolDoc, which is unavailable during this bootstrap.
+		errs = Comp(src,,, ':');
 	}
 	catch
 	{
@@ -47,7 +48,7 @@ public U0 BootKernelOnlyReboot()
 	{
 		FileWrite("C:/Home/BootInsStage.DD", "compiler", 8);
 		"BootKernelOnly: compiling /Compiler/Compiler\n";
-		errs = BootKernelOnlyCompile("C:/Compiler/Compiler", "Compiler");
+		errs = BootKernelOnlyCompile("C:/Compiler/Compiler");
 		"BootKernelOnly: compiler errs=%d\n", errs;
 		if (errs)
 		{
@@ -60,7 +61,7 @@ public U0 BootKernelOnlyReboot()
 
 	FileWrite("C:/Home/BootInsStage.DD", "kernel", 6);
 	"BootKernelOnly: compiling /Kernel/Kernel\n";
-	errs = BootKernelOnlyCompile("C:/Kernel/Kernel", "Kernel");
+	errs = BootKernelOnlyCompile("C:/Kernel/Kernel");
 	"BootKernelOnly: kernel errs=%d\n", errs;
 	if (errs)
 	{
