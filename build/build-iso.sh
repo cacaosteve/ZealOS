@@ -277,57 +277,12 @@ umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
 # Single CPU: ZealOS heap/USB is not SMP-hardened; stage3 CopyTree has GPF'd on -smp 4.
-# BootMHD2.BIN was patched above to auto-select Drive C. Keep QMP digit1 as backup.
-QMP_SOCK="$TMPDIR/qmp.sock"
-rm -f "$QMP_SOCK"
-(
-	if ! command -v python3 >/dev/null 2>&1; then
-		exit 0
-	fi
-	python3 - "$QMP_SOCK" <<'PY' || true
-import socket, sys, time
-path = sys.argv[1]
-deadline = time.time() + 120
-sock = None
-while time.time() < deadline:
-    try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        sock.connect(path)
-        break
-    except OSError:
-        time.sleep(0.25)
-else:
-    sys.exit(0)
-try:
-    sock.recv(4096)
-    sock.sendall(b'{"execute":"qmp_capabilities"}\n')
-    sock.recv(4096)
-except OSError:
-    sys.exit(0)
-key = b'{"execute":"send-key","arguments":{"keys":[{"type":"qcode","data":"digit1"}]}}\n'
-while True:
-    try:
-        sock.sendall(key)
-        try:
-            sock.recv(4096)
-        except socket.timeout:
-            pass
-        time.sleep(4)
-    except OSError:
-        break
-sock.close()
-PY
-) &
-QMP_SENDER_PID=$!
+# BootMHD2.BIN was patched above to auto-select Drive C, so no input injection is needed.
 REBUILD_START=$(date +%s)
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 -device isa-debug-exit -qmp "unix:$QMP_SOCK,server,nowait" $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 -device isa-debug-exit $QEMU_HEADLESS || true
 REBUILD_END=$(date +%s)
 REBUILD_SECS=$((REBUILD_END - REBUILD_START))
 echo "Rebuild QEMU exited after ${REBUILD_SECS}s."
-kill "$QMP_SENDER_PID" 2>/dev/null || true
-wait "$QMP_SENDER_PID" 2>/dev/null || true
-rm -f "$QMP_SOCK"
 if [ "$REBUILD_SECS" -lt 90 ]; then
 	fail_build "rebuild QEMU exited after ${REBUILD_SECS}s (need several minutes for Comp). Likely Stage0 isa-debug-exit or early crash — MyDistro was not built."
 fi
