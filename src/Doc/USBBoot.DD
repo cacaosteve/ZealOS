@@ -82,6 +82,6 @@ After editing $FG,2$Kernel/SerialDev/*.ZC$FG$, shut down the VM and run one of:
 Or $FG,2$build/patch-utm-disk.sh$FG$ to sync sources only. Patching sources alone does not update $FG,2$Kernel.ZXE$FG$ — you still need $FG,2$BootHDInsAuto; Reboot;$FG$ inside the guest.
 
 $FG,5$Mac mini$FG$
-Native install uses UEFI Limine on a USB stick plus internal $FG,2$AHCI SATA$FG$ — not USB mass storage. Probe with $LK,"MacMiniProbe",A="FI:::/Demo/MacMiniProbe.ZC"$. Full steps: $LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$.
+Native install uses UEFI Limine to load the live image from a USB stick into RAM, then installs to internal $FG,2$AHCI SATA$FG$. KUSB can also mount compatible xHCI BOT/SCSI flash drives after boot. Probe with $LK,"MacMiniProbe",A="FI:::/Demo/MacMiniProbe.ZC"$. Full steps: $LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$.
 
 See $LK,"USBInput",A="FI:::/Demo/USBInput.ZC"$ demo and $LK,"UsbBootInit",A="MN:UsbBootInit"$.

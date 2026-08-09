@@ -18,6 +18,8 @@ $FG,5$Supported Hardware$FG$
 
 * SATA hard drives. (SATA, mSATA, m.2)
 
+* USB mass-storage flash drives using xHCI, Bulk-Only Transport, SCSI transparent commands, LUN 0, and 512-byte sectors.
+
 * A few networking cards.
 
 $FG,5$Unsupported Hardware$FG$
@@ -25,7 +27,7 @@ $FG,5$Unsupported Hardware$FG$
 
 * No sound cards.
 
-* No USB mass storage or printers. Mac mini install uses firmware USB-boot of the UEFI ISO plus internal AHCI SATA ($LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$).
+* No USB Attached SCSI (UAS), multi-LUN USB storage, or USB storage with non-512-byte sectors. Mac mini live boot primarily uses the firmware-loaded UEFI image and installs to internal AHCI SATA ($LK,"InstallMacMini.DD",A="FI:::/Doc/InstallMacMini.DD"$).
 
 * Native $FG,2$USB keyboard/mouse$FG$ via xHCI when available; minimal UHCI HID for UTM/QEMU PC UI input; $FG,2$PS/2$FG$ fallback otherwise.
 
