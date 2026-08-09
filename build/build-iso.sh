@@ -24,6 +24,8 @@ fi
 
 KVM=''
 (lsmod | grep -q kvm) && KVM=' -accel kvm'
+# Attach USB HID devices only when testing the completed ISO.  The two
+# noninteractive builder VMs must not exercise the in-progress USB stack.
 QEMU_USB_INPUT='-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -device usb-mouse,bus=xhci.0'
 
 # Set this true if you want to test ISOs in QEMU after building.
@@ -225,7 +227,7 @@ make -C ../zealbooter TOOLCHAIN=llvm distclean all || ( echo "ERROR: ZealBooter 
 
 echo "Making temp vdisk, running auto-install ..."
 "$QEMU_BIN_PATH/qemu-img" create -f raw "$TMPDISK" 1024M
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 $QEMU_USB_INPUT -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
 
 echo "Copying all src/ code into vdisk Tmp/OSBuild/ ..."
 rm -f ../src/Home/Registry.ZC
@@ -319,7 +321,7 @@ PY
 ) &
 QMP_SENDER_PID=$!
 REBUILD_START=$(date +%s)
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 $QEMU_USB_INPUT -device isa-debug-exit -qmp "unix:$QMP_SOCK,server,nowait" $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 -device isa-debug-exit -qmp "unix:$QMP_SOCK,server,nowait" $QEMU_HEADLESS || true
 REBUILD_END=$(date +%s)
 REBUILD_SECS=$((REBUILD_END - REBUILD_START))
 echo "Rebuild QEMU exited after ${REBUILD_SECS}s."
