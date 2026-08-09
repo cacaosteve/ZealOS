@@ -82,13 +82,14 @@ Bool MountLiveRam()
 {//Mount Limine-provided RedSea image as A: (BDT_RAM letters are A-B only).
 	CBlkDev *bd;
 
-	if (!sys_live_addr || sys_live_size < BLK_SIZE)
+	if (!sys_live_addr || sys_live_size < (DVD_REDSEA_DRV_OFFSET + 1) * BLK_SIZE)
 		return FALSE;
-	"MountLiveRam(0x%X, %d blks);\n", sys_live_addr, sys_live_size >> BLK_SIZE_BITS;
+	"MountLiveRam(0x%X, %d blks, RedSea at %d);\n",
+		sys_live_addr, sys_live_size >> BLK_SIZE_BITS, DVD_REDSEA_DRV_OFFSET;
 	bd = BlkDevNextFreeSlot('A', BDT_RAM);
 	bd->RAM_disk = sys_live_addr;
 	bd->max_blk = (sys_live_size >> BLK_SIZE_BITS) - 1;
-	bd->drv_offset = 0;
+	bd->drv_offset = DVD_REDSEA_DRV_OFFSET;
 	bd->flags |= BDF_READ_ONLY;
 	bd->flags &= ~BDF_READ_CACHE;
 	if (!BlkDevAdd(bd,, FALSE, TRUE))

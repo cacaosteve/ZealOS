@@ -3049,6 +3049,7 @@ class CAtapiModeWriteList
 #define BLK_SIZE				(1 << BLK_SIZE_BITS)
 #define DVD_BLK_SIZE			(4 * BLK_SIZE)
 #define DVD_BOOT_LOADER_SIZE	DVD_BLK_SIZE * 1
+#define DVD_REDSEA_DRV_OFFSET	((19 << 2) + (DVD_BLK_SIZE * 2 + DVD_BOOT_LOADER_SIZE) / BLK_SIZE)
 #define INVALID_CLUS			(-1)
 
 class CMBRPart
