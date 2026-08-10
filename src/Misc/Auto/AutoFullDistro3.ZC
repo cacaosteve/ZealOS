@@ -3,10 +3,49 @@ U0 Auto()
 	Bool old_silent;
 
 	WinMax;
-	// Overlay OSBuild, then compile during the next early-boot pass.
-	"Auto ISO stage 3: overlaying C:/Tmp/OSBuild -> C:/\n";
+	// Keep each directory scan bounded in the low-memory rebuild VM.
+	"Auto ISO stage 3: overlaying staged files in bounded groups...\n";
 	old_silent = Silent;
-	CopyTree("C:/Tmp/OSBuild/", "C:/");
+	Copy("C:/Tmp/OSBuild/*", "C:/");
+	CopyTree("C:/Tmp/OSBuild/Apps/", "C:/Apps/");
+	CopyTree("C:/Tmp/OSBuild/Compiler/", "C:/Compiler/");
+	DirMake("C:/Demo");
+	Copy("C:/Tmp/OSBuild/Demo/*", "C:/Demo/");
+	CopyTree("C:/Tmp/OSBuild/Demo/AcctExample/", "C:/Demo/AcctExample/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Asm/", "C:/Demo/Asm/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Disk/", "C:/Demo/Disk/");
+	CopyTree("C:/Tmp/OSBuild/Demo/DolDoc/", "C:/Demo/DolDoc/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Games/", "C:/Demo/Games/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Graphics/", "C:/Demo/Graphics/");
+	CopyTree("C:/Tmp/OSBuild/Demo/InFile/", "C:/Demo/InFile/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Lectures/", "C:/Demo/Lectures/");
+	CopyTree("C:/Tmp/OSBuild/Demo/MultiCore/", "C:/Demo/MultiCore/");
+	CopyTree("C:/Tmp/OSBuild/Demo/RevFileDemo/", "C:/Demo/RevFileDemo/");
+	CopyTree("C:/Tmp/OSBuild/Demo/SortFileDemo/", "C:/Demo/SortFileDemo/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Sound/", "C:/Demo/Sound/");
+	CopyTree("C:/Tmp/OSBuild/Demo/Templates/", "C:/Demo/Templates/");
+	CopyTree("C:/Tmp/OSBuild/Demo/ToHtmlToTXTDemo/", "C:/Demo/ToHtmlToTXTDemo/");
+	CopyTree("C:/Tmp/OSBuild/Demo/WebLogDemo/", "C:/Demo/WebLogDemo/");
+	CopyTree("C:/Tmp/OSBuild/Doc/", "C:/Doc/");
+	CopyTree("C:/Tmp/OSBuild/Home/", "C:/Home/");
+
+	DirMake("C:/Misc");
+	Copy("C:/Tmp/OSBuild/Misc/*", "C:/Misc/");
+	CopyTree("C:/Tmp/OSBuild/Misc/Auto/", "C:/Misc/Auto/");
+	CopyTree("C:/Tmp/OSBuild/Misc/Tour/", "C:/Misc/Tour/");
+
+	DirMake("C:/System");
+	Copy("C:/Tmp/OSBuild/System/*", "C:/System/");
+	DirMake("C:/System/AutoComplete");
+	Copy("C:/Tmp/OSBuild/System/AutoComplete/*", "C:/System/AutoComplete/");
+	CopyTree("C:/Tmp/OSBuild/System/BlkDev/", "C:/System/BlkDev/");
+	CopyTree("C:/Tmp/OSBuild/System/Boot/", "C:/System/Boot/");
+	CopyTree("C:/Tmp/OSBuild/System/Ctrls/", "C:/System/Ctrls/");
+	CopyTree("C:/Tmp/OSBuild/System/DolDoc/", "C:/System/DolDoc/");
+	CopyTree("C:/Tmp/OSBuild/System/God/", "C:/System/God/");
+	CopyTree("C:/Tmp/OSBuild/System/Gr/", "C:/System/Gr/");
+	CopyTree("C:/Tmp/OSBuild/System/Math/", "C:/System/Math/");
+	CopyTree("C:/Tmp/OSBuild/System/Utils/", "C:/System/Utils/");
 	Silent(old_silent);
 	DocClear;
 	DocBottom;
