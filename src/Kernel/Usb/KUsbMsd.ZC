@@ -303,14 +303,31 @@ U0 UsbMsdAttach(CUsbDev *dev, CUsbIf *uif)
 	UsbMsdInquiry(msd, inq);
 	inq[36] = 0;
 
-	tries = 10;
+	tries = 20;
 	while (tries > 0 && !UsbMsdTestReady(msd))
 	{
 		UsbMsdRequestSense(msd);
-		Sleep(100);
+		Sleep(150);
 		tries--;
 	}
-	if (!UsbMsdReadCapacity(msd))
+//SanDisk / Mac mini xHCI: first READ CAPACITY often fails after TUR;
+//retry with sense + BOT reset so live ISO can remount after Limine.
+	tries = 8;
+	res = FALSE;
+	while (tries > 0 && !res)
+	{
+		res = UsbMsdReadCapacity(msd);
+		if (!res)
+		{
+			SysLog("USB: MSD port %d: READ CAPACITY retry (%d left).\n",
+				   dev->port, tries - 1);
+			UsbMsdRequestSense(msd);
+			UsbMsdBotReset(msd);
+			Sleep(200);
+			tries--;
+		}
+	}
+	if (!res)
 	{
 		SysLog("USB: MSD port %d: READ CAPACITY failed.\n", dev->port);
 		msd->valid = FALSE;
