@@ -249,12 +249,13 @@ U0 KMain()
 		Debug;
 	}
 
+//Mac mini bare metal: APs still GPF in IRQ_TIMER during Format/AHCI after a
+//late Core0StartMP. Stay single-CPU for live install; installed kernels can
+//revisit MP once AHCI+USB are stable. CONFIG_NO_MP also skips this.
 	#exe
 	{
 		if (!kernel_config->opts[CONFIG_NO_MP])
-			StreamPrint("\"\\nCore0StartMP;\\n\\n\";"
-						"Core0StartMP;"
-						"LBts(&sys_run_level, RLf_MP);");
+			StreamPrint("\"\\nSkipping Core0StartMP (mac-mini-2014 single-CPU).\\n\\n\";");
 	};
 
 	LBts(&sys_run_level, RLf_SYSTEM_SERVER);
