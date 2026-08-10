@@ -225,20 +225,12 @@ U0 KMain()
 	"Spawn(&UsbTaskMain,, \"USB\");\n";
 	Spawn(&UsbTaskMain,, "USB");
 
-//Load Compiler on CPU0 only. On bare-metal Mac mini, AsmHashLoad/Lex under
-//MP raced into InstEntryFind page faults (UTM often survives the same ISO).
+//Stay single-CPU through Compiler + StartOS. Bare-metal Mac mini GPFs in
+//XhciXferWait/UsbMsd while the USB task runs on an AP (UTM often survives).
 	"Load(\"Compiler\");\n";
 	Cd("/Compiler");
 	Load("Compiler", LDF_SILENT);
 	LBts(&sys_run_level, RLf_COMPILER);
-
-	#exe
-	{
-		if (!kernel_config->opts[CONFIG_NO_MP])
-			StreamPrint("\"\\nCore0StartMP;\\n\\n\";"
-						"Core0StartMP;"
-						"LBts(&sys_run_level, RLf_MP);");
-	};
 
 	DebugMode(OFF);
 	counts.time_stamp_freq_initial = TimeCal;
@@ -253,6 +245,14 @@ U0 KMain()
 		PutExcept;
 		Debug;
 	}
+
+	#exe
+	{
+		if (!kernel_config->opts[CONFIG_NO_MP])
+			StreamPrint("\"\\nCore0StartMP;\\n\\n\";"
+						"Core0StartMP;"
+						"LBts(&sys_run_level, RLf_MP);");
+	};
 
 	LBts(&sys_run_level, RLf_SYSTEM_SERVER);
 	ServerTaskCont; //Never to return
