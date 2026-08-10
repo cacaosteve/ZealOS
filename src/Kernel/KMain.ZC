@@ -201,6 +201,30 @@ U0 KMain()
 	}
 	LBts(&sys_run_level, RLf_BLKDEV);
 
+//PS/2 + Raw console are not MP-safe on machines without an 8042 (Mac mini).
+//Finish keyboard/mouse bring-up on CPU0 before Core0StartMP.
+	"KbdMouseInit;\n";
+	KbdMouseInit;
+	"MouseInit;\n";
+	MouseInit;
+	"KbdInit;\n";
+	KbdInit;
+	if (sys_usb_hid_mouse)
+	{
+		mouse_hard.installed = TRUE;
+		mouse_hard.irqs_working = TRUE;
+		mouse_hard.enabled = TRUE;
+	}
+	else
+	{
+		"Spawn(&MouseHardDriverInstall);\n\n";
+		Spawn(&MouseHardDriverInstall);
+	}
+	"Spawn(&MouseRawWatcher,, \"MouseRawWatcher\");\n";
+	Spawn(&MouseRawWatcher,, "MouseRawWatcher");
+	"Spawn(&UsbTaskMain,, \"USB\");\n";
+	Spawn(&UsbTaskMain,, "USB");
+
 	#exe
 	{
 		if (!kernel_config->opts[CONFIG_NO_MP])
@@ -208,19 +232,6 @@ U0 KMain()
 						"Core0StartMP;"
 						"LBts(&sys_run_level, RLf_MP);");
 	};
-
-	"KbdMouseInit;\n";
-	KbdMouseInit;
-	"MouseInit;\n";
-	MouseInit;
-	"KbdInit;\n";
-	KbdInit;
-	"Spawn(&MouseHardDriverInstall);\n\n";
-	Spawn(&MouseHardDriverInstall);
-	"Spawn(&MouseRawWatcher,, \"MouseRawWatcher\");\n";
-	Spawn(&MouseRawWatcher,, "MouseRawWatcher");
-	"Spawn(&UsbTaskMain,, \"USB\");\n";
-	Spawn(&UsbTaskMain,, "USB");
 
 	"Load(\"Compiler\");\n";
 	Cd("/Compiler");

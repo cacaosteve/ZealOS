@@ -487,9 +487,9 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 	no_warn dummy;
 	I64 i;
 
+//Silent skip: printing from an AP during early boot races RawPutChar (GPF).
 	if (sys_usb_hid_mouse)
 	{
-		"MouseHardDriverInstall: USB HID mouse present; skipping PS/2.\n";
 		mouse_hard.installed = TRUE;
 		mouse_hard.irqs_working = TRUE;
 		mouse_hard.enabled = TRUE;
