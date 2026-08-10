@@ -36,6 +36,11 @@ CTextGlobals			 text;
 Bool	 (*fp_usb_msd_blks_read )(CBlkDev *bd, U8 *buf, I64 blk, I64 count); //Set by USB mass storage driver.
 Bool	 (*fp_usb_msd_blks_write)(CBlkDev *bd, U8 *buf, I64 blk, I64 count);
 
+//Set by Kernel USB HID attach when boot-protocol kbd/mouse are bound.
+//PS/2 init must skip on machines with no working 8042 (e.g. Mac mini + USB HID).
+Bool	 sys_usb_hid_kbd;
+Bool	 sys_usb_hid_mouse;
+
 U8		*(*fp_getstr2)(I64 flags=0);
 U0		 (*fp_update_ctrls)(CTask *task);
 CDoc	*(*fp_doc_put)(CTask *task=NULL);

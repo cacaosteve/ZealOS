@@ -239,6 +239,7 @@ U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif)
 	{
 		ep->auto_len = 8;
 		ep->auto_kind = USB_AUTO_KBD;
+		sys_usb_hid_kbd = TRUE;
 		SysLog("USB: HID keyboard on port %d.\n", dev->port);
 	}
 	else
@@ -248,11 +249,28 @@ U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif)
 //irqs_working so WinMgr does NOT poll (and clobber) the PS/2 mouse state.
 		mouse_hard.installed	= TRUE;
 		mouse_hard.irqs_working	= TRUE;
+		sys_usb_hid_mouse = TRUE;
 		usb_mouse_x = sys_framebuffer_width  >> 1;
 		usb_mouse_y = sys_framebuffer_height >> 1;
 		SysLog("USB: HID mouse on port %d.\n", dev->port);
 	}
 	XhciIntQueue(dev, ep);
+}
+
+U0 UsbHidFlagsRefresh()
+{
+	I64 i;
+
+	sys_usb_hid_kbd = FALSE;
+	sys_usb_hid_mouse = FALSE;
+	for (i = 0; i < USB_HIDS_MAX; i++)
+		if (usb_hids[i].valid)
+		{
+			if (usb_hids[i].proto == USB_HID_PROTO_KBD)
+				sys_usb_hid_kbd = TRUE;
+			else if (usb_hids[i].proto == USB_HID_PROTO_MOUSE)
+				sys_usb_hid_mouse = TRUE;
+		}
 }
 
 U0 UsbHidDetach(CUsbDev *dev)
@@ -262,4 +280,5 @@ U0 UsbHidDetach(CUsbDev *dev)
 	for (i = 0; i < USB_HIDS_MAX; i++)
 		if (usb_hids[i].valid && usb_hids[i].dev == dev)
 			usb_hids[i].valid = FALSE;
+	UsbHidFlagsRefresh();
 }

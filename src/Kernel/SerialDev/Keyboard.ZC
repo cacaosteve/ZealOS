@@ -101,6 +101,9 @@ U0 KbdMouseCmdAck(...)
 
 U0 KbdTypeMatic(U8 delay)
 {//Set speed of repeated keys.
+	if (sys_boot_src.u16[0] == BOOT_SRC_DVD || sys_usb_hid_kbd)
+		return;
+
 	try
 	{
 		KbdCmdSend(KBD_CTRL, 0xA7); //Disable Mouse
@@ -485,6 +488,11 @@ interrupt U0 IRQKbd()
 
 U0 KbdInit()
 {
+	if (sys_usb_hid_kbd)
+	{
+		"KbdInit: USB HID keyboard present; skipping PS/2.\n";
+		return;
+	}
 	try
 	{
 		KbdCmdFlush;
