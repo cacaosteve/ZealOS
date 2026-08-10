@@ -1175,7 +1175,13 @@ Bool AHCIBootDVDProbeAll(CBlkDev *bd)
 		}
 	}
 
-	Panic("Could not find ATAPI boot drive");
+	Free(buf);
+	// Do not Panic: BlkDevsInitAll wraps mount config in try/catch so USB
+	// ISO9660 install media (usb_boot_iso_drv_let / drive U:) can take over
+	// via UsbBootDriveFallback when there is no ATAPI optical drive (Mac mini).
+	"AHCI: Could not find ATAPI boot drive (USB install media may still work).\n";
+	"______________________\n";
+	throw('NoATAPI');
 
 	return FALSE;
 }
