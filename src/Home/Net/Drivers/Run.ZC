@@ -13,6 +13,9 @@
 #define PCIV_VIRTIO		0x1AF4
 #define PCID_VIRTIO_NET 0x1000
 
+#define PCIV_BROADCOM	0x14E4
+#define PCID_BCM57766	0x1686
+
 U0 NetDriverInclude(U8 *driver)
 {
 	U8 *filename = MStrPrint(__DIR__ "/%s", driver);
@@ -60,6 +63,7 @@ U0 NetDriverInit()
 	NetDriverRegister(PCIV_RTL8139, PCID_RTL8139,		"RTL8139");
 	NetDriverRegister(PCIV_E1000,	PCID_82545EM,		"E1000");
 	NetDriverRegister(PCIV_PCNET,	PCID_PCNET,			"PCNet");
+	NetDriverRegister(PCIV_BROADCOM, PCID_BCM57766,		"TG3");
 
 	// iterate registered drivers until match is found, if any found
 	net_driver = net_drivers->next;

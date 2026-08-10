@@ -1,0 +1,41 @@
+$WW,1$$FG,5$$TX+CX,"Mac mini / UEFI USB-ISO Install"$$FG$
+
+Install ZealOS on a $FG,2$2014 Mac mini (Macmini7,1)$FG$ using the internal $FG,2$2.5" SATA$FG$ bay. Primary path: boot the $FG,2$BSD2-UEFI$FG$ ISO from a USB stick (Kernel USB mass storage), then run stock $LK,"OSInstall",A="FI:::/Misc/OSInstall.ZC"$ onto AHCI SATA.
+
+See also $LK,"Install.DD",A="FI:::/Doc/Install.DD"$.
+
+$FG,5$Not supported$FG$
+* PCIe blade SSD / NVMe (after High Sierra firmware).
+* Broadcom Wi?Fi (BCM4360). Ethernet: built-in TG3 ($FG,2$14e4:1686$FG$) or USB CDC-ECM dongle fallback.
+
+$FG,5$0) Write the stick (host)$FG$
+Build on a machine that can run $FG,2$build/build-iso.sh$FG$, then write the $FG,2$BSD2-UEFI$FG$ ISO (not PublicDomain-BIOS):
+
+  dd if=ZealOS-BSD2-UEFI-*.iso of=/dev/diskN bs=4m
+
+Or Balena Etcher. Shut down the mini, plug the stick in, hold $FG,2$Option$FG$ at power-on, choose EFI Boot.
+
+$FG,5$What boot should look like$FG$
+* xHCI finds the stick; Kernel mounts ISO9660 as $FG,2$U:$FG$ (or similar).
+* No ATAPI DVD: $FG,2$AHCIBootDVDProbeAll$FG$ throws $FG,2$NoATAPI$FG$; $FG,2$UsbBootDriveFallback$FG$ sets boot to the USB install media.
+* USB HID keyboard/mouse bind; PS/2 init is skipped ($FG,2$sys_usb_hid_kbd$FG$ / $FG,2$sys_usb_hid_mouse$FG$).
+* $FG,2$Home Dir$FG$ on the USB media; $FG,2$StartOS$FG$ / Once prompts to install (boot source DVD/ISO).
+
+$FG,5$1) Install onto SATA$FG$
+At the install prompt answer Yes, or run:
+
+  RunFile("::/Misc/OSInstall");
+
+Answer $FG,2$not$FG$ a VM (Apple SMBIOS). New install. Pick the AHCI ATA port for the 2.5" drive. On UEFI, prefer $FG,2$FAT32$FG$ so Limine can place $FG,2$EFI/BOOT/BOOTX64.EFI$FG$.
+
+$FG,5$2) Reboot$FG$
+Remove the stick. Hold $FG,2$Option$FG$ and choose EFI Boot from the internal volume. If it does not appear, from macOS Recovery:
+
+  bless --mount /Volumes/YOUR_FAT32 --setBoot --file /Volumes/YOUR_FAT32/EFI/BOOT/BOOTX64.EFI
+
+$FG,5$3) Ethernet$FG$
+After Net loads, TG3 should bind BCM57766 ($FG,2$14e4:1686$FG$). Firmware: $FG,2$::/Home/Net/Drivers/Firmware/tg357766.bin$FG$. DHCP/ping via the usual Net demos once the stack is up.
+
+$FG,5$Notes$FG$
+* Limine RAM-live stick install is deferred; USB ISO + OSInstall is the supported path on this branch.
+* Kernel USB HID is enough for mini input (xHCI). Do not need the SerialDev UHCI/EHCI stack.
