@@ -27,6 +27,7 @@ KVM=''
 # Attach USB HID devices only when testing the completed ISO.  The two
 # noninteractive builder VMs must not exercise the in-progress USB stack.
 QEMU_USB_INPUT='-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 -device usb-mouse,bus=xhci.0'
+AUTOISO_REBUILD_RAM="${AUTOISO_REBUILD_RAM:-2G}"
 
 # Set this true if you want to test ISOs in QEMU after building.
 TESTING=false
@@ -219,6 +220,9 @@ for stage in ../src/Misc/Auto/AutoFullDistro*.ZC; do
 	require_ascii_file "$stage"
 done
 require_ascii_file ../src/Home/BootKernelOnly.ZC
+require_text ../src/StartOS.ZC 'start_os_after_system = "/Home/BootKernelOnly.ZC";'
+require_text ../src/StartOS.ZC 'Rebuilding kernel after MakeSystem'
+reject_text ../src/StartOS.ZC 'ExeFile("/Home/BootKernelOnly");'
 for stage in 2 3; do
 	require_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" "AutoISORebuildStage${stage}.DD"
 	require_text "../src/Misc/Auto/AutoFullDistro${stage}.ZC" 'BootInsPending.DD'
@@ -293,11 +297,12 @@ else
 fi
 umount_tempdisk
 
-echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
+echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO (${AUTOISO_REBUILD_RAM} RAM) ..."
 # Single CPU: ZealOS heap/USB is not SMP-hardened; stage3 CopyTree has GPF'd on -smp 4.
+# The compiler now starts after MakeSystem but before WinMgr/USB. Give it enough heap.
 # BootMHD2.BIN was patched above to auto-select Drive C, so no input injection is needed.
 REBUILD_START=$(date +%s)
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 1 -device isa-debug-exit $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m "$AUTOISO_REBUILD_RAM" -rtc base=localtime -smp 1 -device isa-debug-exit $QEMU_HEADLESS || true
 REBUILD_END=$(date +%s)
 REBUILD_SECS=$((REBUILD_END - REBUILD_START))
 echo "Rebuild QEMU exited after ${REBUILD_SECS}s."

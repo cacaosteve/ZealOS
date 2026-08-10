@@ -30,6 +30,18 @@ U0 BootKernelOnlyFail(U8 *reason)
 	Cd("C:/Home");
 }
 
+U0 BootKernelOnlyStatusType(U8 *filename)
+{
+	I64 size;
+	U8 *buf;
+
+	if (buf = FileRead(filename, &size))
+	{
+		"%s", buf;
+		Free(buf);
+	}
+}
+
 public U0 BootKernelOnlyReboot()
 {
 	Bool stage2, stage3;
@@ -110,3 +122,19 @@ public U0 BootKernelOnlyReboot()
 }
 
 BootKernelOnlyReboot;
+
+"\n$$RED$$Kernel rebuild did not finish.$$FG$$\n";
+if (FileFind("C:/Home/BootInsErrs.DD"))
+{
+	"BootInsErrs.DD:\n";
+	BootKernelOnlyStatusType("C:/Home/BootInsErrs.DD");
+}
+if (FileFind("C:/Home/BootInsStage.DD"))
+{
+	"BootInsStage.DD:\n";
+	BootKernelOnlyStatusType("C:/Home/BootInsStage.DD");
+}
+"\nFix sources, patch disk, click Rebuild Kernel again.\n";
+"\nOr force-quit VM and run REMOVE_BOOT_INS_PENDING=1 build/patch-utm-disk.sh\n";
+while (TRUE)
+	Sleep(1000);

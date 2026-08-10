@@ -20,18 +20,6 @@ Option(OPTf_WARN_DUP_TYPES, OFF);
 };
 HashTablePurge(sys_task->hash_table);
 
-U0 BootStatusType(U8 *filename)
-{
-	I64 size;
-	U8 *buf;
-
-	if (buf = FileRead(filename, &size))
-	{
-		"%s", buf;
-		Free(buf);
-	}
-}
-
 Bool AutoISOStageWrite(U8 *filename)
 {
 	I64 size;
@@ -44,7 +32,10 @@ Bool AutoISOStageWrite(U8 *filename)
 	return TRUE;
 }
 
-// Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
+Bool boot_kernel_pending = FALSE;
+
+// Stage a pending rebuild before MakeSystem, then execute it immediately after
+// compiler services load and before WinMgr/USB consume the remaining RAM.
 // See ::/Doc/USBBoot.DD
 if (Letter2Drive('C', FALSE))
 {
@@ -59,25 +50,10 @@ if (Letter2Drive('C', FALSE))
 		Del(".boot_ins_pending",, FALSE, FALSE);
 		Del("OnceRebuildKernel.DD",, FALSE, FALSE);
 		Del(".once_rebuild_kernel",, FALSE, FALSE);
-		"Rebuilding kernel (USB skipped this boot for RAM)...\n";
-		ExeFile("/Home/BootKernelOnly");
-		"\n$$RED$$Kernel rebuild did not finish.$$FG$$\n";
-		if (FileFind("C:/Home/BootInsErrs.DD"))
-		{
-			"BootInsErrs.DD:\n";
-			BootStatusType("C:/Home/BootInsErrs.DD");
-		}
-		if (FileFind("C:/Home/BootInsStage.DD"))
-		{
-			"BootInsStage.DD:\n";
-			BootStatusType("C:/Home/BootInsStage.DD");
-		}
-		"\nFix sources, patch disk, click Rebuild Kernel again.\n";
-		"\nOr force-quit VM and run REMOVE_BOOT_INS_PENDING=1 build/patch-utm-disk.sh\n";
-		while (TRUE)
-			Sleep(1000);
+		boot_kernel_pending = TRUE;
+		start_os_after_system = "/Home/BootKernelOnly.ZC";
 	}
-	if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build") ||
+	else if (FileFind("AutoISOBuild.DD") || FileFind(".auto_iso_build") ||
 		FileFind("AutoISOStage0.DD") || FileFind("AutoISOStage1.DD") ||
 		FileFind("AutoISOStage2.DD") || FileFind("AutoISOStage3.DD") ||
 		FileFind("AutoISOStage4.DD") || FileFind("AutoISOStage5.DD"))
@@ -143,10 +119,10 @@ if (Letter2Drive('C', FALSE))
 				"\tExePrint(\"UsbBootInit;\");\n"
 				"}\n";
 	}
-	if (auto_iso_stage)
+	if (auto_iso_stage || boot_kernel_pending)
 	{
-		// StartOS executes this file after MakeSystem. Copy the actual stage
-		// source here so it is compiled once, without a nested ExeFile JIT.
+		// StartOS executes this file after MakeSystem. Copy the actual helper
+		// or stage source here so it is compiled once without a nested JIT.
 		if (!AutoISOStageWrite(start_os_after_system))
 		{
 			"$$RED$$AutoISO stage source missing: %s$$FG$$\n", start_os_after_system;
@@ -170,6 +146,12 @@ if (Letter2Drive('C', FALSE))
 Option(OPTf_WARN_PAREN, OFF);
 Option(OPTf_WARN_DUP_TYPES, OFF);
 
+if (boot_kernel_pending)
+{
+	"Rebuilding kernel after MakeSystem (USB/WinMgr not started)...\n";
+	ExeFile("/Home/StartOSAfterSystem.ZC");
+}
+
 // Native USB first. PS/2 fills anything USB misses.
 // See ::/Doc/USBBoot.DD
 
@@ -182,7 +164,8 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-ExeFile("/Home/StartOSAfterSystem.ZC");
+if (!boot_kernel_pending)
+	ExeFile("/Home/StartOSAfterSystem.ZC");
 
 RegInit;
 ExeFile("/Home/MakeHome.ZC");
