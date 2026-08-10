@@ -1,51 +1,93 @@
+U0 AutoISOCopyDir(U8 *src_mask, U8 *dst)
+{
+	Silent(OFF);
+	DocClear;
+	"AutoISO stage 3: %s\n", dst;
+	Silent(ON);
+	DirMake(dst);
+	Copy(src_mask, dst);
+}
+
 U0 Auto()
 {
 	Bool old_silent;
 
 	WinMax;
-	// Keep each directory scan bounded in the low-memory rebuild VM.
-	"Auto ISO stage 3: overlaying staged files in bounded groups...\n";
-	old_silent = Silent;
+	"Auto ISO stage 3: overlaying staged files one directory at a time...\n";
+	old_silent = Silent(ON);
+
+	// Avoid recursive FilesFind trees in the 1 GiB rebuild VM.
 	Copy("C:/Tmp/OSBuild/*", "C:/");
-	CopyTree("C:/Tmp/OSBuild/Apps/", "C:/Apps/");
-	CopyTree("C:/Tmp/OSBuild/Compiler/", "C:/Compiler/");
-	DirMake("C:/Demo");
-	Copy("C:/Tmp/OSBuild/Demo/*", "C:/Demo/");
-	CopyTree("C:/Tmp/OSBuild/Demo/AcctExample/", "C:/Demo/AcctExample/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Asm/", "C:/Demo/Asm/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Disk/", "C:/Demo/Disk/");
-	CopyTree("C:/Tmp/OSBuild/Demo/DolDoc/", "C:/Demo/DolDoc/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Games/", "C:/Demo/Games/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Graphics/", "C:/Demo/Graphics/");
-	CopyTree("C:/Tmp/OSBuild/Demo/InFile/", "C:/Demo/InFile/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Lectures/", "C:/Demo/Lectures/");
-	CopyTree("C:/Tmp/OSBuild/Demo/MultiCore/", "C:/Demo/MultiCore/");
-	CopyTree("C:/Tmp/OSBuild/Demo/RevFileDemo/", "C:/Demo/RevFileDemo/");
-	CopyTree("C:/Tmp/OSBuild/Demo/SortFileDemo/", "C:/Demo/SortFileDemo/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Sound/", "C:/Demo/Sound/");
-	CopyTree("C:/Tmp/OSBuild/Demo/Templates/", "C:/Demo/Templates/");
-	CopyTree("C:/Tmp/OSBuild/Demo/ToHtmlToTXTDemo/", "C:/Demo/ToHtmlToTXTDemo/");
-	CopyTree("C:/Tmp/OSBuild/Demo/WebLogDemo/", "C:/Demo/WebLogDemo/");
-	CopyTree("C:/Tmp/OSBuild/Doc/", "C:/Doc/");
-	CopyTree("C:/Tmp/OSBuild/Home/", "C:/Home/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/*", "C:/Apps/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Budget/*", "C:/Apps/Budget/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/GrModels/*", "C:/Apps/GrModels/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/KeepAway/*", "C:/Apps/KeepAway/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Logic/*", "C:/Apps/Logic/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Psalmody/*", "C:/Apps/Psalmody/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Psalmody/Examples/*", "C:/Apps/Psalmody/Examples/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Span/*", "C:/Apps/Span/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Strut/*", "C:/Apps/Strut/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/TimeClock/*", "C:/Apps/TimeClock/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Titanium/*", "C:/Apps/Titanium/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/ToTheFront/*", "C:/Apps/ToTheFront/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/ToTheFront/AIs/*", "C:/Apps/ToTheFront/AIs/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/Vocabulary/*", "C:/Apps/Vocabulary/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Apps/X-Caliber/*", "C:/Apps/X-Caliber/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Compiler/*", "C:/Compiler/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/*", "C:/Demo/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/AcctExample/*", "C:/Demo/AcctExample/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/AcctExample/TOS/*", "C:/Demo/AcctExample/TOS/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Asm/*", "C:/Demo/Asm/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Disk/*", "C:/Demo/Disk/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/DolDoc/*", "C:/Demo/DolDoc/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Games/*", "C:/Demo/Games/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Games/Stadium/*", "C:/Demo/Games/Stadium/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Graphics/*", "C:/Demo/Graphics/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Graphics/WallPapers/*", "C:/Demo/Graphics/WallPapers/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Graphics/WallPapers/WallPaperDesktop/*", "C:/Demo/Graphics/WallPapers/WallPaperDesktop/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/InFile/*", "C:/Demo/InFile/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Lectures/*", "C:/Demo/Lectures/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/MultiCore/*", "C:/Demo/MultiCore/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/RevFileDemo/*", "C:/Demo/RevFileDemo/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/SortFileDemo/*", "C:/Demo/SortFileDemo/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Sound/*", "C:/Demo/Sound/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/Templates/*", "C:/Demo/Templates/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/ToHtmlToTXTDemo/*", "C:/Demo/ToHtmlToTXTDemo/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Demo/WebLogDemo/*", "C:/Demo/WebLogDemo/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Doc/*", "C:/Doc/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/*", "C:/Home/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/*", "C:/Home/Net/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Docs/*", "C:/Home/Net/Docs/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Drivers/*", "C:/Home/Net/Drivers/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Drivers/Firmware/*", "C:/Home/Net/Drivers/Firmware/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Programs/*", "C:/Home/Net/Programs/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Programs/Telnet/*", "C:/Home/Net/Programs/Telnet/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Programs/Telnet/Art/*", "C:/Home/Net/Programs/Telnet/Art/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Programs/Telnet/Art/Examples/*", "C:/Home/Net/Programs/Telnet/Art/Examples/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Programs/Telnet/Extra/*", "C:/Home/Net/Programs/Telnet/Extra/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Protocols/*", "C:/Home/Net/Protocols/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Protocols/TCP/*", "C:/Home/Net/Protocols/TCP/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Protocols/UDP/*", "C:/Home/Net/Protocols/UDP/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Tests/*", "C:/Home/Net/Tests/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Utilities/*", "C:/Home/Net/Utilities/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/Net/Utilities/JSON/*", "C:/Home/Net/Utilities/JSON/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/PaletteEditor/*", "C:/Home/PaletteEditor/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Home/PaletteEditor/Palettes/*", "C:/Home/PaletteEditor/Palettes/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Misc/*", "C:/Misc/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Misc/Auto/*", "C:/Misc/Auto/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/Misc/Tour/*", "C:/Misc/Tour/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/*", "C:/System/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/AutoComplete/*", "C:/System/AutoComplete/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/BlkDev/*", "C:/System/BlkDev/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Boot/*", "C:/System/Boot/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Ctrls/*", "C:/System/Ctrls/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/DolDoc/*", "C:/System/DolDoc/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/God/*", "C:/System/God/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Gr/*", "C:/System/Gr/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Math/*", "C:/System/Math/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Math/Tests/*", "C:/System/Math/Tests/");
+	AutoISOCopyDir("C:/Tmp/OSBuild/System/Utils/*", "C:/System/Utils/");
 
-	DirMake("C:/Misc");
-	Copy("C:/Tmp/OSBuild/Misc/*", "C:/Misc/");
-	CopyTree("C:/Tmp/OSBuild/Misc/Auto/", "C:/Misc/Auto/");
-	CopyTree("C:/Tmp/OSBuild/Misc/Tour/", "C:/Misc/Tour/");
-
-	DirMake("C:/System");
-	Copy("C:/Tmp/OSBuild/System/*", "C:/System/");
-	DirMake("C:/System/AutoComplete");
-	Copy("C:/Tmp/OSBuild/System/AutoComplete/*", "C:/System/AutoComplete/");
-	CopyTree("C:/Tmp/OSBuild/System/BlkDev/", "C:/System/BlkDev/");
-	CopyTree("C:/Tmp/OSBuild/System/Boot/", "C:/System/Boot/");
-	CopyTree("C:/Tmp/OSBuild/System/Ctrls/", "C:/System/Ctrls/");
-	CopyTree("C:/Tmp/OSBuild/System/DolDoc/", "C:/System/DolDoc/");
-	CopyTree("C:/Tmp/OSBuild/System/God/", "C:/System/God/");
-	CopyTree("C:/Tmp/OSBuild/System/Gr/", "C:/System/Gr/");
-	CopyTree("C:/Tmp/OSBuild/System/Math/", "C:/System/Math/");
-	CopyTree("C:/Tmp/OSBuild/System/Utils/", "C:/System/Utils/");
 	Silent(old_silent);
 	DocClear;
 	DocBottom;
@@ -55,4 +97,5 @@ U0 Auto()
 	"AutoISO stage 3 staged; rebooting for early compile.\n";
 	Reboot;
 }
+
 Auto;
