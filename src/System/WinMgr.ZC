@@ -350,7 +350,9 @@ I64 WinMgrSleep(Bool flush_messages = FALSE)
 			music.cur_song_task = NULL;
 		}
 		winmgr.updates++;
-		if (mouse_hard.install_attempts) //Don't call before boot mouse install attempt
+//Also run when USB HID owns input: install_attempts may stay 0 if we skipped
+//PS/2 MouseHardDriverInstall, and then kbd.fifo2 (USB keys) never drains.
+		if (mouse_hard.install_attempts || sys_usb_hid_kbd || sys_usb_hid_mouse)
 			KbdMouseHandler(FALSE, TRUE);
 		SleepUntil(timeout_val);
 	}

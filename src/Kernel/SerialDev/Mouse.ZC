@@ -493,6 +493,7 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 		mouse_hard.installed = TRUE;
 		mouse_hard.irqs_working = TRUE;
 		mouse_hard.enabled = TRUE;
+		mouse_hard.install_attempts = 1;
 		return TRUE;
 	}
 

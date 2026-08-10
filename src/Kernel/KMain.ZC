@@ -214,6 +214,9 @@ U0 KMain()
 		mouse_hard.installed = TRUE;
 		mouse_hard.irqs_working = TRUE;
 		mouse_hard.enabled = TRUE;
+//WinMgr only drains kbd.fifo2 after a mouse install attempt; USB HID skips
+//MouseHardDriverInstall, so bump this or USB keyboard keys never leave the fifo.
+		mouse_hard.install_attempts = 1;
 	}
 	else
 	{

@@ -249,6 +249,7 @@ U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif)
 //irqs_working so WinMgr does NOT poll (and clobber) the PS/2 mouse state.
 		mouse_hard.installed	= TRUE;
 		mouse_hard.irqs_working	= TRUE;
+		mouse_hard.install_attempts = 1;
 		sys_usb_hid_mouse = TRUE;
 		usb_mouse_x = sys_framebuffer_width  >> 1;
 		usb_mouse_y = sys_framebuffer_height >> 1;
