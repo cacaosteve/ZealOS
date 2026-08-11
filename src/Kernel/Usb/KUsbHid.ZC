@@ -11,11 +11,11 @@
 #define USB_TP2_REPORT_ID		0x02
 #define USB_TP2_PREFIX_LEN		12
 #define USB_TP2_TOUCH_LEN		9
-//Sensor span is ~7600x5000. With sign-extend + sticky finger fixed, SCALE~16
-//is usable on 2560x1440; 64 felt correct-direction but glacial.
-#define USB_TP2_SCALE			16
-#define USB_TP2_MAX_STEP		96
-#define USB_TP2_MAX_DELTA		1500	//sensor units; bigger => new contact, not motion
+//Sensor span ~7600 wide. At SCALE=64, ~20 full swipes = half of 2560px.
+//SCALE~3 => one pad-width Γëê halfΓÇôfull screen; MAX_STEP must not clip that.
+#define USB_TP2_SCALE			3
+#define USB_TP2_MAX_STEP		320
+#define USB_TP2_MAX_DELTA		2000	//sensor units; bigger => new contact, not motion
 
 class CUsbHid
 {
