@@ -1,24 +1,30 @@
 //USB HID boot-protocol keyboard + mouse.
 //Keyboard: HID usages -> PS/2 set-1 scancodes -> kbd.fifo2 (reuses kernel KbdHandler).
 //Mouse: boot reports -> mouse_hard state (reuses kernel mouse pipeline).
+//Magic Trackpad 2 (05ac:0265): multitouch report 0x02 -> relative cursor.
 
 #define USB_HIDS_MAX		8
 
 #define USB_HID_REPEAT_DELAY	0.400
 #define USB_HID_REPEAT_RATE		0.035
 
+#define USB_TP2_REPORT_ID		0x02
+#define USB_TP2_PREFIX_LEN		12
+#define USB_TP2_TOUCH_LEN		9
+#define USB_TP2_SCALE			8
+
 class CUsbHid
 {
+	CUsbDev	*dev;
+	CUsbEP	*ep;
+	I64		 proto;			//1=kbd, 2=mouse; trackpad uses mouse flags
+	I64		 last_x, last_y, tracking_id;
+	I64		 repeat_sc;		//held key scancode for software typematic
+	F64		 repeat_time;
+	U8		 prev[8];
 	Bool	 valid;
 	Bool	 is_trackpad;
 	Bool	 have_last;
-	CUsbDev	*dev;
-	CUsbEP	*ep;
-	I64		 proto;			//1=kbd, 2=mouse; trackpad sets mouse flags
-	I64		 last_x, last_y, tracking_id;
-	U8		 prev[8];
-	I64		 repeat_sc;		//held key scancode for software typematic
-	F64		 repeat_time;
 };
 
 CUsbHid usb_hids[USB_HIDS_MAX];
@@ -43,7 +49,7 @@ I64 usb_hid_to_sc[0x66] = {
 	0x48,  0x49,  0x52,  0x53,  0x56,  0x15D				//60-65: KP8 KP9 KP0 KP. NonUS\ App
 };
 
-//Modifier bit -> scancode: LCtrl LShift LAlt LGUI RCtrl RShift RAlt RGUI
+//modifier bit -> scancode: LCtrl LShift LAlt LGUI RCtrl RShift RAlt RGUI
 I64 usb_hid_mod_sc[8] = {0x1D, 0x2A, 0x38, 0x15B, 0x11D, 0x36, 0x138, 0x15C};
 
 U0 UsbKbdEmit(I64 sc, I64 up)
@@ -175,24 +181,24 @@ U0 UsbMouseCB(U8 *d, U8 *e)
 	mouse.show				 = TRUE;
 }
 
-#define USB_TP2_REPORT_ID		0x02
-#define USB_TP2_PREFIX_LEN		12
-#define USB_TP2_TOUCH_LEN		9
-#define USB_TP2_SCALE			8	//abs MT units -> screen pixels per report
-
 U0 UsbTrackpadCB(U8 *d, U8 *e)
 {//Magic Trackpad 2 USB report 0x02: 12-byte prefix + N*9 touch blocks.
 	CUsbDev	*dev = d;
 	CUsbEP	*ep	 = e;
-	CUsbHid	*hid = UsbHidByEP(ep);
+	CUsbHid	*hid;
 	U8		*rep, *td;
 	I64		 len, n, i, x, y, tid, dx, dy, clicks, best_i, best_tid, b0, b1, b2, b3;
 
-	if (!hid || !dev->present)
+	hid = UsbHidByEP(ep);
+	if (!hid)
+		return;
+	if (!dev->present)
 		return;
 	rep = ep->auto_buf;
 	len = ep->auto_len - ep->xfer_residue;
-	if (len < USB_TP2_PREFIX_LEN || rep[0] != USB_TP2_REPORT_ID)
+	if (len < USB_TP2_PREFIX_LEN)
+		return;
+	if (rep[0] != USB_TP2_REPORT_ID)
 		return;
 	if ((len - USB_TP2_PREFIX_LEN) % USB_TP2_TOUCH_LEN)
 		return;
@@ -208,7 +214,7 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 		td = rep + USB_TP2_PREFIX_LEN + i * USB_TP2_TOUCH_LEN;
 //Finger down when (tdata[3] & 0xC0) == 0x80 (Linux TRACKPAD2).
 		if ((td[3] & 0xC0) != 0x80)
-			continue;
+			goto next_touch;
 		tid = td[8] & 0xF;
 		if (hid->have_last && tid == hid->tracking_id)
 		{
@@ -221,6 +227,7 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 			best_i	 = i;
 			best_tid = tid;
 		}
+next_touch:;
 	}
 
 	dx = 0;
@@ -257,7 +264,7 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 		MemCopy(&mouse_hard_last, &mouse_hard, sizeof(CMouseHardStateGlobals));
 		mouse_hard.pos.x	 = usb_mouse_x;
 		mouse_hard.pos.y	 = usb_mouse_y;
-		mouse_hard.bttns[0]	 =  clicks & 1;
+		mouse_hard.bttns[0]	 = clicks & 1;
 		mouse_hard.bttns[1]	 = (clicks & 2) >> 1;
 		mouse_hard.bttns[2]	 = (clicks & 4) >> 2;
 		mouse_hard.event	 = TRUE;
@@ -436,7 +443,9 @@ U0 UsbHidFlagsRefresh()
 		{
 			if (usb_hids[i].proto == USB_HID_PROTO_KBD)
 				sys_usb_hid_kbd = TRUE;
-			else if (usb_hids[i].proto == USB_HID_PROTO_MOUSE || usb_hids[i].is_trackpad)
+			else if (usb_hids[i].proto == USB_HID_PROTO_MOUSE)
+				sys_usb_hid_mouse = TRUE;
+			else if (usb_hids[i].is_trackpad)
 				sys_usb_hid_mouse = TRUE;
 		}
 }
