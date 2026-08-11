@@ -18,6 +18,7 @@ class CUsbHid
 	CUsbDev	*dev;
 	CUsbEP	*ep;
 	I64		 proto;			//1=kbd, 2=mouse; trackpad uses mouse flags
+	I64		 if_num;		//bound interface (MT2: mouse iface only)
 	I64		 last_x, last_y, tracking_id;
 	I64		 repeat_sc;		//held key scancode for software typematic
 	F64		 repeat_time;
@@ -26,6 +27,7 @@ class CUsbHid
 	Bool	 is_trackpad;
 	Bool	 have_last;
 	Bool	 feature_sent;	//MT mode feature applied (deferred past boot)
+	Bool	 int_started;	//INT-IN queued
 };
 
 CUsbHid usb_hids[USB_HIDS_MAX];
@@ -202,8 +204,12 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 //First few reports: help diagnose wrong report ID / short packets on hardware.
 	if (hid->prev[0] < 5)
 	{
-		SysLog("USB: Trackpad2 rpt#%d len=%d id=0x%02X\n",
-			   hid->prev[0], len, rep[0]);
+		SysLog("USB: Trackpad2 rpt#%d len=%d %02X%02X%02X%02X%02X%02X%02X%02X\n",
+			   hid->prev[0], len,
+			   len > 0 ? rep[0] : 0, len > 1 ? rep[1] : 0,
+			   len > 2 ? rep[2] : 0, len > 3 ? rep[3] : 0,
+			   len > 4 ? rep[4] : 0, len > 5 ? rep[5] : 0,
+			   len > 6 ? rep[6] : 0, len > 7 ? rep[7] : 0);
 		hid->prev[0]++;
 	}
 	if (len < USB_TP2_PREFIX_LEN)
@@ -284,35 +290,35 @@ next_touch:;
 }
 
 U0 UsbTrackpadFeatureSend(CUsbHid *hid)
-{//Linux feature_mt_trackpad2_usb on every HID iface. Deferred until after
-//UsbBootInit ΓÇö doing this during ISO enumerate wedged MSD on the mini.
+{//Linux feature_mt_trackpad2_usb on the mouse iface only. Heap buffer: xHCI
+//DMA cannot use stack. INT-IN starts after this attempt.
 	CUsbDev	*dev;
-	CUsbIf	*u;
-	U8		 feat[2];
-	I64		 i, code;
+	U8		*feat;
+	I64		 code;
 
 	if (!hid || !hid->is_trackpad || hid->feature_sent || !hid->dev)
 		return;
 	dev = hid->dev;
 	if (!dev->present)
 		return;
+//Mark done first so a timeout cannot re-enter and pile up EP0 TRBs.
+	hid->feature_sent = TRUE;
+	feat = CAlloc(2, sys_task->code_heap);
 	feat[0] = 0x02;
 	feat[1] = 0x01;
-	for (i = 0; i < dev->if_count; i++)
+	code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
+				   USB_HID_RQ_SET_REPORT,
+				   (USB_HID_REPORT_FEATURE << 8) | feat[0],
+				   hid->if_num, feat, 2);
+	Free(feat);
+	SysLog("USB: Trackpad2 port %d: SET_REPORT if=%d -> %d\n",
+		   dev->port, hid->if_num, code);
+	hid->repeat_time = tS;
+	if (!hid->int_started && hid->ep)
 	{
-		u = &dev->ifs[i];
-		if (!u->valid || u->if_class != USB_CLASS_HID)
-			goto next_feat_if;
-		code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
-					   USB_HID_RQ_SET_REPORT,
-					   (USB_HID_REPORT_FEATURE << 8) | feat[0],
-					   u->if_num, feat, 2);
-		SysLog("USB: Trackpad2 port %d: SET_REPORT if=%d -> %d\n",
-			   dev->port, u->if_num, code);
-next_feat_if:;
+		hid->int_started = TRUE;
+		XhciIntQueue(dev, hid->ep);
 	}
-	hid->feature_sent = TRUE;
-	hid->repeat_time  = tS;
 }
 
 U0 UsbHidTick()
@@ -455,11 +461,13 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	hid->dev		 = dev;
 	hid->ep			 = ep;
 	hid->proto		 = USB_HID_PROTO_MOUSE;
+	hid->if_num		 = uif->if_num;
 	hid->is_trackpad = TRUE;
 	hid->valid		 = TRUE;
 	hid->repeat_time = tS;
 
-//No SET_REPORT / Sleep here ΓÇö UsbBootInit still needs reliable MSD ISO reads.
+//No SET_REPORT / INT here ΓÇö UsbBootInit still needs reliable MSD ISO reads.
+//Feature + INT start from UsbHidTick after Compiler loads.
 	buf_len = ep->max_packet;
 	if (buf_len < 64)
 		buf_len = 64;
@@ -476,9 +484,8 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	sys_usb_hid_mouse			= TRUE;
 	usb_mouse_x = sys_framebuffer_width  >> 1;
 	usb_mouse_y = sys_framebuffer_height >> 1;
-	SysLog("USB: Magic Trackpad 2 on port %d if=%d ep=0x%02X maxpkt=%d (feature deferred).\n",
+	SysLog("USB: Magic Trackpad 2 on port %d if=%d ep=0x%02X maxpkt=%d (feature+INT deferred).\n",
 		   dev->port, uif->if_num, ep->addr, ep->max_packet);
-	XhciIntQueue(dev, ep);
 }
 
 U0 UsbHidFlagsRefresh()

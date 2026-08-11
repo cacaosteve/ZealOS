@@ -635,6 +635,23 @@ I64 XhciResetEP(CUsbDev *dev, CUsbEP *ep)
 	return code;
 }
 
+I64 XhciAbortEP(CUsbDev *dev, CUsbEP *ep)
+{//Stop a running endpoint and reset its transfer ring (ctrl timeout recovery).
+	CXhciGlobals	*hc = dev->hc;
+	I64				 code, addr;
+
+	code = XhciCmd(0, 0, 0,
+				   (XHCI_TRB_STOP_EP << 10) | (ep->dci << 16) | (dev->slot << 24),, hc);
+	XhciEPRingInit(ep);
+	ep->xfer_done = TRUE;
+	ep->xfer_code = XHCI_CC_TIMEOUT;
+	addr = ep->ring->trbs;
+	code = XhciCmd((addr & 0xFFFFFFFF) | 1, addr >> 32, 0,
+				   (XHCI_TRB_SET_TR_DEQ << 10) | (ep->dci << 16) | (dev->slot << 24),, hc);
+
+	return code;
+}
+
 U0 XhciBiosHandoff(CXhciGlobals *hc=NULL)
 {
 	I64	 hcc, xecp, id, next;
