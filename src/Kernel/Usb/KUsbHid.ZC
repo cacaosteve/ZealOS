@@ -11,10 +11,10 @@
 #define USB_TP2_REPORT_ID		0x02
 #define USB_TP2_PREFIX_LEN		12
 #define USB_TP2_TOUCH_LEN		9
-//Sensor span is ~7600x5000; SCALE=8 teleports on 2560x1440. 64 + step clamp
-//keeps one-finger drags usable without libinput-style accel.
-#define USB_TP2_SCALE			64
-#define USB_TP2_MAX_STEP		48
+//Sensor span is ~7600x5000. With sign-extend + sticky finger fixed, SCALE~16
+//is usable on 2560x1440; 64 felt correct-direction but glacial.
+#define USB_TP2_SCALE			16
+#define USB_TP2_MAX_STEP		96
 #define USB_TP2_MAX_DELTA		1500	//sensor units; bigger => new contact, not motion
 
 class CUsbHid
