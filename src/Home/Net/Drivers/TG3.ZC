@@ -511,11 +511,11 @@ Bool TG3PhyWrite(I64 phy, I64 phy_reg, U32 val)
 }
 
 Bool TG3PhyInit()
-{/* Reset internal copper PHY and restart autoneg. Mac mini link needs this
-	after CORECLK_RESET; without it DHCP Discover never gets Offers. */
-	U32 id1 = 0, id2 = 0, bmsr = 0, adv, ctrl1000;
+{/* Prefer bootcode's already-trained link when present. Full BMCR reset
+	only if link is down ΓÇö avoids clobbering a good 1G link then racing AN. */
+	U32 id1 = 0, id2 = 0, bmsr = 0, aux = 0, adv, ctrl1000;
 	I64 phy, i;
-	Bool ok;
+	Bool ok, already_up = FALSE;
 
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE);
 	Busy(80);
@@ -539,40 +539,55 @@ Bool TG3PhyInit()
 	NetLog("TG3: PHY addr=%d id=0x%04X%04X", tg3.phy_addr, id1, id2);
 	"TG3: PHY id=0x%04X%04X addr=%d\n", id1, id2, tg3.phy_addr;
 
-	if (!TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR, TG3_BMCR_RESET))
+	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr);
+	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) && ok;
+	if (ok && (bmsr & TG3_BMSR_LSTATUS))
 	{
-		NetErr("TG3: PHY BMCR reset write failed");
-		return FALSE;
-	}
-	for (i = 0; i < 1000; i++)
-	{
-		if (!TG3PhyRead(tg3.phy_addr, TG3_MII_BMCR, &bmsr))
-			break;
-		if (!(bmsr & TG3_BMCR_RESET))
-			break;
-		Busy(100);
+		TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux);
+		already_up = TRUE;
+		NetLog("TG3: PHY already link-up from bootcode BMSR=0x%X AUX=0x%X",
+			bmsr, aux);
 	}
 
-	adv = TG3_ADVERTISE_CSMA | TG3_ADVERTISE_10_HALF | TG3_ADVERTISE_10_FULL |
-		TG3_ADVERTISE_100_HALF | TG3_ADVERTISE_100_FULL;
-	ctrl1000 = TG3_ADVERTISE_1000_HALF | TG3_ADVERTISE_1000_FULL;
-	TG3PhyWrite(tg3.phy_addr, TG3_MII_ADVERTISE, adv);
-	TG3PhyWrite(tg3.phy_addr, TG3_MII_CTRL1000, ctrl1000);
-	TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR,
-		TG3_BMCR_ANENABLE | TG3_BMCR_ANRESTART);
+	if (!already_up)
+	{
+		if (!TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR, TG3_BMCR_RESET))
+		{
+			NetErr("TG3: PHY BMCR reset write failed");
+			return FALSE;
+		}
+		for (i = 0; i < 1000; i++)
+		{
+			if (!TG3PhyRead(tg3.phy_addr, TG3_MII_BMCR, &bmsr))
+				break;
+			if (!(bmsr & TG3_BMCR_RESET))
+				break;
+			Busy(100);
+		}
+
+		adv = TG3_ADVERTISE_CSMA | TG3_ADVERTISE_10_HALF | TG3_ADVERTISE_10_FULL |
+			TG3_ADVERTISE_100_HALF | TG3_ADVERTISE_100_FULL;
+		ctrl1000 = TG3_ADVERTISE_1000_HALF | TG3_ADVERTISE_1000_FULL;
+		TG3PhyWrite(tg3.phy_addr, TG3_MII_ADVERTISE, adv);
+		TG3PhyWrite(tg3.phy_addr, TG3_MII_CTRL1000, ctrl1000);
+		TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR,
+			TG3_BMCR_ANENABLE | TG3_BMCR_ANRESTART);
+
+		for (i = 0; i < 50; i++)
+		{
+			ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr);
+			ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) && ok;
+			if (ok && (bmsr & TG3_BMSR_LSTATUS))
+				break;
+			Sleep(100);
+		}
+	}
 
 	tg3.link_up = FALSE;
-	for (i = 0; i < 50; i++)
-	{
-		ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr);
-		ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) && ok;
-		if (ok && (bmsr & TG3_BMSR_LSTATUS))
-		{
-			tg3.link_up = TRUE;
-			break;
-		}
-		Sleep(100);
-	}
+	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr);
+	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) && ok;
+	if (ok && (bmsr & TG3_BMSR_LSTATUS))
+		tg3.link_up = TRUE;
 
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
 	Busy(80);
@@ -591,37 +606,67 @@ Bool TG3PhyInit()
 }
 
 U0 TG3LinkApply()
-{/* Match MAC port mode to copper speed. AUX_STAT on this GPHY often returns
-	garbage (saw 0xFF3C); prefer STAT1000 / sane AUX, else assume 1000/full. */
-	U32 aux = 0, st1000 = 0, mac_mode, spd;
-	Bool use_gmii = TRUE, full = TRUE;
+{/* Match MAC port mode to copper speed using AUX_STAT like Linux tg3.
+	Do NOT treat MII_STAT1000 (partner ability) as the resolved link speed. */
+	U32 aux = 0, aux2 = 0, st1000 = 0, lpa = 0, mac_mode, spd;
+	I64 i;
+	Bool use_gmii = TRUE, full = TRUE, got_spd = FALSE;
+	U8 *spd_str = "unknown";
 
 	if (tg3.phy_addr < 0)
 		return;
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE);
-	Busy(40);
-	TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux);
+	Busy(80);
+
+	/* 1000BASE-T can report BMSR link before AUX settles; poll. */
+	for (i = 0; i < 40; i++)
+	{
+		if (!TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux))
+			aux = 0;
+		Busy(20);
+		if (!TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux2))
+			aux2 = 0;
+		if (aux && aux == aux2 && (aux & TG3_AUX_STAT_LPASS))
+		{
+			spd = aux & TG3_AUX_STAT_SPDMASK;
+			if (spd == TG3_AUX_STAT_1000FULL || spd == TG3_AUX_STAT_1000HALF)
+				break;
+			/* Keep waiting a bit for 1G; accept 10/100 after ~1s. */
+			if (i >= 15 && spd >= TG3_AUX_STAT_10HALF &&
+				spd <= TG3_AUX_STAT_100FULL)
+				break;
+		}
+		Sleep(100);
+	}
+	aux = aux2;
 	TG3PhyRead(tg3.phy_addr, TG3_MII_STAT1000, &st1000);
+	TG3PhyRead(tg3.phy_addr, 0x05, &lpa); /* MII_LPA */
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
 
 	spd = aux & TG3_AUX_STAT_SPDMASK;
-	if ((aux & TG3_AUX_STAT_LPASS) && spd >= TG3_AUX_STAT_10HALF &&
-		spd <= TG3_AUX_STAT_1000FULL && (aux & 0xF000) != 0xF000)
+	if ((aux & TG3_AUX_STAT_LPASS) && spd)
 	{
-		use_gmii = (spd == TG3_AUX_STAT_1000FULL || spd == TG3_AUX_STAT_1000HALF);
-		full = !!(aux & TG3_AUX_STAT_FULL) ||
-			spd == TG3_AUX_STAT_10FULL || spd == TG3_AUX_STAT_100FULL ||
-			spd == TG3_AUX_STAT_1000FULL;
+		switch (spd)
+		{
+			case TG3_AUX_STAT_10HALF:
+				use_gmii = FALSE; full = FALSE; spd_str = "10H"; got_spd = TRUE; break;
+			case TG3_AUX_STAT_10FULL:
+				use_gmii = FALSE; full = TRUE; spd_str = "10F"; got_spd = TRUE; break;
+			case TG3_AUX_STAT_100HALF:
+				use_gmii = FALSE; full = FALSE; spd_str = "100H"; got_spd = TRUE; break;
+			case TG3_AUX_STAT_100FULL:
+				use_gmii = FALSE; full = TRUE; spd_str = "100F"; got_spd = TRUE; break;
+			case TG3_AUX_STAT_1000HALF:
+				use_gmii = TRUE; full = FALSE; spd_str = "1000H"; got_spd = TRUE; break;
+			case TG3_AUX_STAT_1000FULL:
+				use_gmii = TRUE; full = TRUE; spd_str = "1000F"; got_spd = TRUE; break;
+		}
 	}
-	else if (st1000 & (TG3_LPA_1000FULL | TG3_LPA_1000HALF))
-	{
-		use_gmii = TRUE;
-		full = !!(st1000 & TG3_LPA_1000FULL);
-	}
-	else
-	{/* Mac mini BCM57766 is gigabit; bogus AUX ΓåÆ stay GMII full. */
+	if (!got_spd)
+	{/* Last resort: Mac mini is gigabit; default GMII full. */
 		use_gmii = TRUE;
 		full = TRUE;
+		spd_str = "default-1000F";
 	}
 
 	mac_mode = TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
@@ -638,9 +683,10 @@ U0 TG3LinkApply()
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
-	NetLog("TG3: AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X gmii=%d",
-		aux, st1000, mac_mode, use_gmii);
-	"TG3: speed AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X\n", aux, st1000, mac_mode;
+	NetLog("TG3: link %s AUX=0x%X STAT1000=0x%X LPA=0x%X MAC_MODE=0x%X gmii=%d",
+		spd_str, aux, st1000, lpa, mac_mode, use_gmii);
+	"TG3: speed %s AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X\n",
+		spd_str, aux, st1000, mac_mode;
 }
 
 U8 tg3_fw_57766[144] = {
