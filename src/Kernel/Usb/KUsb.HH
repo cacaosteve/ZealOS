@@ -54,8 +54,14 @@
 #define USB_HID_PROTO_KBD		1
 #define USB_HID_PROTO_MOUSE		2
 #define USB_HID_RQ_GET_REPORT	1
+#define USB_HID_RQ_SET_REPORT	9
 #define USB_HID_RQ_SET_IDLE		10
 #define USB_HID_RQ_SET_PROTOCOL	11
+#define USB_HID_REPORT_FEATURE	3
+
+//Apple Magic Trackpad 2 (2015 Lightning USB). USB-C 2024 is 0x0324 (later).
+#define USB_VID_APPLE					0x05AC
+#define USB_PID_APPLE_MAGICTRACKPAD2	0x0265
 
 //MSD
 #define USB_MSD_SUBCLASS_SCSI	6
@@ -258,10 +264,12 @@ class CUsbEPDesc
 #define USB_AUTO_KBD			1
 #define USB_AUTO_MOUSE			2
 #define USB_AUTO_ECM			3	//CDC-ECM bulk-IN: receive ethernet frame
+#define USB_AUTO_TRACKPAD		4	//Apple Magic Trackpad 2 multitouch
 
 //XhciEventPoll dispatches to handlers compiled after it.
 extern U0 UsbKbdCB(U8 *dev, U8 *ep);
 extern U0 UsbMouseCB(U8 *dev, U8 *ep);
+extern U0 UsbTrackpadCB(U8 *dev, U8 *ep);
 extern U0 UsbEcmRxCB(U8 *dev, U8 *ep);
 
 class CXhciTRB
@@ -370,6 +378,8 @@ class CUsbDev
 //CUsbDev/CUsbIf so the types are known.
 extern U0 UsbDrvBind(CUsbDev *dev);
 extern U0 UsbHubAttach(CUsbDev *dev, CUsbIf *uif);
+extern U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif);
+extern U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif);
 
 //Globals defined in $LK,"KXhci.ZC",A="FF:::/Kernel/Usb/KXhci.ZC,usb_xhci"$.
 extern CXhciGlobals	 usb_hcs[USB_HCS_MAX];

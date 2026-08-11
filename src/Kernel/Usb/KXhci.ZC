@@ -262,6 +262,9 @@ U0 XhciEventPoll(CXhciGlobals *hc=NULL)
 									case USB_AUTO_MOUSE:
 										UsbMouseCB(dev, ep);
 										break;
+									case USB_AUTO_TRACKPAD:
+										UsbTrackpadCB(dev, ep);
+										break;
 									case USB_AUTO_ECM:
 										UsbEcmRxCB(dev, ep);
 										break;
