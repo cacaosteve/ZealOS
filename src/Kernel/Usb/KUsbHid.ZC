@@ -298,6 +298,14 @@ U0 UsbHidTick()
 				hid->repeat_time = tS + USB_HID_REPEAT_RATE;
 			}
 		}
+//Warn once if trackpad bound but no interrupt reports after ~2s.
+		if (hid->valid && hid->is_trackpad && !hid->prev[0] &&
+			hid->repeat_time && tS >= hid->repeat_time + 2.0)
+		{
+			SysLog("USB: Trackpad2 port %d: bound but no INT reports yet (touch the pad).\n",
+				   hid->dev->port);
+			hid->repeat_time = 0;	//only once
+		}
 	}
 }
 
@@ -372,11 +380,11 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 {//Apple Magic Trackpad 2 (05ac:0265): enable MT mode, large interrupt reports.
 	CUsbHid	*hid = NULL;
 	CUsbEP	*ep	 = NULL, *tmp;
+	CUsbIf	*u;
 	U8		 feat[2];
 	I64		 i, code, buf_len;
 
 //Linux hid-magicmouse only binds HID_TYPE_USBMOUSE (bInterfaceProtocol=2).
-//Do not bind proto=0 first ΓÇö that steals the slot and skips the real mouse iface.
 	if (uif->if_proto != USB_HID_PROTO_MOUSE)
 	{
 		SysLog("USB: Trackpad2 port %d: skip if=%d proto=%d (want mouse).\n",
@@ -415,21 +423,29 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	hid->proto		 = USB_HID_PROTO_MOUSE;
 	hid->is_trackpad = TRUE;
 	hid->valid		 = TRUE;
+	hid->repeat_time = tS;	//attach time; used to warn if no reports
 
-//Report protocol (1), not boot (0). Then feature {0x02,0x01} for multitouch.
-	UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
-			USB_HID_RQ_SET_PROTOCOL, 1, uif->if_num, NULL, 0);
+//Do NOT SET_PROTOCOL ΓÇö non-boot Apple HID has no boot protocol; Linux
+//only sends the feature report. Feature may need every HID iface (vendor
+//iface 0 often owns mode switch).
 	feat[0] = 0x02;
 	feat[1] = 0x01;
-	code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
-				   USB_HID_RQ_SET_REPORT,
-				   (USB_HID_REPORT_FEATURE << 8) | feat[0],
-				   uif->if_num, feat, 2);
-	if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PKT)
-		SysLog("USB: Trackpad2 port %d: SET_REPORT feature status %d (continuing).\n",
-			   dev->port, code);
+	for (i = 0; i < dev->if_count; i++)
+	{
+		u = &dev->ifs[i];
+		if (!u->valid || u->if_class != USB_CLASS_HID)
+			goto next_feat_if;
+		code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
+					   USB_HID_RQ_SET_REPORT,
+					   (USB_HID_REPORT_FEATURE << 8) | feat[0],
+					   u->if_num, feat, 2);
+		SysLog("USB: Trackpad2 port %d: SET_REPORT if=%d -> %d\n",
+			   dev->port, u->if_num, code);
+next_feat_if:;
+	}
 	UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
 			USB_HID_RQ_SET_IDLE, 0, uif->if_num, NULL, 0);
+	Sleep(20);
 
 	buf_len = ep->max_packet;
 	if (buf_len < 64)
@@ -439,6 +455,7 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	ep->auto_buf  = CAlloc(buf_len, sys_task->code_heap);
 	ep->auto_len  = buf_len;
 	ep->auto_kind = USB_AUTO_TRACKPAD;
+	ep->xfer_code = 0;
 
 	mouse_hard.installed		= TRUE;
 	mouse_hard.irqs_working		= TRUE;
@@ -446,8 +463,8 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	sys_usb_hid_mouse			= TRUE;
 	usb_mouse_x = sys_framebuffer_width  >> 1;
 	usb_mouse_y = sys_framebuffer_height >> 1;
-	SysLog("USB: Magic Trackpad 2 on port %d if=%d maxpkt=%d.\n",
-		   dev->port, uif->if_num, ep->max_packet);
+	SysLog("USB: Magic Trackpad 2 on port %d if=%d ep=0x%02X maxpkt=%d iv=%d.\n",
+		   dev->port, uif->if_num, ep->addr, ep->max_packet, ep->interval);
 	XhciIntQueue(dev, ep);
 }
 

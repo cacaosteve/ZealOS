@@ -270,6 +270,15 @@ U0 XhciEventPoll(CXhciGlobals *hc=NULL)
 										break;
 								}
 							}
+							else if (ep->auto_kind == USB_AUTO_TRACKPAD)
+							{//First failures: see stall vs babble vs timeout on mini.
+								if (ep->xfer_code < 5)
+								{
+									SysLog("USB: Trackpad2 xfer code=%d residue=%d\n",
+										   code, ep->xfer_residue);
+									ep->xfer_code++;
+								}
+							}
 							XhciIntQueue(dev, ep);
 						}
 						else
