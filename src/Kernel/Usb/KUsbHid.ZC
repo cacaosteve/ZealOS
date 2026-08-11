@@ -196,6 +196,15 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 		return;
 	rep = ep->auto_buf;
 	len = ep->auto_len - ep->xfer_residue;
+	if (len < 1)
+		return;
+//First few reports: help diagnose wrong report ID / short packets on hardware.
+	if (hid->prev[0] < 5)
+	{
+		SysLog("USB: Trackpad2 rpt#%d len=%d id=0x%02X\n",
+			   hid->prev[0], len, rep[0]);
+		hid->prev[0]++;
+	}
 	if (len < USB_TP2_PREFIX_LEN)
 		return;
 	if (rep[0] != USB_TP2_REPORT_ID)
@@ -366,9 +375,14 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	U8		 feat[2];
 	I64		 i, code, buf_len;
 
-//Linux hid-magicmouse only binds the USBMOUSE-typed interface.
-	if (uif->if_proto && uif->if_proto != USB_HID_PROTO_MOUSE)
+//Linux hid-magicmouse only binds HID_TYPE_USBMOUSE (bInterfaceProtocol=2).
+//Do not bind proto=0 first ΓÇö that steals the slot and skips the real mouse iface.
+	if (uif->if_proto != USB_HID_PROTO_MOUSE)
+	{
+		SysLog("USB: Trackpad2 port %d: skip if=%d proto=%d (want mouse).\n",
+			   dev->port, uif->if_num, uif->if_proto);
 		return;
+	}
 	for (i = 0; i < USB_HIDS_MAX; i++)
 		if (usb_hids[i].valid && usb_hids[i].is_trackpad && usb_hids[i].dev == dev)
 			return;
@@ -382,7 +396,11 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 		}
 	}
 	if (!ep)
+	{
+		SysLog("USB: Trackpad2 port %d: if=%d has no INT-IN.\n",
+			   dev->port, uif->if_num);
 		return;
+	}
 	for (i = 0; i < USB_HIDS_MAX; i++)
 		if (!usb_hids[i].valid)
 		{
@@ -398,8 +416,9 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	hid->is_trackpad = TRUE;
 	hid->valid		 = TRUE;
 
-//Do not SET_PROTOCOL boot ΓÇö stay in report protocol. Feature {0x02,0x01}
-//switches the pad into multitouch (Linux feature_mt_trackpad2_usb).
+//Report protocol (1), not boot (0). Then feature {0x02,0x01} for multitouch.
+	UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
+			USB_HID_RQ_SET_PROTOCOL, 1, uif->if_num, NULL, 0);
 	feat[0] = 0x02;
 	feat[1] = 0x01;
 	code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
@@ -427,8 +446,8 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 	sys_usb_hid_mouse			= TRUE;
 	usb_mouse_x = sys_framebuffer_width  >> 1;
 	usb_mouse_y = sys_framebuffer_height >> 1;
-	SysLog("USB: Magic Trackpad 2 on port %d (maxpkt=%d).\n",
-		   dev->port, ep->max_packet);
+	SysLog("USB: Magic Trackpad 2 on port %d if=%d maxpkt=%d.\n",
+		   dev->port, uif->if_num, ep->max_packet);
 	XhciIntQueue(dev, ep);
 }
 

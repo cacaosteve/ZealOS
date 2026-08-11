@@ -14,13 +14,16 @@ U0 UsbDrvBind(CUsbDev *dev)
 		if (uif->if_class == USB_CLASS_HID)
 		{
 			if (dev->vendor_id == USB_VID_APPLE &&
-				dev->product_id == USB_PID_APPLE_MAGICTRACKPAD2)
+				(dev->product_id == USB_PID_APPLE_MAGICTRACKPAD2 ||
+				 dev->product_id == 0x0324))
 				UsbTrackpadAttach(dev, uif);
 			else if (uif->if_subclass == USB_HID_SUBCLASS_BOOT &&
 					 (uif->if_proto == USB_HID_PROTO_KBD || uif->if_proto == USB_HID_PROTO_MOUSE))
 				UsbHidAttach(dev, uif);
 			else
-				SysLog("USB: port %d: non-boot HID interface ignored.\n", dev->port);
+				SysLog("USB: port %d: non-boot HID if=%d cls=%d sub=%d proto=%d %04X:%04X ignored.\n",
+					   dev->port, uif->if_num, uif->if_class, uif->if_subclass,
+					   uif->if_proto, dev->vendor_id, dev->product_id);
 		}
 		else if (uif->if_class == USB_CLASS_MSD)
 		{
