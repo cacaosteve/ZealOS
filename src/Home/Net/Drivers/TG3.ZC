@@ -98,11 +98,18 @@
 #define TG3_MAC_RX_STATS_BCAST		0x00000894
 
 #define TG3_MII_BMCR			0x00
-#define  TG3_BMCR_RESET			0x8000
+#define TG3_BMCR_RESET			0x8000
+#define  TG3_BMCR_LOOPBACK		0x4000
+#define  TG3_BMCR_SPEED100		0x2000
 #define  TG3_BMCR_ANENABLE		0x1000
+#define  TG3_BMCR_FULLDPLX		0x0100
+#define  TG3_BMCR_SPEED1000		0x0040
 #define  TG3_BMCR_ANRESTART		0x0200
 #define TG3_MII_BMSR			0x01
 #define  TG3_BMSR_LSTATUS		0x0004
+#define TG3_MAC_TX_STATUS		0x00000460
+#define  TG3_TX_STATUS_LINK_UP		0x00000008
+#define TG3_GRCMBOX_RCVSTD_PROD_IDX	0x00005868
 #define TG3_MII_PHYSID1			0x02
 #define TG3_MII_PHYSID2			0x03
 #define TG3_MII_ADVERTISE		0x04
@@ -362,10 +369,11 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* MMIO mailbox + PCI config alias (Mac mini MEM_WIN needed config path). */
+{/* MMIO mailbox + GRC alias + PCI config (57766 / Mac mini). */
 	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
 
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
 	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
 }
 
@@ -1099,16 +1107,19 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
-	/* Give RCVBDI a moment to pull producer BDs into NIC cache. */
-	for (i = 0; i < 50; i++)
+	/* RCVBDI may fetch lazily; std_bd=0 here is not proof of failure. */
+	for (i = 0; i < 20; i++)
 	{
 		if (TG3Read(TG3_RCVDBDI_STD_CON_IDX))
 			break;
 		Busy(100);
 	}
-	"TG3: post-enable std_bd=%d (want >0) rbd=0x%X bfm=0x%X\n",
+	"TG3: post-enable std_bd=%d rbd=0x%X bfm=0x%X "
+	"RCVBDI=0x%X RCVDBDI=0x%X sram0=0x%X\n",
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX),
-		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS);
+		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS),
+		TG3Read(TG3_RCVBDI_MODE), TG3Read(TG3_RCVDBDI_MODE),
+		TG3MemRead(TG3_NIC_SRAM_RX_BUFFER_DESC);
 
 	/* Re-assert GRC_MODE after MAC bring-up (endian + host rings). */
 	val = TG3_GRC_MODE_WSWAP_DATA | TG3_GRC_MODE_BSWAP_DATA |
@@ -1322,32 +1333,50 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
 		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
 			"tx_cons=%d rx_prod=%d TX=0x%X RX=0x%X WDMAC=0x%X BUFMGR=0x%X "
-			"rx_bcast=%d rx_ucast=%d",
+			"rx_bcast=%d rx_ucast=%d std_bd=%d",
 			next, mbox, tg3.status[0], st2, tg3.status[4],
 			TG3StatusTxConsumer, TG3StatusRxProducer, txm, rxm, wdm, bfm,
-			bcast, ucast);
+			bcast, ucast, TG3Read(TG3_RCVDBDI_STD_CON_IDX));
+		if (next <= 4)
+			"TG3: TX dbg rx_u=%d rx_b=%d std_bd=%d rx_prod=%d\n",
+				ucast, bcast, TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+				TG3StatusRxProducer;
 	}
 }
 
 Bool TG3LoopbackTest()
-{/* After TG3Transmit* ΓÇö ZealC needs callees defined first (Invalid lval). */
-	U32 saved_mode, mode, mb_resp, rbd_st, bfm_st;
+{/* 57766 has CPMU ΓÇö Linux skips MAC INT_LPBACK and uses PHY loopback. */
+	U32 saved_mode, mode, mb_resp, saved_bmcr = 0;
+	U32 rx_u0, rx_u1, rx_b0, rx_b1, tx_stat;
 	I64 de, i;
 	U8 *pkt_phys, *pkt;
 	U16 rx0, rx1, tx0, tx1, std0, std1;
 
-	/* Probe whether RX mbufs exist (silent drop if pool empty). */
 	TG3WriteFlush(TG3_BUFMGR_RX_MB_ALLOC_REQ, TG3_BUFMGR_MB_ALLOC_BIT);
 	Busy(50);
 	mb_resp = TG3Read(TG3_BUFMGR_RX_MB_ALLOC_RESP);
-	rbd_st = TG3Read(TG3_RCVDBDI_STATUS);
-	bfm_st = TG3Read(TG3_BUFMGR_STATUS);
-	"TG3: pre-lb mb_alloc=0x%X RCVDBDI_STATUS=0x%X BUFMGR_STATUS=0x%X\n",
-		mb_resp, rbd_st, bfm_st;
+	"TG3: pre-lb mb_alloc=0x%X RCVBDI=0x%X RCVDBDI=0x%X "
+	"std_bd=%d sram0=0x%X\n",
+		mb_resp, TG3Read(TG3_RCVBDI_MODE), TG3Read(TG3_RCVDBDI_MODE),
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+		TG3MemRead(TG3_NIC_SRAM_RX_BUFFER_DESC);
+
+	if (tg3.phy_addr < 0)
+	{
+		NetErr("TG3: PHY loopback skipped (no PHY)");
+		return FALSE;
+	}
+
+	/* PHY internal loopback @ 1000-full (Linux tg3_phy_lpbk_set). */
+	TG3PhyRead(tg3.phy_addr, TG3_MII_BMCR, &saved_bmcr);
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR,
+		TG3_BMCR_LOOPBACK | TG3_BMCR_FULLDPLX | TG3_BMCR_SPEED1000);
+	Busy(40);
 
 	saved_mode = TG3Read(TG3_MAC_MODE);
-	mode = (saved_mode & ~0xC) | TG3_MAC_MODE_PORT_GMII |
-		TG3_MAC_MODE_PORT_INT_LPBACK |
+	mode = (saved_mode & ~(0xC | TG3_MAC_MODE_HALF_DUPLEX |
+		TG3_MAC_MODE_PORT_INT_LPBACK)) |
+		TG3_MAC_MODE_PORT_GMII |
 		TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
 		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
 		TG3_MAC_MODE_FHDE_ENABLE;
@@ -1357,8 +1386,18 @@ Bool TG3LoopbackTest()
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 	TG3StdProdKick(tg3.rx_std_prod);
-	Busy(200);
 
+	for (i = 0; i < 100; i++)
+	{
+		tx_stat = TG3Read(TG3_MAC_TX_STATUS);
+		if (tx_stat & TG3_TX_STATUS_LINK_UP)
+			break;
+		Sleep(1);
+	}
+	"TG3: phy-lb link_wait i=%d TX_STATUS=0x%X\n", i, tx_stat;
+
+	rx_u0 = TG3Read(TG3_MAC_RX_STATS_UCAST);
+	rx_b0 = TG3Read(TG3_MAC_RX_STATS_BCAST);
 	rx0 = TG3StatusRxProducer;
 	tx0 = TG3StatusTxConsumer;
 	std0 = tg3.status[2] & 0xFFFF;
@@ -1367,22 +1406,20 @@ Bool TG3LoopbackTest()
 	if (de < 0)
 	{
 		NetErr("TG3: loopback TX alloc failed");
+		TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR, saved_bmcr);
 		TG3WriteFlush(TG3_MAC_MODE, saved_mode);
 		TG3Write(TG3_MAC_RX_MTU_SIZE, 1522);
 		return FALSE;
 	}
 	pkt = pkt_phys + dev.uncached_alias;
 	MemSet(pkt, 0, 64);
+	/* Linux: dest=our MAC, next 8 bytes zero. */
 	MemCopy(pkt, tg3.mac_address, 6);
-	MemCopy(pkt + 6, tg3.mac_address, 6);
-	pkt[12] = 0x88; /* experimental ethertype */
-	pkt[13] = 0xB5;
 	pkt[14] = 'L'; pkt[15] = 'B';
 	TG3TransmitPacketFinish(de);
 
 	for (i = 0; i < 50; i++)
 	{
-		/* Force status-block DMA like Linux tg3_run_loopback. */
 		TG3WriteFlush(TG3_HOSTCC_MODE,
 			TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_ATTN |
 			TG3_HOSTCC_MODE_NOW);
@@ -1396,29 +1433,38 @@ Bool TG3LoopbackTest()
 	std1 = tg3.status[2] & 0xFFFF;
 	rx1 = TG3StatusRxProducer;
 	tx1 = TG3StatusTxConsumer;
+	rx_u1 = TG3Read(TG3_MAC_RX_STATS_UCAST);
+	rx_b1 = TG3Read(TG3_MAC_RX_STATS_BCAST);
 
+	/* Restore copper link. */
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR,
+		TG3_BMCR_ANENABLE | TG3_BMCR_ANRESTART);
 	TG3WriteFlush(TG3_MAC_MODE, saved_mode & ~TG3_MAC_MODE_PORT_INT_LPBACK);
 	TG3Write(TG3_MAC_RX_MTU_SIZE, 1522);
 	Busy(100);
+	TG3LinkApply;
 
-	NetLog("TG3: loopback rx %d->%d tx_cons %d->%d std_cons %d->%d "
-		"std_bd_cons=%d status4=0x%X rbd=0x%X bfm=0x%X mb=0x%X",
+	NetLog("TG3: phy-lb rx %d->%d tx_cons %d->%d std_cons %d->%d "
+		"std_bd=%d mac_rx_u=%d->%d mac_rx_b=%d->%d sram0=0x%X",
 		rx0, rx1, tx0, tx1, std0, std1,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX), tg3.status[4],
-		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS), mb_resp);
-	"TG3: loopback rx=%d->%d tx_cons=%d->%d std_cons=%d->%d std_bd=%d "
-	"rbd=0x%X bfm=0x%X\n",
-		rx0, rx1, tx0, tx1, std0, std1,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX),
-		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS);
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX), rx_u0, rx_u1, rx_b0, rx_b1,
+		TG3MemRead(TG3_NIC_SRAM_RX_BUFFER_DESC));
+	"TG3: phy-lb rx=%d->%d tx_cons=%d->%d std_bd=%d "
+	"mac_rx_u=%d->%d mac_rx_b=%d->%d sram0=0x%X\n",
+		rx0, rx1, tx0, tx1, TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+		rx_u0, rx_u1, rx_b0, rx_b1,
+		TG3MemRead(TG3_NIC_SRAM_RX_BUFFER_DESC);
 
 	if (rx1 != rx0)
 	{
-		"$$GREEN$$TG3: loopback RX OK$$FG$$\n";
+		"$$GREEN$$TG3: PHY loopback RX OK$$FG$$\n";
 		return TRUE;
 	}
-	NetErr("TG3: loopback RX FAILED ΓÇö receive DMA path broken");
-	"$$RED$$TG3: loopback RX FAILED$$FG$$\n";
+	if (rx_u1 != rx_u0 || rx_b1 != rx_b0)
+		NetErr("TG3: PHY-lb MAC saw RX but host ring did not ΓÇö DMA/status path");
+	else
+		NetErr("TG3: PHY loopback RX FAILED ΓÇö no MAC RX either");
+	"$$RED$$TG3: PHY loopback RX FAILED$$FG$$\n";
 	return FALSE;
 }
 
