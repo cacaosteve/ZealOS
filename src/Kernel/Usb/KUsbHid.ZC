@@ -28,6 +28,7 @@ class CUsbHid
 	Bool	 have_last;
 	Bool	 feature_sent;	//MT mode feature applied (deferred past boot)
 	Bool	 int_started;	//INT-IN queued
+	Bool	 enable_req;	//UsbTrackpadEnable asked USB task to (re)run feature
 };
 
 CUsbHid usb_hids[USB_HIDS_MAX];
@@ -370,7 +371,8 @@ U0 UsbTrackpadFeatureSend(CUsbHid *hid)
 }
 
 public U0 UsbTrackpadEnable()
-{//Manual MT enable from the prompt: UsbTrackpadEnable;
+{//Ask USB task to (re)run MT enable. Do not UsbCtrl from System ΓÇö that
+//deadlocks with SysLog from the USB task while INT reports are flowing.
 	CUsbHid	*hid = NULL;
 	I64		 i;
 
@@ -386,8 +388,8 @@ public U0 UsbTrackpadEnable()
 		return;
 	}
 	hid->feature_sent = FALSE;
-	UsbTrackpadFeatureSend(hid);
-	"Trackpad enable attempted (see System task SysLog). Touch the pad.\n";
+	hid->enable_req   = TRUE;
+	"Trackpad enable queued for USB task ΓÇö touch the pad in a moment.\n";
 }
 
 U0 UsbHidTick()
@@ -398,9 +400,13 @@ U0 UsbHidTick()
 	for (i = 0; i < USB_HIDS_MAX; i++)
 	{
 		hid = &usb_hids[i];
-		if (hid->valid && hid->is_trackpad && !hid->feature_sent &&
-			Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+		if (hid->valid && hid->is_trackpad &&
+			(hid->enable_req ||
+			 (!hid->feature_sent && Bt(&sys_run_level, RLf_SYSTEM_SERVER))))
+		{
+			hid->enable_req = FALSE;
 			UsbTrackpadFeatureSend(hid);
+		}
 		if (hid->valid && hid->proto == USB_HID_PROTO_KBD && hid->repeat_sc)
 		{
 			if (tS >= hid->repeat_time)

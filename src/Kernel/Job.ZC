@@ -513,38 +513,63 @@ U0 SysLogToggle()
 }
 
 U0 SysLog(U8 *format, ...)
-{//Display text in sys_task.
-	U8 *buf = StrPrintJoin(NULL, format, argc, argv);
+{//Display text in sys_task. Non-blocking from other tasks: a blocking Sys()
+//deadlocks when sys_task is inside UsbCtrl waiting on the USB task.
+	U8 *buf = StrPrintJoin(NULL, format, argc, argv), *cmd;
 
 	if (Fs == sys_task)
+	{
 		"%s", buf;
+		Free(buf);
+	}
 	else if (!IsSingleUser)
-		Sys("\"%%s\",%d;", buf);
-	Free(buf);
+	{
+		cmd = MStrPrint("\"%%s\",%d;Free(%d);", buf, buf);
+		TaskExe(sys_task, Fs, cmd, 1 << JOBf_FREE_ON_COMPLETE);
+		Free(cmd);
+	}
+	else
+		Free(buf);
 }
 
 U0 SysWarn(U8 *format, ...)
 {//Display pink blinking Warn text in sys_task.
-	U8 *buf = StrPrintJoin(NULL, format, argc, argv), *st = MStrPrint(ST_WARN_ST "%s", buf);
+	U8 *buf = StrPrintJoin(NULL, format, argc, argv), *st = MStrPrint(ST_WARN_ST "%s", buf), *cmd;
 
-	if (Fs == sys_task)
-		"%s", st;
-	else if (!IsSingleUser)
-		Sys("\"%%s\",%d;", st);
-	Free(st);
 	Free(buf);
+	if (Fs == sys_task)
+	{
+		"%s", st;
+		Free(st);
+	}
+	else if (!IsSingleUser)
+	{
+		cmd = MStrPrint("\"%%s\",%d;Free(%d);", st, st);
+		TaskExe(sys_task, Fs, cmd, 1 << JOBf_FREE_ON_COMPLETE);
+		Free(cmd);
+	}
+	else
+		Free(st);
 }
 
 U0 SysErr(U8 *format, ...)
 {//Display red blinking Err text in sys_task.
-	U8 *buf = StrPrintJoin(NULL, format, argc, argv), *st = MStrPrint(ST_ERR_ST "%s", buf);
+	U8 *buf = StrPrintJoin(NULL, format, argc, argv), *st = MStrPrint(ST_ERR_ST "%s", buf), *cmd;
 
-	if (Fs == sys_task)
-		"%s", st;
-	else if (!IsSingleUser)
-		Sys("\"%%s\",%d;", st);
-	Free(st);
 	Free(buf);
+	if (Fs == sys_task)
+	{
+		"%s", st;
+		Free(st);
+	}
+	else if (!IsSingleUser)
+	{
+		cmd = MStrPrint("\"%%s\",%d;Free(%d);", st, st);
+		TaskExe(sys_task, Fs, cmd, 1 << JOBf_FREE_ON_COMPLETE);
+		Free(cmd);
+	}
+	else
+		Free(st);
 }
 
 U0 XTalk(CTask *task, U8 *format, ...)

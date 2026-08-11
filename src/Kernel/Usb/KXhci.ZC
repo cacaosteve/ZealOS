@@ -343,8 +343,9 @@ I64 XhciXferWait(CUsbEP *ep, F64 timeout_s, CXhciGlobals *hc=NULL)
 
 	while (!ep->xfer_done && tS < timeout)
 	{
-		if (Fs == usb_task || !usb_task)
-			XhciEventPoll(hc);
+//Always poll: System-task UsbCtrl must not rely solely on usb_task, and
+//must not sit idle while usb_task is blocked in a former blocking SysLog.
+		XhciEventPoll(hc);
 		Yield;
 	}
 	if (!ep->xfer_done)
