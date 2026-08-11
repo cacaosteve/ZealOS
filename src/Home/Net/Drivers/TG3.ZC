@@ -316,12 +316,16 @@ U0 TG3ChipReset()
 	U16 cmd;
 	I64 i;
 
+	NetLog("TG3: chip reset begin");
 	TG3Write(TG3PCI_MISC_HOST_CTRL,
 		TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT | TG3_MHC_MASK_PCI_INT);
 
 	cmd = PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
 
-	TG3WriteFlush(TG3_GRC_MISC_CFG, TG3_GRC_MISC_CFG_CORECLK_RESET);
+//CORECLK_RESET makes MMIO inaccessible. Do NOT TG3WriteFlush / MMIO-read here
+//or the CPU can hang on PCI master abort (Linux flushes via config space).
+	TG3Write(TG3_GRC_MISC_CFG, TG3_GRC_MISC_CFG_CORECLK_RESET);
+	PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
 	Sleep(120);
 
 	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
@@ -335,6 +339,7 @@ U0 TG3ChipReset()
 			break;
 		Sleep(10);
 	}
+	NetLog("TG3: chip reset done (MAC_MODE wait i=%d)", i);
 
 	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
 }
