@@ -1125,79 +1125,6 @@ U0 TG3RxProcess()
 	tg3.tx_cons = TG3StatusTxConsumer;
 }
 
-Bool TG3LoopbackTest()
-{/* MAC internal loopback: proves RX DMA without needing the wire. */
-	U32 saved_mode, mode;
-	I64 de, i;
-	U8 *pkt_phys, *pkt;
-	U16 rx0, rx1, tx0, tx1, std0, std1;
-
-	saved_mode = TG3Read(TG3_MAC_MODE);
-	mode = (saved_mode & ~0xC) | TG3_MAC_MODE_PORT_GMII |
-		TG3_MAC_MODE_PORT_INT_LPBACK |
-		TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
-		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
-		TG3_MAC_MODE_FHDE_ENABLE;
-	TG3WriteFlush(TG3_MAC_MODE, mode);
-	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
-	TG3WriteFlush(TG3_MAC_TX_MODE,
-		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
-	Busy(200);
-
-	rx0 = TG3StatusRxProducer;
-	tx0 = TG3StatusTxConsumer;
-	std0 = tg3.status[2] & 0xFFFF;
-
-	de = TG3TransmitPacketAllocate(&pkt_phys, 64);
-	if (de < 0)
-	{
-		NetErr("TG3: loopback TX alloc failed");
-		TG3WriteFlush(TG3_MAC_MODE, saved_mode);
-		return FALSE;
-	}
-	pkt = pkt_phys + dev.uncached_alias;
-	MemSet(pkt, 0, 64);
-	MemCopy(pkt, tg3.mac_address, 6);
-	MemCopy(pkt + 6, tg3.mac_address, 6);
-	pkt[12] = 0x88; /* experimental ethertype */
-	pkt[13] = 0xB5;
-	pkt[14] = 'L'; pkt[15] = 'B';
-	TG3TransmitPacketFinish(de);
-
-	for (i = 0; i < 50; i++)
-	{
-		TG3RxProcess;
-		rx1 = TG3StatusRxProducer;
-		tx1 = TG3StatusTxConsumer;
-		if (rx1 != rx0 || tx1 != tx0)
-			break;
-		Sleep(10);
-	}
-	std1 = tg3.status[2] & 0xFFFF;
-	rx1 = TG3StatusRxProducer;
-	tx1 = TG3StatusTxConsumer;
-
-	TG3WriteFlush(TG3_MAC_MODE, saved_mode & ~TG3_MAC_MODE_PORT_INT_LPBACK);
-	Busy(100);
-
-	NetLog("TG3: loopback rx %d->%d tx_cons %d->%d std_cons %d->%d "
-		"std_bd_cons=%d status4=0x%X",
-		rx0, rx1, tx0, tx1, std0, std1,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX), tg3.status[4]);
-	"TG3: loopback rx=%d->%d tx_cons=%d->%d std_cons=%d->%d std_bd=%d\n",
-		rx0, rx1, tx0, tx1, std0, std1,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
-
-	if (rx1 != rx0)
-	{
-		"$$GREEN$$TG3: loopback RX OK$$FG$$\n";
-		return TRUE;
-	}
-	NetErr("TG3: loopback RX FAILED ΓÇö receive DMA path broken");
-	"$$RED$$TG3: loopback RX FAILED$$FG$$\n";
-	return FALSE;
-}
-
 interrupt U0 TG3IRQ()
 {
 	U32 st;
@@ -1335,6 +1262,79 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			TG3StatusTxConsumer, TG3StatusRxProducer, txm, rxm, wdm, bfm,
 			bcast, ucast);
 	}
+}
+
+Bool TG3LoopbackTest()
+{/* After TG3Transmit* ΓÇö ZealC needs callees defined first (Invalid lval). */
+	U32 saved_mode, mode;
+	I64 de, i;
+	U8 *pkt_phys, *pkt;
+	U16 rx0, rx1, tx0, tx1, std0, std1;
+
+	saved_mode = TG3Read(TG3_MAC_MODE);
+	mode = (saved_mode & ~0xC) | TG3_MAC_MODE_PORT_GMII |
+		TG3_MAC_MODE_PORT_INT_LPBACK |
+		TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
+		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
+		TG3_MAC_MODE_FHDE_ENABLE;
+	TG3WriteFlush(TG3_MAC_MODE, mode);
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3WriteFlush(TG3_MAC_TX_MODE,
+		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
+	Busy(200);
+
+	rx0 = TG3StatusRxProducer;
+	tx0 = TG3StatusTxConsumer;
+	std0 = tg3.status[2] & 0xFFFF;
+
+	de = TG3TransmitPacketAllocate(&pkt_phys, 64);
+	if (de < 0)
+	{
+		NetErr("TG3: loopback TX alloc failed");
+		TG3WriteFlush(TG3_MAC_MODE, saved_mode);
+		return FALSE;
+	}
+	pkt = pkt_phys + dev.uncached_alias;
+	MemSet(pkt, 0, 64);
+	MemCopy(pkt, tg3.mac_address, 6);
+	MemCopy(pkt + 6, tg3.mac_address, 6);
+	pkt[12] = 0x88; /* experimental ethertype */
+	pkt[13] = 0xB5;
+	pkt[14] = 'L'; pkt[15] = 'B';
+	TG3TransmitPacketFinish(de);
+
+	for (i = 0; i < 50; i++)
+	{
+		TG3RxProcess;
+		rx1 = TG3StatusRxProducer;
+		tx1 = TG3StatusTxConsumer;
+		if (rx1 != rx0 || tx1 != tx0)
+			break;
+		Sleep(10);
+	}
+	std1 = tg3.status[2] & 0xFFFF;
+	rx1 = TG3StatusRxProducer;
+	tx1 = TG3StatusTxConsumer;
+
+	TG3WriteFlush(TG3_MAC_MODE, saved_mode & ~TG3_MAC_MODE_PORT_INT_LPBACK);
+	Busy(100);
+
+	NetLog("TG3: loopback rx %d->%d tx_cons %d->%d std_cons %d->%d "
+		"std_bd_cons=%d status4=0x%X",
+		rx0, rx1, tx0, tx1, std0, std1,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX), tg3.status[4]);
+	"TG3: loopback rx=%d->%d tx_cons=%d->%d std_cons=%d->%d std_bd=%d\n",
+		rx0, rx1, tx0, tx1, std0, std1,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
+
+	if (rx1 != rx0)
+	{
+		"$$GREEN$$TG3: loopback RX OK$$FG$$\n";
+		return TRUE;
+	}
+	NetErr("TG3: loopback RX FAILED ΓÇö receive DMA path broken");
+	"$$RED$$TG3: loopback RX FAILED$$FG$$\n";
+	return FALSE;
 }
 
 U0 NetDriverTransmitPacketFinish(I64 de_index)
