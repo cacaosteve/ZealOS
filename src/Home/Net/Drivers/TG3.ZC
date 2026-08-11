@@ -166,9 +166,18 @@
 #define TG3_WDMAC_MODE			0x00004C00
 #define  TG3_DMA_MODE_ENABLE		0x00000002
 #define  TG3_RDMAC_MODE_JMB_2K_MMRR	0x00800000
+#define  TG3_RDMAC_MODE_FIFO_LONG_BURST	0x00030000
 #define  TG3_WDMAC_MODE_STATUS_TAG_FIX	0x20000000
+#define TG3_RDMA_RSRVCTRL		0x00004900
+#define  TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX 0x00000004
 
 #define TG3_FTQ_RESET			0x00005C00
+
+#define TG3_CPMU_LSPD_10MB_CLK		0x00003604
+#define  TG3_CPMU_10MB_MACCLK_MASK	0x001F0000
+#define  TG3_CPMU_10MB_MACCLK_6_25	0x00130000
+#define TG3_CPMU_PADRNG_CTL		0x00003668
+#define  TG3_CPMU_PADRNG_CTL_RDIV2	0x00040000
 
 #define TG3_MEMARB_MODE			0x00004000
 #define  TG3_MEMARB_MODE_ENABLE		0x00000002
@@ -182,14 +191,22 @@
 #define  TG3_GRC_MODE_HOST_SENDBDS	0x00020000
 #define  TG3_GRC_MODE_NO_TX_PHDR_CSUM	0x00100000
 #define  TG3_GRC_MODE_NO_RX_PHDR_CSUM	0x00800000
+#define  TG3_GRC_MODE_PCIE_PL_SEL	0x00400000
 #define  TG3_GRC_MODE_IRQ_ON_MAC_ATTN	0x04000000
+#define  TG3_GRC_MODE_PCIE_DL_SEL	0x20000000
 #define TG3_GRC_MISC_CFG		0x00006804
 #define  TG3_GRC_MISC_CFG_CORECLK_RESET	0x00000001
 #define  TG3_GRC_MISC_CFG_KEEP_GPHY_POWER 0x04000000
 #define TG3_GRC_LOCAL_CTRL		0x00006808
 
-/* Scratch used only for MEM_WIN R/W self-test (not firmware mbox). */
-#define TG3_NIC_SRAM_MEMWIN_TEST	0x00000B00
+#define TG3_PCIE_TLDLPL_PORT		0x00007C00
+#define TG3_PCIE_DL_LO_FTSMAX		0x0000000C
+#define  TG3_PCIE_DL_FTSMAX_MSK		0x000000FF
+#define  TG3_PCIE_DL_FTSMAX_VAL		0x0000002C
+
+/* Scratch for MEM_WIN R/W test ΓÇö NOT status blk @0xB00 (hw-owned). */
+#define TG3_NIC_SRAM_MEMWIN_TEST	0x00000B54
+#define TG3PCI_GEN15_PRODID_ASICREV	0x000000FC
 
 #define TG3_NIC_SRAM_SEND_RCB		0x00000100
 #define TG3_NIC_SRAM_RCV_RET_RCB	0x00000200
@@ -360,6 +377,27 @@ U0 TG3MemArbEnable()
 	U32 val = TG3Read(TG3_MEMARB_MODE);
 	TG3WriteFlush(TG3_MEMARB_MODE, val | TG3_MEMARB_MODE_ENABLE);
 	NetLog("TG3: MEMARB_MODE=0x%X", TG3Read(TG3_MEMARB_MODE));
+}
+
+U0 TG3PcieTxHangFix()
+{/* Linux 57765_CLASS: CPMU padrng + PCIe FTSMAX ΓÇö "Fix transmit hangs". */
+	U32 val, grc;
+
+	val = TG3Read(TG3_CPMU_PADRNG_CTL);
+	TG3WriteFlush(TG3_CPMU_PADRNG_CTL, val | TG3_CPMU_PADRNG_CTL_RDIV2);
+
+	grc = TG3Read(TG3_GRC_MODE);
+	TG3Write(TG3_GRC_MODE, (grc & ~(TG3_GRC_MODE_PCIE_PL_SEL | TG3_GRC_MODE_PCIE_DL_SEL)) |
+		TG3_GRC_MODE_PCIE_DL_SEL);
+	val = TG3Read(TG3_PCIE_TLDLPL_PORT + TG3_PCIE_DL_LO_FTSMAX);
+	val = (val & ~TG3_PCIE_DL_FTSMAX_MSK) | TG3_PCIE_DL_FTSMAX_VAL;
+	TG3Write(TG3_PCIE_TLDLPL_PORT + TG3_PCIE_DL_LO_FTSMAX, val);
+	TG3WriteFlush(TG3_GRC_MODE, grc);
+
+	val = TG3Read(TG3_CPMU_LSPD_10MB_CLK);
+	val = (val & ~TG3_CPMU_10MB_MACCLK_MASK) | TG3_CPMU_10MB_MACCLK_6_25;
+	TG3WriteFlush(TG3_CPMU_LSPD_10MB_CLK, val);
+	NetLog("TG3: 57765 TX-hang workarounds applied");
 }
 
 U0 TG3BDInfoWriteMMIO(U32 base, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
@@ -711,6 +749,7 @@ U0 TG3ChipReset()
 	TG3PollFw;
 	if (!TG3MemWinSelfTest)
 		NetErr("TG3: MEM_WIN selftest FAILED ΓÇö rings will not program");
+	TG3PcieTxHangFix;
 }
 
 U0 TG3RingsAlloc()
@@ -869,8 +908,12 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_SNDBDC_MODE, TG3_MODE_ENABLE | TG3_SNDBDC_MODE_ATTN);
 	TG3Write(TG3_SNDBDS_MODE, TG3_MODE_ENABLE | TG3_SNDBDS_MODE_ATTN);
 	TG3Write(TG3_SNDBDI_MODE, TG3_MODE_ENABLE | TG3_SNDBDI_MODE_ATTN);
+	/* PCIe: LONG_BURST; 57766: JMB_2K_MMRR. Then RDMA FIFO overflow fix. */
 	TG3WriteFlush(TG3_RDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_RDMAC_MODE_JMB_2K_MMRR);
+		TG3_DMA_MODE_ENABLE | TG3_RDMAC_MODE_FIFO_LONG_BURST |
+		TG3_RDMAC_MODE_JMB_2K_MMRR);
+	val = TG3Read(TG3_RDMA_RSRVCTRL);
+	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
 	/* 5755+/57766: STATUS_TAG_FIX required for host status block DMA. */
 	TG3WriteFlush(TG3_WDMAC_MODE,
 		TG3_DMA_MODE_ENABLE | TG3_WDMAC_MODE_STATUS_TAG_FIX);
@@ -1090,13 +1133,23 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
+	U32 mbox, txm, wdm, bfm;
 
 	tg3.tx_prod = next;
+	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
+	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
 	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
 	if (next <= 4 || (next & 0xF) == 0)
-		NetLog("TG3: TX prod=%d status0=0x%X status4=0x%X tx_cons=%d rx_prod=%d",
-			next, tg3.status[0], tg3.status[4],
-			TG3StatusTxConsumer, TG3StatusRxProducer);
+	{
+		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
+		txm = TG3Read(TG3_MAC_TX_MODE);
+		wdm = TG3Read(TG3_WDMAC_MODE);
+		bfm = TG3Read(TG3_BUFMGR_MODE);
+		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status4=0x%X "
+			"tx_cons=%d rx_prod=%d TX_MODE=0x%X WDMAC=0x%X BUFMGR=0x%X",
+			next, mbox, tg3.status[0], tg3.status[4],
+			TG3StatusTxConsumer, TG3StatusRxProducer, txm, wdm, bfm);
+	}
 }
 
 U0 NetDriverTransmitPacketFinish(I64 de_index)
@@ -1188,7 +1241,9 @@ U0 TG3Init()
 	TG3MiscHostCtrl;
 	mhc = TG3Read(TG3PCI_MISC_HOST_CTRL);
 	tg3.chip_rev = (mhc & TG3_MHC_CHIPREV_MASK) >> TG3_MHC_CHIPREV_SHIFT;
-	tg3.asic_rev = TG3Read(TG3PCI_PRODID_ASICREV) & 0xFFFFFFFF;
+	/* 57766: ASIC rev lives at GEN15 PRODID (0xFC), not 0xBC. */
+	tg3.asic_rev = PCIReadU32(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun,
+		TG3PCI_GEN15_PRODID_ASICREV);
 	NetLog("TG3: chip_rev=0x%X asic/prodid=0x%X", tg3.chip_rev, tg3.asic_rev);
 
 	TG3MACReadHW;
