@@ -378,7 +378,6 @@ class CUsbDev
 //CUsbDev/CUsbIf so the types are known.
 extern U0 UsbDrvBind(CUsbDev *dev);
 extern U0 UsbHubAttach(CUsbDev *dev, CUsbIf *uif);
-extern U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif);
 extern U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif);
 
 //Globals defined in $LK,"KXhci.ZC",A="FF:::/Kernel/Usb/KXhci.ZC,usb_xhci"$.

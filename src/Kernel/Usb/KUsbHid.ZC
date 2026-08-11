@@ -233,8 +233,8 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 		b1 = td[1];
 		b2 = td[2];
 		b3 = td[3];
-		x = (b1 << 27 | b0 << 19) >> 19;
-		y = -((b3 << 30 | b2 << 22 | b1 << 14) >> 19);
+		x = ((b1 << 27) | (b0 << 19)) >> 19;
+		y = -(((b3 << 30) | (b2 << 22) | (b1 << 14)) >> 19);
 		if (hid->have_last && best_tid == hid->tracking_id)
 		{
 			dx = (x - hid->last_x) / USB_TP2_SCALE;
@@ -248,7 +248,7 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 	else
 		hid->have_last = FALSE;
 
-	if (dx || dy || clicks != (hid->prev[1]))
+	if (dx || dy || clicks != hid->prev[1])
 	{
 		usb_mouse_x = ClampI64(usb_mouse_x + dx, 0, sys_framebuffer_width  - 1);
 		usb_mouse_y = ClampI64(usb_mouse_y + dy, 0, sys_framebuffer_height - 1);
@@ -410,8 +410,6 @@ U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif)
 		buf_len = 64;
 	if (buf_len > 256)
 		buf_len = 256;
-	if (ep->auto_buf)
-		Free(ep->auto_buf);
 	ep->auto_buf  = CAlloc(buf_len, sys_task->code_heap);
 	ep->auto_len  = buf_len;
 	ep->auto_kind = USB_AUTO_TRACKPAD;
