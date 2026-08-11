@@ -48,6 +48,7 @@
 #define  TG3_MAC_MODE_HALF_DUPLEX	0x00000002
 #define  TG3_MAC_MODE_PORT_MII		0x00000004
 #define  TG3_MAC_MODE_PORT_GMII		0x00000008
+#define  TG3_MAC_MODE_PORT_INT_LPBACK	0x00000010
 #define  TG3_MAC_MODE_RXSTAT_ENABLE	0x00000800
 #define  TG3_MAC_MODE_TXSTAT_ENABLE	0x00004000
 #define  TG3_MAC_MODE_TDE_ENABLE	0x00200000
@@ -143,6 +144,7 @@
 #define  TG3_RCVDBDI_MODE_INV_RING_SZ	0x00000010
 #define TG3_RCVDBDI_STD_BD		0x00002450
 #define TG3_RCVDBDI_JUMBO_BD		0x00002440
+#define TG3_RCVDBDI_STD_CON_IDX		0x00002474
 #define TG3_RCVDCC_MODE			0x00002800
 #define TG3_RCVBDI_MODE			0x00002C00
 #define  TG3_RCVBDI_MODE_RCB_ATTN	0x00000004
@@ -242,6 +244,7 @@
 #define TG3_TXD_FLAG_END		0x0004
 #define TG3_TXD_LEN_SHIFT		16
 #define TG3_RXD_LEN_MASK		0x0000FFFF
+#define TG3_RXD_FLAG_END		0x0004
 #define TG3_RXD_FLAG_ERROR		0x0400
 #define TG3_RXD_OPAQUE_INDEX_MASK	0x0000FFFF
 #define TG3_RXD_OPAQUE_RING_STD		0x00010000
@@ -854,14 +857,19 @@ U0 TG3RingsAlloc()
 	MemSet(tg3.rx_std, 0, sizeof(CTG3RxDesc) * TG3_RX_STD_RING_SIZE);
 	MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
 
+	/* Producer BDs: length in low 16 only; index lives in opaque.
+	   Linux sets RXD_FLAG_END; do not stuff ring index into idx_len. */
 	for (i = 0; i < TG3_RX_PENDING; i++)
 	{
 		rd = &tg3.rx_std[i];
 		buf_phys = tg3.rx_bufs_phys + i * ETHERNET_FRAME_SIZE;
 		rd->addr_hi = 0;
 		rd->addr_lo = buf_phys;
-		rd->idx_len = (i << 16) | TG3_RX_STD_DMA_SZ;
-		rd->type_flags = 0;
+		rd->idx_len = TG3_RX_STD_DMA_SZ;
+		rd->type_flags = TG3_RXD_FLAG_END;
+		rd->ip_tcp_csum = 0;
+		rd->err_vlan = 0;
+		rd->reserved = 0;
 		rd->opaque = TG3_RXD_OPAQUE_RING_STD | i;
 	}
 
@@ -918,11 +926,11 @@ U0 TG3EnableBlocks()
 	/* 57765+: without STD_REPLENISH_LWM the chip may never fetch RX BDs. */
 	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_STD_BDCACHE_SIZE);
 
-	/* 57765-class: maxlen = ring size; DMA sz in low bits << 2 */
+	/* 57765+: maxlen = ring size; DMA sz in low bits << 2.
+	   5717+/57766: do not write BDINFO_NIC_ADDR (firmware owns it). */
 	val = (TG3_RX_STD_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT) |
 		(TG3_RX_STD_DMA_SZ << 2);
-	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
-		TG3_NIC_SRAM_RX_BUFFER_DESC);
+	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val, 0);
 	TG3Write(TG3_RCVDBDI_JUMBO_BD + TG3_BDINFO_MAXLEN_FLAGS,
 		TG3_BDINFO_FLAGS_DISABLED);
 
@@ -946,6 +954,10 @@ U0 TG3EnableBlocks()
 	"TG3: SEND_RCB readback=0x%X (tx_ring=0x%X)\n", val, tg3.tx_ring_phys;
 	if (val != tg3.tx_ring_phys)
 		NetErr("TG3: SRAM BDINFO write failed ΓÇö MEM_WIN/MEMARB broken");
+	val = TG3MemRead(TG3_NIC_SRAM_RCV_RET_RCB + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW);
+	NetLog("TG3: RCV_RET host_lo readback=0x%X expect=0x%X", val, tg3.rx_ret_phys);
+	if (val != tg3.rx_ret_phys)
+		NetErr("TG3: RCV_RET BDINFO write failed");
 
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_HIGH, 0);
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_LOW, tg3.status_phys);
@@ -970,14 +982,13 @@ U0 TG3EnableBlocks()
 	}
 	TG3Write(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_ATTN);
 
+	/* Linux enable order: RCVCC/RCVLPC ΓåÆ DMA engines ΓåÆ then RCVBDI/RCVDBDI. */
 	TG3Write(TG3_RCVCC_MODE, TG3_MODE_ENABLE | TG3_RCVCC_MODE_ATTN);
 	TG3Write(TG3_RCVLPC_MODE, TG3_MODE_ENABLE);
 	/* 5750+: leave DACK_FIX clear in stats enable. */
 	TG3Write(TG3_RCVLPC_STATS_ENABLE, 0xFFFFFF & ~0x40000);
 	TG3Write(TG3_RCVLPC_STATSCTRL, TG3_RCVLPC_STATSCTRL_ENABLE);
-	TG3Write(TG3_RCVDBDI_MODE, TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
-	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE);
-	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+
 	TG3Write(TG3_SNDDATAI_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDDATAC_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDC_MODE, TG3_MODE_ENABLE | TG3_SNDBDC_MODE_ATTN);
@@ -992,6 +1003,13 @@ U0 TG3EnableBlocks()
 	/* 5755+/57766: STATUS_TAG_FIX required for host status block DMA. */
 	TG3WriteFlush(TG3_WDMAC_MODE,
 		TG3_DMA_MODE_ENABLE | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+
+	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+	TG3WriteFlush(TG3_RCVDBDI_MODE,
+		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
+	/* Re-kick std producer after RCVDBDI is live. */
+	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 
 	TG3MACWriteHW;
 
@@ -1082,14 +1100,15 @@ U0 TG3RxProcess()
 		/* Re-post producer descriptor for this buffer index. */
 		if (opaque < TG3_RX_PENDING)
 		{
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].addr_hi = 0;
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].addr_lo =
-				tg3.rx_bufs_phys + opaque * ETHERNET_FRAME_SIZE;
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].idx_len =
-				(opaque << 16) | TG3_RX_STD_DMA_SZ;
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].type_flags = 0;
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].opaque =
-				TG3_RXD_OPAQUE_RING_STD | opaque;
+			rd = &tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)];
+			rd->addr_hi = 0;
+			rd->addr_lo = tg3.rx_bufs_phys + opaque * ETHERNET_FRAME_SIZE;
+			rd->idx_len = TG3_RX_STD_DMA_SZ;
+			rd->type_flags = TG3_RXD_FLAG_END;
+			rd->ip_tcp_csum = 0;
+			rd->err_vlan = 0;
+			rd->reserved = 0;
+			rd->opaque = TG3_RXD_OPAQUE_RING_STD | opaque;
 			tg3.rx_std_prod = (tg3.rx_std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
 			TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 		}
@@ -1104,6 +1123,79 @@ U0 TG3RxProcess()
 	}
 
 	tg3.tx_cons = TG3StatusTxConsumer;
+}
+
+Bool TG3LoopbackTest()
+{/* MAC internal loopback: proves RX DMA without needing the wire. */
+	U32 saved_mode, mode;
+	I64 de, i;
+	U8 *pkt_phys, *pkt;
+	U16 rx0, rx1, tx0, tx1, std0, std1;
+
+	saved_mode = TG3Read(TG3_MAC_MODE);
+	mode = (saved_mode & ~0xC) | TG3_MAC_MODE_PORT_GMII |
+		TG3_MAC_MODE_PORT_INT_LPBACK |
+		TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
+		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
+		TG3_MAC_MODE_FHDE_ENABLE;
+	TG3WriteFlush(TG3_MAC_MODE, mode);
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3WriteFlush(TG3_MAC_TX_MODE,
+		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
+	Busy(200);
+
+	rx0 = TG3StatusRxProducer;
+	tx0 = TG3StatusTxConsumer;
+	std0 = tg3.status[2] & 0xFFFF;
+
+	de = TG3TransmitPacketAllocate(&pkt_phys, 64);
+	if (de < 0)
+	{
+		NetErr("TG3: loopback TX alloc failed");
+		TG3WriteFlush(TG3_MAC_MODE, saved_mode);
+		return FALSE;
+	}
+	pkt = pkt_phys + dev.uncached_alias;
+	MemSet(pkt, 0, 64);
+	MemCopy(pkt, tg3.mac_address, 6);
+	MemCopy(pkt + 6, tg3.mac_address, 6);
+	pkt[12] = 0x88; /* experimental ethertype */
+	pkt[13] = 0xB5;
+	pkt[14] = 'L'; pkt[15] = 'B';
+	TG3TransmitPacketFinish(de);
+
+	for (i = 0; i < 50; i++)
+	{
+		TG3RxProcess;
+		rx1 = TG3StatusRxProducer;
+		tx1 = TG3StatusTxConsumer;
+		if (rx1 != rx0 || tx1 != tx0)
+			break;
+		Sleep(10);
+	}
+	std1 = tg3.status[2] & 0xFFFF;
+	rx1 = TG3StatusRxProducer;
+	tx1 = TG3StatusTxConsumer;
+
+	TG3WriteFlush(TG3_MAC_MODE, saved_mode & ~TG3_MAC_MODE_PORT_INT_LPBACK);
+	Busy(100);
+
+	NetLog("TG3: loopback rx %d->%d tx_cons %d->%d std_cons %d->%d "
+		"std_bd_cons=%d status4=0x%X",
+		rx0, rx1, tx0, tx1, std0, std1,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX), tg3.status[4]);
+	"TG3: loopback rx=%d->%d tx_cons=%d->%d std_cons=%d->%d std_bd=%d\n",
+		rx0, rx1, tx0, tx1, std0, std1,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
+
+	if (rx1 != rx0)
+	{
+		"$$GREEN$$TG3: loopback RX OK$$FG$$\n";
+		return TRUE;
+	}
+	NetErr("TG3: loopback RX FAILED ΓÇö receive DMA path broken");
+	"$$RED$$TG3: loopback RX FAILED$$FG$$\n";
+	return FALSE;
 }
 
 interrupt U0 TG3IRQ()
@@ -1376,6 +1468,10 @@ U0 TG3Init()
 
 	tg3.init_ok = TRUE;
 	TG3InterruptsSetup;
+	/* Diagnose RX DMA before DHCP; restore link mode after. */
+	TG3LoopbackTest;
+	if (tg3.link_up)
+		TG3LinkApply;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
