@@ -78,14 +78,22 @@
 #define  TG3_RX_MODE_ENABLE		0x00000002
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
+#define TG3_MAC_TX_BACKOFF_SEED		0x00000438
 #define TG3_MAC_TX_LENGTHS		0x00000464
 #define TG3_MAC_HASH_REG_0		0x00000470
 #define TG3_MAC_HASH_REG_1		0x00000474
 #define TG3_MAC_HASH_REG_2		0x00000478
 #define TG3_MAC_HASH_REG_3		0x0000047C
+#define TG3_MAC_RCV_RULE_0		0x00000480
+#define TG3_MAC_RCV_VALUE_0		0x00000484
+#define  TG3_RCV_RULE_DISABLE_MASK	0x7FFFFFFF
 #define TG3_MAC_RCV_RULE_CFG		0x00000500
 #define  TG3_RCV_RULE_CFG_DEFAULT	0x00000008
 #define TG3_MAC_LOW_WMARK_MAX_RX	0x00000504
+
+#define TG3_MAC_RX_STATS_UCAST		0x0000088C
+#define TG3_MAC_RX_STATS_MCAST		0x00000890
+#define TG3_MAC_RX_STATS_BCAST		0x00000894
 
 #define TG3_MII_BMCR			0x00
 #define  TG3_BMCR_RESET			0x8000
@@ -128,6 +136,9 @@
 #define  TG3_SNDBDC_MODE_ATTN		0x00000004
 #define TG3_RCVLPC_MODE			0x00002000
 #define TG3_RCVLPC_CONFIG		0x00002010
+#define TG3_RCVLPC_STATSCTRL		0x00002014
+#define  TG3_RCVLPC_STATSCTRL_ENABLE	0x00000001
+#define TG3_RCVLPC_STATS_ENABLE		0x00002018
 #define TG3_RCVDBDI_MODE		0x00002400
 #define  TG3_RCVDBDI_MODE_INV_RING_SZ	0x00000010
 #define TG3_RCVDBDI_STD_BD		0x00002450
@@ -136,8 +147,11 @@
 #define TG3_RCVBDI_MODE			0x00002C00
 #define  TG3_RCVBDI_MODE_RCB_ATTN	0x00000004
 #define TG3_RCVBDI_STD_THRESH		0x00002C18
+#define TG3_STD_REPLENISH_LWM		0x00002D00
 #define TG3_RCVCC_MODE			0x00003000
 #define  TG3_RCVCC_MODE_ATTN		0x00000004
+
+#define TG3_RX_STD_BDCACHE_SIZE		128
 
 #define TG3_HOSTCC_MODE			0x00003C00
 #define  TG3_HOSTCC_MODE_ENABLE		0x00000002
@@ -439,9 +453,19 @@ U0 TG3MACWriteHW()
 	U32 hi = (tg3.mac_address[0] << 8) | tg3.mac_address[1];
 	U32 lo = (tg3.mac_address[2] << 24) | (tg3.mac_address[3] << 16) |
 		(tg3.mac_address[4] << 8) | tg3.mac_address[5];
+	I64 i;
+	U32 seed;
 
-	TG3Write(TG3_MAC_ADDR_0_HIGH, hi);
-	TG3Write(TG3_MAC_ADDR_0_LOW, lo);
+	/* Linux programs MAC into slots 0..3. */
+	for (i = 0; i < 4; i++)
+	{
+		TG3Write(TG3_MAC_ADDR_0_HIGH + i * 8, hi);
+		TG3Write(TG3_MAC_ADDR_0_LOW + i * 8, lo);
+	}
+	seed = (tg3.mac_address[0] + tg3.mac_address[1] + tg3.mac_address[2] +
+		tg3.mac_address[3] + tg3.mac_address[4] + tg3.mac_address[5]) &
+		0x3FF;
+	TG3Write(TG3_MAC_TX_BACKOFF_SEED, seed);
 }
 
 Bool TG3PhyRead(I64 phy, I64 phy_reg, U32 *val_out)
@@ -845,6 +869,8 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_PENDING / 8);
 	if (TG3_RX_PENDING / 8 < 1)
 		TG3Write(TG3_RCVBDI_STD_THRESH, 1);
+	/* 57765+: without STD_REPLENISH_LWM the chip may never fetch RX BDs. */
+	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_STD_BDCACHE_SIZE);
 
 	/* 57765-class: maxlen = ring size; DMA sz in low bits << 2 */
 	val = (TG3_RX_STD_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT) |
@@ -900,6 +926,9 @@ U0 TG3EnableBlocks()
 
 	TG3Write(TG3_RCVCC_MODE, TG3_MODE_ENABLE | TG3_RCVCC_MODE_ATTN);
 	TG3Write(TG3_RCVLPC_MODE, TG3_MODE_ENABLE);
+	/* 5750+: leave DACK_FIX clear in stats enable. */
+	TG3Write(TG3_RCVLPC_STATS_ENABLE, 0xFFFFFF & ~0x40000);
+	TG3Write(TG3_RCVLPC_STATSCTRL, TG3_RCVLPC_STATSCTRL_ENABLE);
 	TG3Write(TG3_RCVDBDI_MODE, TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
 	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
@@ -924,12 +953,24 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_RCVLPC_CONFIG, 0x0181);
 	TG3Write(TG3_MAC_LOW_WMARK_MAX_RX, 2);
 
-	TG3Write(TG3_MAC_RX_MTU_SIZE, 1518);
+	/* MTU + eth header + FCS + VLAN (Linux formula). */
+	TG3Write(TG3_MAC_RX_MTU_SIZE, 1522);
 	TG3Write(TG3_MAC_TX_LENGTHS, (2 << 12) | (6 << 8) | 0x20);
 	TG3Write(TG3_MAC_HASH_REG_0, 0xFFFFFFFF);
 	TG3Write(TG3_MAC_HASH_REG_1, 0xFFFFFFFF);
 	TG3Write(TG3_MAC_HASH_REG_2, 0xFFFFFFFF);
 	TG3Write(TG3_MAC_HASH_REG_3, 0xFFFFFFFF);
+
+	/* Disable leftover ASF/rule filters (5705+ uses 8 rule slots). */
+	TG3Write(TG3_MAC_RCV_RULE_0, 0xC2000000 & TG3_RCV_RULE_DISABLE_MASK);
+	TG3Write(TG3_MAC_RCV_VALUE_0, 0xFFFFFFFF & TG3_RCV_RULE_DISABLE_MASK);
+	TG3Write(TG3_MAC_RCV_RULE_0 + 8, 0x86000004 & TG3_RCV_RULE_DISABLE_MASK);
+	TG3Write(TG3_MAC_RCV_VALUE_0 + 8, 0xFFFFFFFF & TG3_RCV_RULE_DISABLE_MASK);
+	for (i = 2; i < 8; i++)
+	{
+		TG3Write(TG3_MAC_RCV_RULE_0 + i * 8, 0);
+		TG3Write(TG3_MAC_RCV_VALUE_0 + i * 8, 0);
+	}
 
 	val = TG3_MAC_MODE_PORT_GMII | TG3_MAC_MODE_RXSTAT_ENABLE |
 		TG3_MAC_MODE_TXSTAT_ENABLE | TG3_MAC_MODE_TDE_ENABLE |
@@ -1133,7 +1174,7 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
-	U32 mbox, txm, wdm, bfm;
+	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast;
 
 	tg3.tx_prod = next;
 	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
@@ -1143,12 +1184,18 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	{
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		txm = TG3Read(TG3_MAC_TX_MODE);
+		rxm = TG3Read(TG3_MAC_RX_MODE);
 		wdm = TG3Read(TG3_WDMAC_MODE);
 		bfm = TG3Read(TG3_BUFMGR_MODE);
-		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status4=0x%X "
-			"tx_cons=%d rx_prod=%d TX_MODE=0x%X WDMAC=0x%X BUFMGR=0x%X",
-			next, mbox, tg3.status[0], tg3.status[4],
-			TG3StatusTxConsumer, TG3StatusRxProducer, txm, wdm, bfm);
+		st2 = tg3.status[2];
+		bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
+		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
+		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
+			"tx_cons=%d rx_prod=%d TX=0x%X RX=0x%X WDMAC=0x%X BUFMGR=0x%X "
+			"rx_bcast=%d rx_ucast=%d",
+			next, mbox, tg3.status[0], st2, tg3.status[4],
+			TG3StatusTxConsumer, TG3StatusRxProducer, txm, rxm, wdm, bfm,
+			bcast, ucast);
 	}
 }
 
