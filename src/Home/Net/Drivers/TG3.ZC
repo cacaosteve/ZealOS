@@ -150,6 +150,10 @@
 #define TG3_RDMAC_MODE			0x00004800
 #define TG3_WDMAC_MODE			0x00004C00
 #define  TG3_DMA_MODE_ENABLE		0x00000002
+#define  TG3_RDMAC_MODE_JMB_2K_MMRR	0x00800000
+
+#define TG3_MEMARB_MODE			0x00004000
+#define  TG3_MEMARB_MODE_ENABLE		0x00000002
 
 #define TG3_GRC_MODE			0x00006800
 #define  TG3_GRC_MODE_BSWAP_NONFRM	0x00000002
@@ -290,19 +294,27 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3MemWrite(U32 addr, U32 val)
-{
-	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, addr);
-	TG3Write(TG3PCI_MEM_WIN_DATA, val);
-	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+{/* SRAM via MEM_WIN. Flush + leave BASE=0 (Linux pattern). */
+	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	TG3WriteFlush(TG3PCI_MEM_WIN_DATA, val);
+	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, 0);
 }
 
 U32 TG3MemRead(U32 addr)
 {
 	U32 val;
-	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, addr);
 	val = TG3Read(TG3PCI_MEM_WIN_DATA);
-	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, 0);
 	return val;
+}
+
+U0 TG3MemArbEnable()
+{/* Without MEMARB, MEM_WIN reads echo the address (saw mbox=0xB50) and
+	ring BDINFO never reaches the chip ΓÇö status block stays all zero. */
+	U32 val = TG3Read(TG3_MEMARB_MODE);
+	TG3WriteFlush(TG3_MEMARB_MODE, val | TG3_MEMARB_MODE_ENABLE);
+	NetLog("TG3: MEMARB_MODE=0x%X", TG3Read(TG3_MEMARB_MODE));
 }
 
 U0 TG3BDInfoWriteMMIO(U32 base, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
@@ -315,11 +327,10 @@ U0 TG3BDInfoWriteMMIO(U32 base, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
 }
 
 U0 TG3BDInfoWriteSRAM(U32 sram_off, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
-{
+{/* 5705+ (incl 57766): do not write BDINFO_NIC_ADDR via MEM_WIN. */
 	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_HIGH, 0);
 	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW, host_lo);
 	TG3MemWrite(sram_off + TG3_BDINFO_MAXLEN_FLAGS, maxlen_flags);
-	TG3MemWrite(sram_off + TG3_BDINFO_NIC_ADDR, nic_addr);
 }
 
 CPCIDev *TG3PCIDevFind()
@@ -609,6 +620,8 @@ U0 TG3PollFw()
 	}
 	NetLog("TG3: bootcode poll i=%d mbox=0x%X", i, val);
 	"TG3: bootcode mbox=0x%X\n", val;
+	if (val == TG3_NIC_SRAM_FIRMWARE_MBOX)
+		NetErr("TG3: MEM_WIN echo (mbox==0xB50) ΓÇö enable MEMARB before SRAM access");
 
 	TG3MemWrite(TG3_NIC_SRAM_FW_DRV_STATE_MBOX, TG3_DRV_STATE_START);
 	Busy(100);
@@ -648,6 +661,7 @@ U0 TG3ChipReset()
 	NetLog("TG3: chip reset done (MAC_MODE wait i=%d)", i);
 
 	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+	TG3MemArbEnable;
 	TG3PollFw;
 }
 
@@ -749,6 +763,12 @@ U0 TG3EnableBlocks()
 	TG3MemWrite(TG3_NIC_SRAM_RCV_RET_RCB + TG3_BDINFO_SIZE + TG3_BDINFO_MAXLEN_FLAGS,
 		TG3_BDINFO_FLAGS_DISABLED);
 
+	val = TG3MemRead(TG3_NIC_SRAM_SEND_RCB + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW);
+	NetLog("TG3: SEND_RCB host_lo readback=0x%X expect=0x%X", val, tg3.tx_ring_phys);
+	"TG3: SEND_RCB readback=0x%X (tx_ring=0x%X)\n", val, tg3.tx_ring_phys;
+	if (val != tg3.tx_ring_phys)
+		NetErr("TG3: SRAM BDINFO write failed ΓÇö MEM_WIN/MEMARB broken");
+
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_HIGH, 0);
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_LOW, tg3.status_phys);
 
@@ -781,7 +801,8 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_SNDDATAC_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDS_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDI_MODE, TG3_MODE_ENABLE);
-	TG3WriteFlush(TG3_RDMAC_MODE, TG3_DMA_MODE_ENABLE);
+	TG3WriteFlush(TG3_RDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_RDMAC_MODE_JMB_2K_MMRR);
 	TG3WriteFlush(TG3_WDMAC_MODE, TG3_DMA_MODE_ENABLE);
 
 	TG3MACWriteHW;
