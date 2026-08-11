@@ -240,14 +240,14 @@ class CTG3
 
 U32 TG3Read(U32 off)
 {
-	U32 *reg = tg3.mmio + off;
-	return *reg;
+	U32 *mmio = tg3.mmio + off;
+	return *mmio;
 }
 
 U0 TG3Write(U32 off, U32 val)
 {
-	U32 *reg = tg3.mmio + off;
-	*reg = val;
+	U32 *mmio = tg3.mmio + off;
+	*mmio = val;
 }
 
 U0 TG3WriteFlush(U32 off, U32 val)
@@ -322,14 +322,14 @@ U0 TG3MACWriteHW()
 	TG3Write(TG3_MAC_ADDR_0_LOW, lo);
 }
 
-Bool TG3PhyRead(I64 phy, I64 reg, U32 *val_out)
-{
+Bool TG3PhyRead(I64 phy, I64 phy_reg, U32 *val_out)
+{/* "reg" is a ZealC keyword ΓÇö do not use it as an identifier. */
 	U32 frame;
 	I64 i;
 
 	frame = TG3_MI_COM_CMD_READ | TG3_MI_COM_START |
 		((phy & 0x1F) << TG3_MI_COM_PHY_SHIFT) |
-		((reg & 0x1F) << TG3_MI_COM_REG_SHIFT);
+		((phy_reg & 0x1F) << TG3_MI_COM_REG_SHIFT);
 	TG3WriteFlush(TG3_MAC_MI_COM, frame);
 	for (i = 0; i < 5000; i++)
 	{
@@ -344,14 +344,14 @@ Bool TG3PhyRead(I64 phy, I64 reg, U32 *val_out)
 	return FALSE;
 }
 
-Bool TG3PhyWrite(I64 phy, I64 reg, U32 val)
+Bool TG3PhyWrite(I64 phy, I64 phy_reg, U32 val)
 {
 	U32 frame;
 	I64 i;
 
 	frame = TG3_MI_COM_CMD_WRITE | TG3_MI_COM_START |
 		((phy & 0x1F) << TG3_MI_COM_PHY_SHIFT) |
-		((reg & 0x1F) << TG3_MI_COM_REG_SHIFT) |
+		((phy_reg & 0x1F) << TG3_MI_COM_REG_SHIFT) |
 		(val & TG3_MI_COM_DATA_MASK);
 	TG3WriteFlush(TG3_MAC_MI_COM, frame);
 	for (i = 0; i < 5000; i++)
