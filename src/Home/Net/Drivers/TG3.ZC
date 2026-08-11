@@ -96,6 +96,15 @@
 #define TG3_MII_CTRL1000		0x09
 #define  TG3_ADVERTISE_1000_FULL	0x0200
 #define  TG3_ADVERTISE_1000_HALF	0x0100
+#define TG3_MII_AUX_STAT		0x19
+#define  TG3_AUX_STAT_SPDMASK		0x0700
+#define  TG3_AUX_STAT_10HALF		0x0100
+#define  TG3_AUX_STAT_10FULL		0x0200
+#define  TG3_AUX_STAT_100HALF		0x0300
+#define  TG3_AUX_STAT_100FULL		0x0500
+#define  TG3_AUX_STAT_1000HALF		0x0600
+#define  TG3_AUX_STAT_1000FULL		0x0700
+#define  TG3_AUX_STAT_FULL		0x0001
 
 #define TG3_SNDDATAI_MODE		0x00000C00
 #define TG3_SNDDATAC_MODE		0x00001000
@@ -139,7 +148,9 @@
 #define  TG3_DMA_MODE_ENABLE		0x00000002
 
 #define TG3_GRC_MODE			0x00006800
+#define  TG3_GRC_MODE_BSWAP_NONFRM	0x00000002
 #define  TG3_GRC_MODE_WSWAP_NONFRM	0x00000004
+#define  TG3_GRC_MODE_BSWAP_DATA	0x00000010
 #define  TG3_GRC_MODE_WSWAP_DATA	0x00000020
 #define  TG3_GRC_MODE_HOST_STACKUP	0x00010000
 #define  TG3_GRC_MODE_HOST_SENDBDS	0x00020000
@@ -166,6 +177,8 @@
 #define TG3_TXD_LEN_SHIFT		16
 #define TG3_RXD_LEN_MASK		0x0000FFFF
 #define TG3_RXD_FLAG_ERROR		0x0400
+#define TG3_RXD_OPAQUE_INDEX_MASK	0x0000FFFF
+#define TG3_RXD_OPAQUE_RING_STD		0x00010000
 
 #define TG3_SD_STATUS_UPDATED		0x00000001
 #define TG3_SD_STATUS_LINK_CHG		0x00000002
@@ -444,6 +457,45 @@ Bool TG3PhyInit()
 	return tg3.link_up;
 }
 
+U0 TG3LinkApply()
+{/* Match MAC port mode to copper speed/duplex from PHY AUX_STAT. */
+	U32 aux = 0, mac_mode, spd;
+	Bool full = TRUE;
+
+	if (tg3.phy_addr < 0)
+		return;
+	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE);
+	Busy(40);
+	if (!TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux))
+	{
+		TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
+		return;
+	}
+	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
+
+	spd = aux & TG3_AUX_STAT_SPDMASK;
+	full = !!(aux & TG3_AUX_STAT_FULL) ||
+		spd == TG3_AUX_STAT_10FULL || spd == TG3_AUX_STAT_100FULL ||
+		spd == TG3_AUX_STAT_1000FULL;
+
+	mac_mode = TG3Read(TG3_MAC_MODE);
+	mac_mode &= ~(TG3_MAC_MODE_PORT_GMII | TG3_MAC_MODE_PORT_MII |
+		TG3_MAC_MODE_HALF_DUPLEX);
+	if (spd == TG3_AUX_STAT_1000FULL || spd == TG3_AUX_STAT_1000HALF)
+		mac_mode |= TG3_MAC_MODE_PORT_GMII;
+	else
+		mac_mode |= TG3_MAC_MODE_PORT_MII;
+	if (!full)
+		mac_mode |= TG3_MAC_MODE_HALF_DUPLEX;
+	mac_mode |= TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
+		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
+		TG3_MAC_MODE_FHDE_ENABLE;
+	TG3WriteFlush(TG3_MAC_MODE, mac_mode);
+
+	NetLog("TG3: AUX_STAT=0x%X MAC_MODE=0x%X", aux, mac_mode);
+	"TG3: speed/duplex AUX=0x%X MAC_MODE=0x%X\n", aux, mac_mode;
+}
+
 Bool TG3FirmwareLoad()
 {/* Optional EEE service patch for NO_NVRAM 57766. Mac mini has NVRAM so a
 	missing file is OK; still try __DIR__ then :: for live-USB drive letters. */
@@ -581,7 +633,7 @@ U0 TG3RingsAlloc()
 		rd->addr_lo = buf_phys;
 		rd->idx_len = (i << 16) | TG3_RX_STD_DMA_SZ;
 		rd->type_flags = 0;
-		rd->opaque = i;
+		rd->opaque = TG3_RXD_OPAQUE_RING_STD | i;
 	}
 
 	tg3.tx_prod = 0;
@@ -695,16 +747,18 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
 	TG3WriteFlush(TG3_MAC_TX_MODE, TG3_TX_MODE_ENABLE);
 
-	val = TG3_GRC_MODE_WSWAP_DATA | TG3_GRC_MODE_WSWAP_NONFRM |
+	val = TG3_GRC_MODE_WSWAP_DATA | TG3_GRC_MODE_BSWAP_DATA |
+		TG3_GRC_MODE_WSWAP_NONFRM |
 		TG3_GRC_MODE_HOST_SENDBDS | TG3_GRC_MODE_HOST_STACKUP |
 		TG3_GRC_MODE_NO_TX_PHDR_CSUM | TG3_GRC_MODE_NO_RX_PHDR_CSUM;
 	TG3Write(TG3_GRC_MODE, val);
 }
 
-U16 TG3StatusRxConsumer()
-{/* LE status block: word2 = jumbo | std consumer */
-	U32 w = tg3.status[2];
-	return w >> 16;
+U16 TG3StatusRxProducer()
+{/* Return-ring producer: LE status.idx[0].rx_producer (low half of word4).
+	NOT status.rx_consumer (word2) ΓÇö that tracks the std *buffer* ring. */
+	U32 w = tg3.status[4];
+	return w & 0xFFFF;
 }
 
 U16 TG3StatusTxConsumer()
@@ -715,18 +769,18 @@ U16 TG3StatusTxConsumer()
 
 U0 TG3RxProcess()
 {
-	U16 hw_cons = TG3StatusRxConsumer;
+	U16 hw_prod = TG3StatusRxProducer;
 	I64 cons = tg3.rx_cons;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
 	U8 *pkt;
 
-	while (cons != hw_cons)
+	while (cons != hw_prod)
 	{
 		rd = &tg3.rx_ret[cons];
 		pkt_len = rd->idx_len & TG3_RXD_LEN_MASK;
-		opaque = rd->opaque;
+		opaque = rd->opaque & TG3_RXD_OPAQUE_INDEX_MASK;
 
 		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) && pkt_len >= 14 &&
 			opaque < TG3_RX_PENDING)
@@ -734,7 +788,13 @@ U0 TG3RxProcess()
 			pkt = tg3.rx_bufs + opaque * ETHERNET_FRAME_SIZE;
 			if (pkt_len > ETHERNET_FRAME_SIZE)
 				pkt_len = ETHERNET_FRAME_SIZE;
+			/* Strip Ethernet FCS if present in length. */
+			if (pkt_len >= 4)
+				pkt_len -= 4;
 			NetQueuePush(pkt, pkt_len);
+			if (!(tg3.rx_cons & 0x1F))
+				NetLog("TG3: RX len=%d opaque=%d prod=%d cons=%d",
+					pkt_len, opaque, hw_prod, cons);
 		}
 
 		/* Re-post producer descriptor for this buffer index. */
@@ -746,7 +806,8 @@ U0 TG3RxProcess()
 			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].idx_len =
 				(opaque << 16) | TG3_RX_STD_DMA_SZ;
 			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].type_flags = 0;
-			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].opaque = opaque;
+			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].opaque =
+				TG3_RXD_OPAQUE_RING_STD | opaque;
 			tg3.rx_std_prod = (tg3.rx_std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
 			TG3MboxWrite(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 		}
@@ -837,7 +898,10 @@ U0 TG3PollTask()
 				{
 					mac_stat = TG3Read(TG3_MAC_STATUS);
 					if (tg3.link_up)
+					{
 						NetLog("TG3: link UP BMSR=0x%X MAC_STATUS=0x%X", bmsr, mac_stat);
+						TG3LinkApply;
+					}
 					else
 						NetLog("TG3: link DOWN BMSR=0x%X MAC_STATUS=0x%X", bmsr, mac_stat);
 				}
@@ -997,6 +1061,8 @@ U0 TG3Init()
 		tg3.tx_bufs_phys, tg3.rx_bufs_phys, tg3.status_phys);
 	TG3EnableBlocks;
 	TG3PhyInit;
+	if (tg3.link_up)
+		TG3LinkApply;
 
 	mac_stat = TG3Read(TG3_MAC_STATUS);
 	NetLog("TG3: MAC_STATUS=0x%X pcs=%d sig=%d", mac_stat,
