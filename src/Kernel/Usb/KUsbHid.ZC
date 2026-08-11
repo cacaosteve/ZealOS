@@ -204,12 +204,9 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 //First few reports: help diagnose wrong report ID / short packets on hardware.
 	if (hid->prev[0] < 5)
 	{
-		SysLog("USB: Trackpad2 rpt#%d len=%d %02X%02X%02X%02X%02X%02X%02X%02X\n",
-			   hid->prev[0], len,
-			   len > 0 ? rep[0] : 0, len > 1 ? rep[1] : 0,
-			   len > 2 ? rep[2] : 0, len > 3 ? rep[3] : 0,
-			   len > 4 ? rep[4] : 0, len > 5 ? rep[5] : 0,
-			   len > 6 ? rep[6] : 0, len > 7 ? rep[7] : 0);
+		SysLog("USB: Trackpad2 rpt#%d len=%d %02X %02X %02X %02X %02X %02X %02X %02X\n",
+			   hid->prev[0], len, rep[0], rep[1], rep[2], rep[3],
+			   rep[4], rep[5], rep[6], rep[7]);
 		hid->prev[0]++;
 	}
 	if (len < USB_TP2_PREFIX_LEN)
