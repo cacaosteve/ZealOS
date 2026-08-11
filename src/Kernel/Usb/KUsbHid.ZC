@@ -15,6 +15,7 @@
 //keeps one-finger drags usable without libinput-style accel.
 #define USB_TP2_SCALE			64
 #define USB_TP2_MAX_STEP		48
+#define USB_TP2_MAX_DELTA		1500	//sensor units; bigger => new contact, not motion
 
 class CUsbHid
 {
@@ -33,12 +34,23 @@ class CUsbHid
 	Bool	 feature_sent;	//MT mode feature applied (deferred past boot)
 	Bool	 int_started;	//INT-IN queued
 	Bool	 enable_req;	//UsbTrackpadEnable asked USB task to (re)run feature
+	Bool	 mt_seen;		//saw a full MT report; ignore 8-byte fallback
 };
 
 CUsbHid usb_hids[USB_HIDS_MAX];
 
 //Absolute cursor position maintained by the USB mouse (pixels).
 I64 usb_mouse_x = 0, usb_mouse_y = 0;
+F64 usb_tp2_last_tS = 0;	//suppress Logitech mouse while pad is driving
+
+I64 UsbTP2Sign13(I64 v)
+{//Force 13-bit signed. ZealC >> may be logical; without this, x/y flip
+//between small and huge values and the cursor teleports between two loci.
+	v &= 0x1FFF;
+	if (v & 0x1000)
+		v = v | ~0x1FFF;
+	return v;
+}
 
 //HID usage (page 7) -> set-1 scancode. 0x100 flag = 0xE0-prefixed.
 I64 usb_hid_to_sc[0x66] = {
@@ -156,6 +168,10 @@ U0 UsbMouseCB(U8 *d, U8 *e)
 
 	if (!dev->present)
 		return;
+//Trackpad owns the cursor while a finger was recently down ΓÇö Unifying mouse
+//reports otherwise fight usb_mouse_x/y and look like a second jumping cursor.
+	if (usb_tp2_last_tS && tS < usb_tp2_last_tS + 0.4)
+		return;
 	rep = ep->auto_buf;
 
 	dx = rep[1];
@@ -218,6 +234,8 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 //report-id + relative mouse so the cursor moves even if SET_REPORT fails.
 	if (len == 8 && rep[0] == USB_TP2_REPORT_ID)
 	{
+		if (hid->mt_seen)
+			return;
 		clicks = rep[1];
 		dx = rep[2];
 		if (dx & 0x80)
@@ -247,6 +265,7 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 			mouse_hard.bttns[2]	 = (clicks & 4) >> 2;
 			mouse_hard.event	 = TRUE;
 			mouse.show			 = TRUE;
+			usb_tp2_last_tS		 = tS;
 		}
 		hid->prev[1] = clicks;
 		return;
@@ -260,24 +279,32 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 	n = (len - USB_TP2_PREFIX_LEN) / USB_TP2_TOUCH_LEN;
 	if (n > 15)
 		return;
+	hid->mt_seen = TRUE;
 
 	clicks	 = rep[1];
 	best_i	 = -1;
 	best_tid = -1;
+//Sticky single finger: never hop to another tracking id mid-gesture (that
+//teleports the cursor between two contact points ΓÇö "double cursor").
 	for (i = 0; i < n; i++)
 	{
 		td = rep + USB_TP2_PREFIX_LEN + i * USB_TP2_TOUCH_LEN;
 //Finger down when (tdata[3] & 0xC0) == 0x80 (Linux TRACKPAD2).
 		if ((td[3] & 0xC0) != 0x80)
 			goto next_touch;
+		if (td[6] < 1 && td[7] < 1)	//size/pressure both empty => phantom
+			goto next_touch;
 		tid = td[8] & 0xF;
-		if (hid->have_last && tid == hid->tracking_id)
+		if (hid->have_last)
 		{
-			best_i	 = i;
-			best_tid = tid;
-			break;
+			if (tid == hid->tracking_id)
+			{
+				best_i	 = i;
+				best_tid = tid;
+				break;
+			}
 		}
-		if (best_i < 0)
+		else if (best_i < 0)
 		{
 			best_i	 = i;
 			best_tid = tid;
@@ -290,29 +317,39 @@ next_touch:;
 	if (best_i >= 0)
 	{
 		td = rep + USB_TP2_PREFIX_LEN + best_i * USB_TP2_TOUCH_LEN;
-//Same bit packing as Linux magicmouse_emit_touch for TRACKPAD2.
+//Same bit packing as Linux magicmouse_emit_touch for TRACKPAD2, with explicit
+//13-bit sign extend (see UsbTP2Sign13).
 		b0 = td[0];
 		b1 = td[1];
 		b2 = td[2];
 		b3 = td[3];
-		x = ((b1 << 27) | (b0 << 19)) >> 19;
-		y = -(((b3 << 30) | (b2 << 22) | (b1 << 14)) >> 19);
+		x = UsbTP2Sign13(((b1 << 27) | (b0 << 19)) >> 19);
+		y = -UsbTP2Sign13(((b3 << 30) | (b2 << 22) | (b1 << 14)) >> 19);
 		if (hid->have_last && best_tid == hid->tracking_id)
 		{
-			hid->acc_x += x - hid->last_x;
-			hid->acc_y += y - hid->last_y;
-			dx = hid->acc_x / USB_TP2_SCALE;
-			dy = hid->acc_y / USB_TP2_SCALE;
-			hid->acc_x -= dx * USB_TP2_SCALE;
-			hid->acc_y -= dy * USB_TP2_SCALE;
-			if (dx > USB_TP2_MAX_STEP)
-				dx = USB_TP2_MAX_STEP;
-			if (dx < -USB_TP2_MAX_STEP)
-				dx = -USB_TP2_MAX_STEP;
-			if (dy > USB_TP2_MAX_STEP)
-				dy = USB_TP2_MAX_STEP;
-			if (dy < -USB_TP2_MAX_STEP)
-				dy = -USB_TP2_MAX_STEP;
+			if (AbsI64(x - hid->last_x) > USB_TP2_MAX_DELTA ||
+				AbsI64(y - hid->last_y) > USB_TP2_MAX_DELTA)
+			{//Contact restarted or decode glitch ΓÇö resync, no jump.
+				hid->acc_x = 0;
+				hid->acc_y = 0;
+			}
+			else
+			{
+				hid->acc_x += x - hid->last_x;
+				hid->acc_y += y - hid->last_y;
+				dx = hid->acc_x / USB_TP2_SCALE;
+				dy = hid->acc_y / USB_TP2_SCALE;
+				hid->acc_x -= dx * USB_TP2_SCALE;
+				hid->acc_y -= dy * USB_TP2_SCALE;
+				if (dx > USB_TP2_MAX_STEP)
+					dx = USB_TP2_MAX_STEP;
+				if (dx < -USB_TP2_MAX_STEP)
+					dx = -USB_TP2_MAX_STEP;
+				if (dy > USB_TP2_MAX_STEP)
+					dy = USB_TP2_MAX_STEP;
+				if (dy < -USB_TP2_MAX_STEP)
+					dy = -USB_TP2_MAX_STEP;
+			}
 		}
 		else
 		{
@@ -323,6 +360,7 @@ next_touch:;
 		hid->last_y		 = y;
 		hid->tracking_id = best_tid;
 		hid->have_last	 = TRUE;
+		usb_tp2_last_tS	 = tS;
 	}
 	else
 	{
