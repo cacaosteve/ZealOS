@@ -96,7 +96,11 @@
 #define TG3_MII_CTRL1000		0x09
 #define  TG3_ADVERTISE_1000_FULL	0x0200
 #define  TG3_ADVERTISE_1000_HALF	0x0100
+#define TG3_MII_STAT1000		0x0A
+#define  TG3_LPA_1000FULL		0x0800
+#define  TG3_LPA_1000HALF		0x0400
 #define TG3_MII_AUX_STAT		0x19
+#define  TG3_AUX_STAT_LPASS		0x0004
 #define  TG3_AUX_STAT_SPDMASK		0x0700
 #define  TG3_AUX_STAT_10HALF		0x0100
 #define  TG3_AUX_STAT_10FULL		0x0200
@@ -172,6 +176,11 @@
 
 #define TG3_57766_FW_BASE_ADDR		0x00030000
 #define TG3_FW_HDR_LEN			12
+#define TG3_NIC_SRAM_FIRMWARE_MBOX	0x00000B50
+#define  TG3_FW_MBOX_MAGIC1		0x4B657654
+#define TG3_NIC_SRAM_FW_DRV_STATE_MBOX	0x00000C04
+#define  TG3_DRV_STATE_START		0x00000001
+#define  TG3_DRV_STATE_START_DONE	0x80000001
 
 #define TG3_TXD_FLAG_END		0x0004
 #define TG3_TXD_LEN_SHIFT		16
@@ -272,6 +281,12 @@ U0 TG3WriteFlush(U32 off, U32 val)
 U0 TG3MboxWrite(U32 mbox, U32 val)
 {
 	TG3Write(mbox + TG3_64BIT_LOW, val);
+}
+
+U0 TG3MboxWriteFlush(U32 mbox, U32 val)
+{
+	TG3Write(mbox + TG3_64BIT_LOW, val);
+	TG3Read(mbox + TG3_64BIT_LOW);
 }
 
 U0 TG3MemWrite(U32 addr, U32 val)
@@ -458,77 +473,84 @@ Bool TG3PhyInit()
 }
 
 U0 TG3LinkApply()
-{/* Match MAC port mode to copper speed/duplex from PHY AUX_STAT. */
-	U32 aux = 0, mac_mode, spd;
-	Bool full = TRUE;
+{/* Match MAC port mode to copper speed. AUX_STAT on this GPHY often returns
+	garbage (saw 0xFF3C); prefer STAT1000 / sane AUX, else assume 1000/full. */
+	U32 aux = 0, st1000 = 0, mac_mode, spd;
+	Bool use_gmii = TRUE, full = TRUE;
 
 	if (tg3.phy_addr < 0)
 		return;
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE);
 	Busy(40);
-	if (!TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux))
-	{
-		TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
-		return;
-	}
+	TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_STAT, &aux);
+	TG3PhyRead(tg3.phy_addr, TG3_MII_STAT1000, &st1000);
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
 
 	spd = aux & TG3_AUX_STAT_SPDMASK;
-	full = !!(aux & TG3_AUX_STAT_FULL) ||
-		spd == TG3_AUX_STAT_10FULL || spd == TG3_AUX_STAT_100FULL ||
-		spd == TG3_AUX_STAT_1000FULL;
+	if ((aux & TG3_AUX_STAT_LPASS) && spd >= TG3_AUX_STAT_10HALF &&
+		spd <= TG3_AUX_STAT_1000FULL && (aux & 0xF000) != 0xF000)
+	{
+		use_gmii = (spd == TG3_AUX_STAT_1000FULL || spd == TG3_AUX_STAT_1000HALF);
+		full = !!(aux & TG3_AUX_STAT_FULL) ||
+			spd == TG3_AUX_STAT_10FULL || spd == TG3_AUX_STAT_100FULL ||
+			spd == TG3_AUX_STAT_1000FULL;
+	}
+	else if (st1000 & (TG3_LPA_1000FULL | TG3_LPA_1000HALF))
+	{
+		use_gmii = TRUE;
+		full = !!(st1000 & TG3_LPA_1000FULL);
+	}
+	else
+	{/* Mac mini BCM57766 is gigabit; bogus AUX ΓåÆ stay GMII full. */
+		use_gmii = TRUE;
+		full = TRUE;
+	}
 
-	mac_mode = TG3Read(TG3_MAC_MODE);
-	mac_mode &= ~(TG3_MAC_MODE_PORT_GMII | TG3_MAC_MODE_PORT_MII |
-		TG3_MAC_MODE_HALF_DUPLEX);
-	if (spd == TG3_AUX_STAT_1000FULL || spd == TG3_AUX_STAT_1000HALF)
+	mac_mode = TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
+		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
+		TG3_MAC_MODE_FHDE_ENABLE;
+	if (use_gmii)
 		mac_mode |= TG3_MAC_MODE_PORT_GMII;
 	else
 		mac_mode |= TG3_MAC_MODE_PORT_MII;
 	if (!full)
 		mac_mode |= TG3_MAC_MODE_HALF_DUPLEX;
-	mac_mode |= TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
-		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
-		TG3_MAC_MODE_FHDE_ENABLE;
 	TG3WriteFlush(TG3_MAC_MODE, mac_mode);
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3WriteFlush(TG3_MAC_TX_MODE, TG3_TX_MODE_ENABLE);
 
-	NetLog("TG3: AUX_STAT=0x%X MAC_MODE=0x%X", aux, mac_mode);
-	"TG3: speed/duplex AUX=0x%X MAC_MODE=0x%X\n", aux, mac_mode;
+	NetLog("TG3: AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X gmii=%d",
+		aux, st1000, mac_mode, use_gmii);
+	"TG3: speed AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X\n", aux, st1000, mac_mode;
 }
 
-Bool TG3FirmwareLoad()
-{/* Optional EEE service patch for NO_NVRAM 57766. Mac mini has NVRAM so a
-	missing file is OK; still try __DIR__ then :: for live-USB drive letters. */
-	U8 *fw = NULL, *path;
-	I64 size = 0;
+U8 tg3_fw_57766[144] = {
+	0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xDE,0xCA,0xFB,0xAD,
+	0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x64,0x27,0x80,0x00,0x01,0xF7,0xF0,0x40,0x3E,
+	0xCD,0x28,0x36,0x74,0x11,0x00,0x11,0x00,0xF7,0xFF,0x10,0x64,0x37,0x6E,0x00,0x01,
+	0x27,0x60,0x00,0x00,0xF7,0xF0,0x7F,0xEA,0xF7,0xF0,0x00,0x04,0xF7,0xF0,0x00,0x18,
+	0xCC,0x10,0x36,0x2C,0x00,0x18,0x00,0x18,0x17,0x80,0x00,0x00,0xF7,0xF0,0x00,0x08,
+	0xC3,0x38,0x36,0xB0,0xF7,0xF0,0x00,0x04,0xC4,0x38,0x36,0xB0,0xC6,0x20,0x36,0xBC,
+	0x00,0x00,0x00,0x09,0xCB,0x38,0x36,0xB0,0x17,0x80,0x00,0x01,0x17,0x60,0x00,0x0A,
+	0xDE,0xCA,0xFB,0xAD,0x00,0x03,0xFD,0x00,0x00,0x00,0x00,0x10,0xD0,0x44,0xD8,0x16,
+	0xDE,0xCA,0xFB,0xAD,0x00,0x03,0xFC,0xCC,0x00,0x00,0x00,0x10,0x02,0x30,0x02,0x02
+};
+
+Bool TG3FirmwareLoadFrom(U8 *fw, I64 size)
+{
 	U8 *ptr, *end;
 	U32 base_addr, frag_len, i, nwords, *words;
 
-	path = MStrPrint(__DIR__ "/Firmware/tg357766.bin");
-	if (FileFind(path))
-		fw = FileRead(path, &size);
-	Free(path);
-	if (!fw && FileFind("::/Home/Net/Drivers/Firmware/tg357766.bin"))
-		fw = FileRead("::/Home/Net/Drivers/Firmware/tg357766.bin", &size);
 	if (!fw || size < TG3_FW_HDR_LEN)
-	{
-		NetWarn("TG3: tg357766.bin not loaded (optional with NVRAM; size=%d)", size);
-		Free(fw);
 		return FALSE;
-	}
-
 	words = fw(U32 *);
 	base_addr = EndianU32(words[1]);
 	frag_len = EndianU32(words[2]);
 	if (base_addr != TG3_57766_FW_BASE_ADDR)
-	{
-		NetWarn("TG3: firmware base 0x%X != 0x%X", base_addr, TG3_57766_FW_BASE_ADDR);
-		Free(fw);
 		return FALSE;
-	}
 
 	if (frag_len == 0xFFFFFFFF)
-	{/* Fragmented: main hdr + N*(frag hdr + data). */
+	{
 		ptr = fw + TG3_FW_HDR_LEN;
 		end = fw + size;
 		while (ptr + TG3_FW_HDR_LEN <= end)
@@ -551,11 +573,46 @@ Bool TG3FirmwareLoad()
 		for (i = 0; i < nwords; i++)
 			TG3MemWrite(TG3_57766_FW_BASE_ADDR + i * 4, EndianU32(words[3 + i]));
 	}
-
-	NetLog("TG3: loaded tg357766.bin (%d bytes)", size);
-	Free(fw);
-	tg3.firmware_loaded = TRUE;
 	return TRUE;
+}
+
+Bool TG3FirmwareLoad()
+{/* EEE patch only when no NVRAM bootcode. Mac mini has bootcode ΓÇö skip. */
+	U32 mbox = TG3MemRead(TG3_NIC_SRAM_FIRMWARE_MBOX);
+
+	if (mbox == 0xB49A89AB)
+	{
+		NetLog("TG3: bootcode running (mbox=~MAGIC1), skip EEE patch");
+		return FALSE;
+	}
+	if (TG3FirmwareLoadFrom(tg3_fw_57766, 144))
+	{
+		NetLog("TG3: loaded embedded tg357766.bin (144 bytes)");
+		tg3.firmware_loaded = TRUE;
+		return TRUE;
+	}
+	NetWarn("TG3: embedded firmware load failed");
+	return FALSE;
+}
+
+U0 TG3PollFw()
+{/* Wait for bootcode to signal ready after CORECLK_RESET. */
+	I64 i;
+	U32 val;
+
+	for (i = 0; i < 10000; i++)
+	{
+		val = TG3MemRead(TG3_NIC_SRAM_FIRMWARE_MBOX);
+		if (val == 0xB49A89AB) /* ~MAGIC1 */
+			break;
+		Busy(100);
+	}
+	NetLog("TG3: bootcode poll i=%d mbox=0x%X", i, val);
+	"TG3: bootcode mbox=0x%X\n", val;
+
+	TG3MemWrite(TG3_NIC_SRAM_FW_DRV_STATE_MBOX, TG3_DRV_STATE_START);
+	Busy(100);
+	TG3MemWrite(TG3_NIC_SRAM_FW_DRV_STATE_MBOX, TG3_DRV_STATE_START_DONE);
 }
 
 U0 TG3ChipReset()
@@ -591,6 +648,7 @@ U0 TG3ChipReset()
 	NetLog("TG3: chip reset done (MAC_MODE wait i=%d)", i);
 
 	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+	TG3PollFw;
 }
 
 U0 TG3RingsAlloc()
@@ -678,7 +736,7 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_RCVDBDI_JUMBO_BD + TG3_BDINFO_MAXLEN_FLAGS,
 		TG3_BDINFO_FLAGS_DISABLED);
 
-	TG3MboxWrite(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
+	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 
 	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_SEND_RCB, tg3.tx_ring_phys,
 		TG3_TX_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT,
@@ -694,9 +752,9 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_HIGH, 0);
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_LOW, tg3.status_phys);
 
-	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, 0);
-	TG3MboxWrite(TG3_MAILBOX_RCVRET_CON_IDX_0, 0);
-	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
+	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, 0);
+	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, 0);
+	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, 1);
 
 	TG3Write(TG3_HOSTCC_RXCOL_TICKS, 0x48);
 	TG3Write(TG3_HOSTCC_TXCOL_TICKS, 0x48);
@@ -809,7 +867,7 @@ U0 TG3RxProcess()
 			tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)].opaque =
 				TG3_RXD_OPAQUE_RING_STD | opaque;
 			tg3.rx_std_prod = (tg3.rx_std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			TG3MboxWrite(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
+			TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
@@ -818,7 +876,7 @@ U0 TG3RxProcess()
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
-		TG3MboxWrite(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+		TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
 	}
 
 	tg3.tx_cons = TG3StatusTxConsumer;
@@ -940,7 +998,11 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
 
 	tg3.tx_prod = next;
-	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
+	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
+	if (next <= 4 || (next & 0xF) == 0)
+		NetLog("TG3: TX prod=%d status0=0x%X status4=0x%X tx_cons=%d rx_prod=%d",
+			next, tg3.status[0], tg3.status[4],
+			TG3StatusTxConsumer, TG3StatusRxProducer);
 }
 
 U0 NetDriverTransmitPacketFinish(I64 de_index)
