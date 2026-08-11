@@ -288,7 +288,8 @@ next_touch:;
 
 U0 UsbTrackpadFeatureSend(CUsbHid *hid)
 {//Linux feature_mt_trackpad2_usb on the mouse iface only. Heap buffer: xHCI
-//DMA cannot use stack. INT-IN starts after this attempt.
+//DMA cannot use stack. INT-IN starts after this attempt. Must wait until
+//RLf_SYSTEM_SERVER ΓÇö earlier SET_REPORT races USB ISO reads (Compiler/StartOS).
 	CUsbDev	*dev;
 	U8		*feat;
 	I64		 code;
@@ -327,7 +328,7 @@ U0 UsbHidTick()
 	{
 		hid = &usb_hids[i];
 		if (hid->valid && hid->is_trackpad && !hid->feature_sent &&
-			Bt(&sys_run_level, RLf_COMPILER))
+			Bt(&sys_run_level, RLf_SYSTEM_SERVER))
 			UsbTrackpadFeatureSend(hid);
 		if (hid->valid && hid->proto == USB_HID_PROTO_KBD && hid->repeat_sc)
 		{
