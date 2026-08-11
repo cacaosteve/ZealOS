@@ -209,6 +209,34 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 			   rep[4], rep[5], rep[6], rep[7]);
 		hid->prev[0]++;
 	}
+//Before MT feature succeeds the pad sends 8-byte id=0x02 frames; treat as
+//report-id + relative mouse so the cursor moves even if SET_REPORT fails.
+	if (len == 8 && rep[0] == USB_TP2_REPORT_ID)
+	{
+		clicks = rep[1];
+		dx = rep[2];
+		if (dx & 0x80)
+			dx -= 256;
+		dy = rep[3];
+		if (dy & 0x80)
+			dy -= 256;
+		if (dx || dy || clicks != hid->prev[1])
+		{
+			usb_mouse_x = ClampI64(usb_mouse_x + dx, 0, sys_framebuffer_width  - 1);
+			usb_mouse_y = ClampI64(usb_mouse_y + dy, 0, sys_framebuffer_height - 1);
+			mouse_hard.timestamp = TSCGet;
+			MemCopy(&mouse_hard_last, &mouse_hard, sizeof(CMouseHardStateGlobals));
+			mouse_hard.pos.x	 = usb_mouse_x;
+			mouse_hard.pos.y	 = usb_mouse_y;
+			mouse_hard.bttns[0]	 = clicks & 1;
+			mouse_hard.bttns[1]	 = (clicks & 2) >> 1;
+			mouse_hard.bttns[2]	 = (clicks & 4) >> 2;
+			mouse_hard.event	 = TRUE;
+			mouse.show			 = TRUE;
+		}
+		hid->prev[1] = clicks;
+		return;
+	}
 	if (len < USB_TP2_PREFIX_LEN)
 		return;
 	if (rep[0] != USB_TP2_REPORT_ID)
@@ -301,6 +329,12 @@ U0 UsbTrackpadFeatureSend(CUsbHid *hid)
 		return;
 //Mark done first so a timeout cannot re-enter and pile up EP0 TRBs.
 	hid->feature_sent = TRUE;
+//Report protocol (not boot) before the MT feature ΓÇö boot mode often ignores it.
+	code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
+				   USB_HID_RQ_SET_PROTOCOL, USB_HID_PROTOCOL_REPORT,
+				   hid->if_num, NULL, 0);
+	SysLog("USB: Trackpad2 port %d: SET_PROTOCOL report -> %d\n",
+		   dev->port, code);
 	feat = CAlloc(2, sys_task->code_heap);
 	feat[0] = 0x02;
 	feat[1] = 0x01;
@@ -308,15 +342,52 @@ U0 UsbTrackpadFeatureSend(CUsbHid *hid)
 				   USB_HID_RQ_SET_REPORT,
 				   (USB_HID_REPORT_FEATURE << 8) | feat[0],
 				   hid->if_num, feat, 2);
+	if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PKT)
+	{//Some firmwares want OUTPUT instead of FEATURE for the same payload.
+		code = UsbCtrl(dev, USB_RT_HOST_TO_DEV | USB_RT_CLASS | USB_RT_RECIP_IF,
+					   USB_HID_RQ_SET_REPORT,
+					   (USB_HID_REPORT_OUTPUT << 8) | feat[0],
+					   hid->if_num, feat, 2);
+		SysLog("USB: Trackpad2 port %d: SET_REPORT output if=%d -> %d\n",
+			   dev->port, hid->if_num, code);
+	}
+	else
+		SysLog("USB: Trackpad2 port %d: SET_REPORT feature if=%d -> %d\n",
+			   dev->port, hid->if_num, code);
 	Free(feat);
-	SysLog("USB: Trackpad2 port %d: SET_REPORT if=%d -> %d\n",
-		   dev->port, hid->if_num, code);
 	hid->repeat_time = tS;
+	usb_mouse_x = sys_framebuffer_width  >> 1;
+	usb_mouse_y = sys_framebuffer_height >> 1;
+	mouse_hard.pos.x = usb_mouse_x;
+	mouse_hard.pos.y = usb_mouse_y;
+	mouse_hard.event = TRUE;
+	mouse.show		 = TRUE;
 	if (!hid->int_started && hid->ep)
 	{
 		hid->int_started = TRUE;
 		XhciIntQueue(dev, hid->ep);
 	}
+}
+
+public U0 UsbTrackpadEnable()
+{//Manual MT enable from the prompt: UsbTrackpadEnable;
+	CUsbHid	*hid = NULL;
+	I64		 i;
+
+	for (i = 0; i < USB_HIDS_MAX; i++)
+		if (usb_hids[i].valid && usb_hids[i].is_trackpad)
+		{
+			hid = &usb_hids[i];
+			break;
+		}
+	if (!hid)
+	{
+		"No Magic Trackpad 2 bound.\n";
+		return;
+	}
+	hid->feature_sent = FALSE;
+	UsbTrackpadFeatureSend(hid);
+	"Trackpad enable attempted (see System task SysLog). Touch the pad.\n";
 }
 
 U0 UsbHidTick()

@@ -57,7 +57,11 @@
 #define USB_HID_RQ_SET_REPORT	9
 #define USB_HID_RQ_SET_IDLE		10
 #define USB_HID_RQ_SET_PROTOCOL	11
+#define USB_HID_REPORT_INPUT	1
+#define USB_HID_REPORT_OUTPUT	2
 #define USB_HID_REPORT_FEATURE	3
+#define USB_HID_PROTOCOL_BOOT	0
+#define USB_HID_PROTOCOL_REPORT	1
 
 //Apple Magic Trackpad 2 (2015 Lightning USB). USB-C 2024 is 0x0324 (later).
 #define USB_VID_APPLE					0x05AC
@@ -389,6 +393,7 @@ extern CTask		*usb_task;
 extern U8			 usb_boot_iso_drv_let; //Drive letter of mounted USB install media, else 0
 
 public extern U0  UsbRep();
+public extern U0  UsbTrackpadEnable();
 public extern I64 UsbBootInit();
 public extern U0  UsbBootDriveFallback();
 public extern U0  UsbTaskMain(I64 dummy=0);
