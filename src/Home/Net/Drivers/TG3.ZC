@@ -25,6 +25,8 @@
 #define  TG3_MHC_CLEAR_INT		0x00000001
 #define  TG3_MHC_MASK_PCI_INT		0x00000002
 #define  TG3_MHC_WORD_SWAP		0x00000008
+#define  TG3_MHC_PCISTATE_RW		0x00000010
+#define  TG3_MHC_INDIR_ACCESS		0x00000080
 #define  TG3_MHC_CHIPREV_MASK		0xFFFF0000
 #define  TG3_MHC_CHIPREV_SHIFT		16
 
@@ -293,25 +295,47 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 	TG3Read(mbox + TG3_64BIT_LOW);
 }
 
+U0 TG3MiscHostCtrl(U32 extra=0)
+{/* WORD_SWAP + INDIR_ACCESS required for MEM_WIN on many tg3 parts. */
+	TG3WriteFlush(TG3PCI_MISC_HOST_CTRL,
+		TG3_MHC_CLEAR_INT | TG3_MHC_WORD_SWAP |
+		TG3_MHC_INDIR_ACCESS | TG3_MHC_PCISTATE_RW | extra);
+}
+
 U0 TG3MemWrite(U32 addr, U32 val)
-{/* SRAM via MEM_WIN. Flush + leave BASE=0 (Linux pattern). */
-	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, addr);
-	TG3WriteFlush(TG3PCI_MEM_WIN_DATA, val);
-	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+{/* Prefer PCI config MEM_WIN (Linux SRAM_USE_CONFIG). MMIO window
+	readback stayed 0 on Mac mini even with MEMARB enabled. */
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+
+	PCIWriteU32(bus, dev, fun, TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	PCIWriteU32(bus, dev, fun, TG3PCI_MEM_WIN_DATA, val);
+	PCIWriteU32(bus, dev, fun, TG3PCI_MEM_WIN_BASE_ADDR, 0);
 }
 
 U32 TG3MemRead(U32 addr)
 {
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
 	U32 val;
-	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, addr);
-	val = TG3Read(TG3PCI_MEM_WIN_DATA);
-	TG3WriteFlush(TG3PCI_MEM_WIN_BASE_ADDR, 0);
+
+	PCIWriteU32(bus, dev, fun, TG3PCI_MEM_WIN_BASE_ADDR, addr);
+	val = PCIReadU32(bus, dev, fun, TG3PCI_MEM_WIN_DATA);
+	PCIWriteU32(bus, dev, fun, TG3PCI_MEM_WIN_BASE_ADDR, 0);
 	return val;
 }
 
+Bool TG3MemWinSelfTest()
+{
+	U32 magic = TG3_FW_MBOX_MAGIC1, got;
+
+	TG3MemWrite(TG3_NIC_SRAM_FIRMWARE_MBOX, magic);
+	got = TG3MemRead(TG3_NIC_SRAM_FIRMWARE_MBOX);
+	NetLog("TG3: MEM_WIN selftest wrote=0x%X read=0x%X", magic, got);
+	"TG3: MEM_WIN selftest read=0x%X\n", got;
+	return got == magic;
+}
+
 U0 TG3MemArbEnable()
-{/* Without MEMARB, MEM_WIN reads echo the address (saw mbox=0xB50) and
-	ring BDINFO never reaches the chip ΓÇö status block stays all zero. */
+{
 	U32 val = TG3Read(TG3_MEMARB_MODE);
 	TG3WriteFlush(TG3_MEMARB_MODE, val | TG3_MEMARB_MODE_ENABLE);
 	NetLog("TG3: MEMARB_MODE=0x%X", TG3Read(TG3_MEMARB_MODE));
@@ -326,7 +350,7 @@ U0 TG3BDInfoWriteMMIO(U32 base, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
 		TG3Write(base + TG3_BDINFO_NIC_ADDR, nic_addr);
 }
 
-U0 TG3BDInfoWriteSRAM(U32 sram_off, U32 host_lo, U32 maxlen_flags, U32 nic_addr)
+U0 TG3BDInfoWriteSRAM(U32 sram_off, U32 host_lo, U32 maxlen_flags)
 {/* 5705+ (incl 57766): do not write BDINFO_NIC_ADDR via MEM_WIN. */
 	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_HIGH, 0);
 	TG3MemWrite(sram_off + TG3_BDINFO_HOST_ADDR + TG3_64BIT_LOW, host_lo);
@@ -634,8 +658,10 @@ U0 TG3ChipReset()
 	I64 i;
 
 	NetLog("TG3: chip reset begin");
-	TG3Write(TG3PCI_MISC_HOST_CTRL,
-		TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT | TG3_MHC_MASK_PCI_INT);
+	TG3MiscHostCtrl(TG3_MHC_MASK_PCI_INT);
+	TG3MemArbEnable;
+	/* Bootcode inverts MAGIC1 when init completes. */
+	TG3MemWrite(TG3_NIC_SRAM_FIRMWARE_MBOX, TG3_FW_MBOX_MAGIC1);
 
 	cmd = PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
 
@@ -650,8 +676,7 @@ U0 TG3ChipReset()
 	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
 		cmd | TG3_CMDF_MEMEN | TG3_CMDF_BMEN);
 
-	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
-
+	TG3MiscHostCtrl;
 	for (i = 0; i < 100; i++)
 	{
 		if (TG3Read(TG3_MAC_MODE) != 0xFFFFFFFF)
@@ -660,8 +685,9 @@ U0 TG3ChipReset()
 	}
 	NetLog("TG3: chip reset done (MAC_MODE wait i=%d)", i);
 
-	TG3Write(TG3PCI_MEM_WIN_BASE_ADDR, 0);
 	TG3MemArbEnable;
+	if (!TG3MemWinSelfTest)
+		NetErr("TG3: MEM_WIN selftest FAILED ΓÇö rings will not program");
 	TG3PollFw;
 }
 
@@ -753,13 +779,12 @@ U0 TG3EnableBlocks()
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, tg3.rx_std_prod);
 
 	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_SEND_RCB, tg3.tx_ring_phys,
-		TG3_TX_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT,
-		TG3_NIC_SRAM_TX_BUFFER_DESC);
+		TG3_TX_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT);
 	TG3MemWrite(TG3_NIC_SRAM_SEND_RCB + TG3_BDINFO_SIZE + TG3_BDINFO_MAXLEN_FLAGS,
 		TG3_BDINFO_FLAGS_DISABLED);
 
 	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_RCV_RET_RCB, tg3.rx_ret_phys,
-		TG3_RX_RET_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT, 0);
+		TG3_RX_RET_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT);
 	TG3MemWrite(TG3_NIC_SRAM_RCV_RET_RCB + TG3_BDINFO_SIZE + TG3_BDINFO_MAXLEN_FLAGS,
 		TG3_BDINFO_FLAGS_DISABLED);
 
@@ -914,7 +939,7 @@ interrupt U0 TG3IRQ()
 	}
 
 	st = tg3.status[0];
-	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	TG3MiscHostCtrl;
 	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
 
 	if (st & (TG3_SD_STATUS_UPDATED | TG3_SD_STATUS_LINK_CHG))
@@ -949,7 +974,7 @@ U0 TG3InterruptsSetup()
 		IntEntrySet((irq = IntEntryAlloc), &TG3IRQ);
 
 	TG3PCIInterruptsReroute(irq);
-	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	TG3MiscHostCtrl;
 	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 0);
 }
 
@@ -1111,7 +1136,7 @@ U0 TG3Init()
 	tg3.mmio = dev.uncached_alias + (tg3.pci->base[0] & ~0xF);
 	NetLog("TG3: MMIO at 0x%X (BAR0=0x%X)", tg3.mmio, tg3.pci->base[0]);
 
-	TG3Write(TG3PCI_MISC_HOST_CTRL, TG3_MHC_WORD_SWAP | TG3_MHC_CLEAR_INT);
+	TG3MiscHostCtrl;
 	mhc = TG3Read(TG3PCI_MISC_HOST_CTRL);
 	tg3.chip_rev = (mhc & TG3_MHC_CHIPREV_MASK) >> TG3_MHC_CHIPREV_SHIFT;
 	tg3.asic_rev = TG3Read(TG3PCI_PRODID_ASICREV) & 0xFFFFFFFF;
