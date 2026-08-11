@@ -11,7 +11,10 @@
 #define USB_TP2_REPORT_ID		0x02
 #define USB_TP2_PREFIX_LEN		12
 #define USB_TP2_TOUCH_LEN		9
-#define USB_TP2_SCALE			8
+//Sensor span is ~7600x5000; SCALE=8 teleports on 2560x1440. 64 + step clamp
+//keeps one-finger drags usable without libinput-style accel.
+#define USB_TP2_SCALE			64
+#define USB_TP2_MAX_STEP		48
 
 class CUsbHid
 {
@@ -20,6 +23,7 @@ class CUsbHid
 	I64		 proto;			//1=kbd, 2=mouse; trackpad uses mouse flags
 	I64		 if_num;		//bound interface (MT2: mouse iface only)
 	I64		 last_x, last_y, tracking_id;
+	I64		 acc_x, acc_y;		//sub-pixel remainder after /SCALE
 	I64		 repeat_sc;		//held key scancode for software typematic
 	F64		 repeat_time;
 	U8		 prev[8];
@@ -221,6 +225,15 @@ U0 UsbTrackpadCB(U8 *d, U8 *e)
 		dy = rep[3];
 		if (dy & 0x80)
 			dy -= 256;
+//Pre-MT frames are coarse; still clamp so noise cannot fling the cursor.
+		if (dx > USB_TP2_MAX_STEP)
+			dx = USB_TP2_MAX_STEP;
+		if (dx < -USB_TP2_MAX_STEP)
+			dx = -USB_TP2_MAX_STEP;
+		if (dy > USB_TP2_MAX_STEP)
+			dy = USB_TP2_MAX_STEP;
+		if (dy < -USB_TP2_MAX_STEP)
+			dy = -USB_TP2_MAX_STEP;
 		if (dx || dy || clicks != hid->prev[1])
 		{
 			usb_mouse_x = ClampI64(usb_mouse_x + dx, 0, sys_framebuffer_width  - 1);
@@ -286,8 +299,25 @@ next_touch:;
 		y = -(((b3 << 30) | (b2 << 22) | (b1 << 14)) >> 19);
 		if (hid->have_last && best_tid == hid->tracking_id)
 		{
-			dx = (x - hid->last_x) / USB_TP2_SCALE;
-			dy = (y - hid->last_y) / USB_TP2_SCALE;
+			hid->acc_x += x - hid->last_x;
+			hid->acc_y += y - hid->last_y;
+			dx = hid->acc_x / USB_TP2_SCALE;
+			dy = hid->acc_y / USB_TP2_SCALE;
+			hid->acc_x -= dx * USB_TP2_SCALE;
+			hid->acc_y -= dy * USB_TP2_SCALE;
+			if (dx > USB_TP2_MAX_STEP)
+				dx = USB_TP2_MAX_STEP;
+			if (dx < -USB_TP2_MAX_STEP)
+				dx = -USB_TP2_MAX_STEP;
+			if (dy > USB_TP2_MAX_STEP)
+				dy = USB_TP2_MAX_STEP;
+			if (dy < -USB_TP2_MAX_STEP)
+				dy = -USB_TP2_MAX_STEP;
+		}
+		else
+		{
+			hid->acc_x = 0;
+			hid->acc_y = 0;
 		}
 		hid->last_x		 = x;
 		hid->last_y		 = y;
@@ -295,7 +325,11 @@ next_touch:;
 		hid->have_last	 = TRUE;
 	}
 	else
+	{
 		hid->have_last = FALSE;
+		hid->acc_x = 0;
+		hid->acc_y = 0;
+	}
 
 	if (dx || dy || clicks != hid->prev[1])
 	{
