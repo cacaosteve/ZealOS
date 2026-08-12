@@ -53,9 +53,15 @@ U0 NetQueuePush(U8 *data, I64 length)
 {/*	Pushes a copy of the packet data and length
 	into the Net Queue. The NetQueueEntry is inserted
 	after the last entry of net_queue to keep new
-	items in the back of the Queue, old in front. */ 
+	items in the back of the Queue, old in front. */
 
-	CNetQueueEntry *entry = CAlloc(sizeof(CNetQueueEntry));
+	CNetQueueEntry *entry;
+
+	/* Drop until NetHandler owns I_NETHANDLER ΓÇö else mcast fills RAM. */
+	if (!net_rx_deliver)
+		return;
+
+	entry = CAlloc(sizeof(CNetQueueEntry));
 
 	entry->packet_length = length;
 
@@ -63,8 +69,6 @@ U0 NetQueuePush(U8 *data, I64 length)
 
 	QueueInsert(entry, net_queue->last);
 
-	// Generate Net Handler interrupt.
-	NetLog("NETQUEUE PUSH COPY: Generating NetHandler interrupt.");
 	MPInt(I_NETHANDLER, INT_DEST_CPU);
 }
 

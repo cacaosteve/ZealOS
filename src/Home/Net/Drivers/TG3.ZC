@@ -1568,16 +1568,20 @@ U0 TG3RxProcess()
 			/* Strip Ethernet FCS if present in length. */
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			NetQueuePush(pkt, pkt_len);
-			tg3.rx_push_count++;
-			if (tg3.rx_push_count <= 4 || !(tg3.rx_push_count & 0xF))
+			/* Still reclaim RCVRET when stack not ready; only deliver later. */
+			if (net_rx_deliver)
 			{
-				eth = pkt;
-				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X "
-				"eth=%02X%02X prod=%d cons=%d\n",
-					tg3.rx_push_count, pkt_len, opaque,
-					eth[0], eth[1], eth[2],
-					eth[12], eth[13], hw_prod, cons;
+				NetQueuePush(pkt, pkt_len);
+				tg3.rx_push_count++;
+				if (tg3.rx_push_count <= 4 || !(tg3.rx_push_count & 0xF))
+				{
+					eth = pkt;
+					"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X "
+					"eth=%02X%02X prod=%d cons=%d\n",
+						tg3.rx_push_count, pkt_len, opaque,
+						eth[0], eth[1], eth[2],
+						eth[12], eth[13], hw_prod, cons;
+				}
 			}
 		}
 		else
@@ -1969,8 +1973,6 @@ U0 TG3Init()
 		NetErr("TG3: PCI 14e4:1686 not found");
 		return;
 	}
-
-	ClassRep(tg3.pci);
 
 	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
 		TG3_CMDF_MEMEN | TG3_CMDF_BMEN);

@@ -104,6 +104,8 @@ interrupt U0 NetHandler()
 U0 NetHandlerInit()
 {
 	IntEntrySet(I_NETHANDLER, &NetHandler);
+	net_rx_deliver = TRUE;
+	"Net: RX delivery enabled (NetHandler live)\n";
 }
 
 NetHandlerInit;

@@ -30,3 +30,8 @@
 DefinePrint("I_NETHANDLER", "%d", IntEntryAlloc);
 
 #define INT_DEST_CPU	0
+
+/* Drivers load before NetHandler.ZC installs I_NETHANDLER. Until then,
+   NetQueuePush must drop frames or the queue grows forever (mcast flood
+   during TG3Init) and DHCP never starts. Set TRUE in NetHandlerInit. */
+Bool net_rx_deliver = FALSE;

@@ -524,14 +524,18 @@ I64 DHCPConfigure()
 U0 NetConfigure()
 {
 	I64 error;
+	Bool was_log = net_log_enabled;
 
-	NetLog("\n==== Configuring Network. ====\n");
+	/* NetLog spam from mcast during Offer wait hides DHCP and burns CPU. */
+	net_log_enabled = FALSE;
+	"\n==== Configuring Network (DHCP) ====\n";
 	error = DHCPConfigure;
 
 	if (error < 0)
-		NetErr("==== Network Configure Failed ====");
+		"==== Network Configure Failed ====\n";
 	else
-		NetLog("$$BG,2$$$$FG,15$$==== Network Configure Success ====$$FG$$$$BG$$");
+		"$$BG,2$$$$FG,15$$==== Network Configure Success ====$$FG$$$$BG$$\n";
+	net_log_enabled = was_log;
 }
 
 U0 NetRep()
