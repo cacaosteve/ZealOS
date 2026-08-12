@@ -52,6 +52,7 @@
 #define TG3_MAILBOX_SNDHOST_PROD_IDX_0	0x00000300
 #define TG3_GRCMBOX_RCVSTD_PROD_IDX	0x00005868
 #define TG3_GRCMBOX_RCVRET_CON_IDX_0	0x00005880
+#define TG3_GRCMBOX_SNDHOST_PROD_IDX_0	0x00005900
 
 #define TG3_MAC_MODE			0x00000400
 #define  TG3_MAC_MODE_HALF_DUPLEX	0x00000002
@@ -1533,14 +1534,23 @@ U0 TG3StdRingRefill()
 	TG3StdProdKick(want);
 }
 
+U0 TG3TxProdKick(U32 prod)
+{/* MMIO + GRC ΓÇö Mac mini has ignored some MMIO-only mailboxes. */
+	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, prod);
+	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, prod);
+	TG3MboxWriteFlush(TG3_GRCMBOX_SNDHOST_PROD_IDX_0, prod);
+}
+
 U0 TG3RxProcess()
-{/* Drain return ring like Linux tg3_rx:
-	copy (optional) ΓåÆ recycle buffer onto std producer ΓåÆ ACK RCVRET ΓåÆ
-	kick STD prod. Deferred-only refill left rx_prod stuck ~20 on 57766. */
+{/* Drain return ring. Photos: recycling to std_prod=224 before DHCP
+	bind left RX frozen (push=0, rx_prod stuck). So:
+	- Before net_rx_deliver: ACK RCVRET only (no std recycle).
+	- After deliver: Linux-style recycle + kick, one BD at a time. */
 	U16 hw_prod;
 	I64 cons = tg3.rx_cons;
 	I64 std_prod = tg3.rx_std_prod;
 	I64 recycled = 0;
+	I64 avail;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
@@ -1563,15 +1573,13 @@ U0 TG3RxProcess()
 			pkt = tg3.rx_bufs + opaque * ETHERNET_FRAME_SIZE;
 			if (pkt_len > ETHERNET_FRAME_SIZE)
 				pkt_len = ETHERNET_FRAME_SIZE;
-			/* Strip Ethernet FCS if present in length. */
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			/* NetQueuePush MemCopy's ΓÇö safe to recycle buffer after. */
 			if (net_rx_deliver)
 			{
 				NetQueuePush(pkt, pkt_len);
 				tg3.rx_push_count++;
-				if (tg3.rx_push_count <= 4 || !(tg3.rx_push_count & 0xF))
+				if (tg3.rx_push_count <= 8 || !(tg3.rx_push_count & 0xF))
 				{
 					eth = pkt;
 					"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X "
@@ -1580,16 +1588,16 @@ U0 TG3RxProcess()
 						eth[0], eth[1], eth[2],
 						eth[12], eth[13], hw_prod, cons;
 				}
+				/* Copy done ΓÇö safe to give buffer back to HW. */
+				TG3StdRingRepost(opaque, std_prod);
+				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+				recycled++;
 			}
-			TG3StdRingRepost(opaque, std_prod);
-			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			recycled++;
 		}
 		else
 		{
 			tg3.rx_drop_count++;
-			/* Still recycle errored buffers so the ring cannot stall. */
-			if (opaque < TG3_RX_PENDING)
+			if (net_rx_deliver && opaque < TG3_RX_PENDING)
 			{
 				TG3StdRingRepost(opaque, std_prod);
 				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
@@ -1602,7 +1610,6 @@ U0 TG3RxProcess()
 			hw_prod = TG3StatusRxProducer();
 	}
 
-	/* Linux order: ACK return ring, then kick std producer. */
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
@@ -1613,18 +1620,41 @@ U0 TG3RxProcess()
 		tg3.rx_std_prod = std_prod;
 		TG3StdProdKick(std_prod);
 	}
+	else if (!net_rx_deliver)
+	{
+		/* Keep original BD window alive until DHCP bind. */
+		avail = TG3StdAvail;
+		if (avail < (TG3_RX_PENDING / 4))
+			TG3StdRingRefill;
+	}
 
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 U0 TG3KeepRxAlive()
-{/* Called from DHCP Offer wait ΓÇö reclaim + force status DMA refresh. */
+{
+	U32 oct, bcast, mcast, ucast;
+	U16 prod;
+
 	if (!tg3.init_ok)
 		return;
 	TG3WriteFlush(TG3_HOSTCC_MODE,
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	TG3RxProcess;
 	TG3RxModeRun;
+	TG3StdProdKick(tg3.rx_std_prod);
+	TG3RcvRetKick(tg3.rx_cons);
+
+	prod = TG3StatusRxProducer();
+	oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
+	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
+	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
+	mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
+	"TG3: alive push=%d seen=%d prod=%d cons=%d "
+	"std_bd=%d std_prod=%d oct=%d u=%d b=%d m=%d\n",
+		tg3.rx_push_count, tg3.rx_seen_count, prod, tg3.rx_cons,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, tg3.rx_std_prod,
+		oct, ucast, bcast, mcast;
 }
 
 interrupt U0 TG3IRQ()
@@ -1739,52 +1769,32 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
-	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast, mcast;
-	U32 fcs, und, frag, oct, rxst, eee;
+	U32 mbox, txm, rxm, bcast, ucast, mcast, oct;
 
 	tg3.tx_prod = next;
-	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
-	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
-	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
+	TG3TxProdKick(next);
 
-	/* DHCP TX path is known-live ΓÇö reclaim RX here so RCVRET advances
-	   even if the poll task/IRQ path is late. */
+	/* DHCP TX path ΓÇö reclaim RX so RCVRET advances even if poll is late. */
 	TG3RxProcess;
 
-	if (next <= 4 || (next & 0xF) == 0)
+	if (next <= 8)
 	{
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		txm = TG3Read(TG3_MAC_TX_MODE);
 		rxm = TG3Read(TG3_MAC_RX_MODE);
-		wdm = TG3Read(TG3_WDMAC_MODE);
-		bfm = TG3Read(TG3_BUFMGR_MODE);
-		st2 = tg3.status[2];
 		bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
 		mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
-		fcs = TG3Read(TG3_MAC_RX_STATS_FCS);
-		und = TG3Read(TG3_MAC_RX_STATS_UNDERSIZE);
-		frag = TG3Read(TG3_MAC_RX_STATS_FRAGMENTS);
 		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
-		rxst = TG3Read(TG3_MAC_RX_STATUS);
-		eee = TG3Read(TG3_CPMU_EEE_MODE);
-		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
-			"tx_cons=%d rx_prod=%d rx_cons=%d TX=0x%X RX=0x%X "
-			"rx_b=%d rx_u=%d rx_m=%d oct=%d std_bd=%d push=%d drop=%d seen=%d",
-			next, mbox, tg3.status[0], st2, tg3.status[4],
-			TG3StatusTxConsumer(), TG3StatusRxProducer(), tg3.rx_cons,
-			txm, rxm, bcast, ucast, mcast, oct,
-			TG3Read(TG3_RCVDBDI_STD_CON_IDX),
-			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count);
-		if (next <= 4)
-			"TG3: TX dbg rx_u=%d rx_b=%d rx_m=%d oct=%d std_bd=%d "
-			"rx_prod=%d rx_cons=%d push=%d drop=%d seen=%d "
-			"std_prod=%d avail=%d\n",
-				ucast, bcast, mcast, oct,
-				TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
-				TG3StatusRxProducer(), tg3.rx_cons,
-				tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
-				tg3.rx_std_prod, TG3StdAvail;
+		"TG3: TX dbg next=%d mbox=%d tx_cons=%d rx_u=%d rx_b=%d rx_m=%d "
+		"oct=%d std_bd=%d rx_prod=%d rx_cons=%d push=%d drop=%d "
+		"seen=%d std_prod=%d avail=%d TX=0x%X RX=0x%X\n",
+			next, mbox, TG3StatusTxConsumer(),
+			ucast, bcast, mcast, oct,
+			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
+			TG3StatusRxProducer(), tg3.rx_cons,
+			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
+			tg3.rx_std_prod, TG3StdAvail, txm, rxm;
 	}
 }
 
