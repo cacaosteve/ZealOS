@@ -82,9 +82,16 @@
 #define TG3_MAC_TX_MODE			0x0000045C
 #define  TG3_TX_MODE_ENABLE		0x00000002
 #define  TG3_TX_MODE_MBUF_LOCKUP_FIX	0x00000100
+#define TG3_MAC_MI_STAT			0x00000450
+#define  TG3_MAC_MI_STAT_LNKSTAT_ATTN	0x00000001
 #define TG3_MAC_RX_MODE			0x00000468
+#define  TG3_RX_MODE_RESET		0x00000001
 #define  TG3_RX_MODE_ENABLE		0x00000002
 #define  TG3_RX_MODE_PROMISC		0x00000100
+#define  TG3_RX_MODE_KEEP_VLAN		0x00000400
+#define  TG3_RX_MODE_IPV6_CSUM		0x01000000
+#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC | TG3_RX_MODE_KEEP_VLAN | TG3_RX_MODE_IPV6_CSUM)
+#define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
 #define TG3_MAC_TX_LENGTHS		0x00000464
@@ -99,9 +106,14 @@
 #define  TG3_RCV_RULE_CFG_DEFAULT	0x00000008
 #define TG3_MAC_LOW_WMARK_MAX_RX	0x00000504
 
+#define TG3_MAC_RX_STATS_OCTETS		0x00000880
+#define TG3_MAC_RX_STATS_FRAGMENTS	0x00000888
 #define TG3_MAC_RX_STATS_UCAST		0x0000088C
 #define TG3_MAC_RX_STATS_MCAST		0x00000890
 #define TG3_MAC_RX_STATS_BCAST		0x00000894
+#define TG3_MAC_RX_STATS_FCS		0x00000898
+#define TG3_MAC_RX_STATS_ALIGN		0x0000089C
+#define TG3_MAC_RX_STATS_UNDERSIZE	0x000008B8
 
 #define TG3_MII_BMCR			0x00
 #define TG3_BMCR_RESET			0x8000
@@ -130,7 +142,20 @@
 #define TG3_MII_STAT1000		0x0A
 #define  TG3_LPA_1000FULL		0x0800
 #define  TG3_LPA_1000HALF		0x0400
+#define TG3_MII_AUX_CTRL		0x18
+#define  TG3_AUXCTL_SHDWSEL_PWRCTL	0x0002
 #define TG3_MII_AUX_STAT		0x19
+#define TG3_MII_MISC_SHDW		0x1C
+#define  TG3_MISC_SHDW_WREN		0x8000
+#define  TG3_MISC_SHDW_APD_WKTM_84MS	0x0001
+#define  TG3_MISC_SHDW_APD_ENABLE	0x0020
+#define  TG3_MISC_SHDW_APD_SEL		0x2800
+#define  TG3_MISC_SHDW_SCR5_C125OE	0x0001
+#define  TG3_MISC_SHDW_SCR5_DLLAPD	0x0002
+#define  TG3_MISC_SHDW_SCR5_SDTL		0x0004
+#define  TG3_MISC_SHDW_SCR5_DLPTLM	0x0008
+#define  TG3_MISC_SHDW_SCR5_LPED		0x0010
+#define  TG3_MISC_SHDW_SCR5_SEL		0x1400
 #define  TG3_AUX_STAT_LPASS		0x0004
 #define  TG3_AUX_STAT_SPDMASK		0x0700
 #define  TG3_AUX_STAT_10HALF		0x0100
@@ -218,6 +243,11 @@
 #define  TG3_CPMU_10MB_MACCLK_6_25	0x00130000
 #define TG3_CPMU_PADRNG_CTL		0x00003668
 #define  TG3_CPMU_PADRNG_CTL_RDIV2	0x00040000
+#define TG3_CPMU_EEE_MODE		0x000036B0
+#define  TG3_CPMU_EEEMD_LPI_ENABLE	0x00000080
+#define  TG3_CPMU_EEEMD_LPI_IN_TX	0x00000100
+#define  TG3_CPMU_EEEMD_LPI_IN_RX	0x00000200
+#define  TG3_CPMU_EEEMD_EEE_ENABLE	0x00100000
 
 #define TG3_MEMARB_MODE			0x00004000
 #define  TG3_MEMARB_MODE_ENABLE		0x00000002
@@ -266,6 +296,8 @@
 #define TG3_NIC_SRAM_DATA_CFG		0x00000B58
 #define  TG3_NIC_CFG_ASF_ENABLE		0x00000080
 #define  TG3_NIC_CFG_APE_ENABLE		0x00200000
+#define TG3_NIC_SRAM_DATA_CFG_2		0x00000D38
+#define  TG3_NIC_CFG_2_APD_EN		0x00004000
 #define TG3_NIC_SRAM_FW_CMD_MBOX	0x00000B78
 #define  TG3_FWCMD_PAUSE_FW		0x00000002
 #define TG3_NIC_SRAM_FW_DRV_STATE_MBOX	0x00000C04
@@ -430,6 +462,13 @@ U32 TG3MacModeBits(U32 extra=0)
 	if (tg3.ape_en)
 		mode |= TG3_MAC_MODE_APE_RX_EN | TG3_MAC_MODE_APE_TX_EN;
 	return mode;
+}
+
+U0 TG3RxModeRun()
+{/* Pulse RX reset then enable. KEEP_VLAN + IPV6_CSUM match Linux 5755+. */
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RESET);
+	Busy(10);
+	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RUN);
 }
 
 U0 TG3MboxWrite(U32 mbox, U32 val)
@@ -599,6 +638,7 @@ U0 TG3ApeHostInit()
 U0 TG3NicCfgRead()
 {
 	U32 sig = TG3MemRead(TG3_NIC_SRAM_DATA_SIG);
+	U32 cfg2 = 0;
 
 	tg3.nic_cfg = 0;
 	tg3.ape_en = FALSE;
@@ -617,8 +657,13 @@ U0 TG3NicCfgRead()
 		tg3.asf_en = TRUE;
 	if (tg3.nic_cfg & TG3_NIC_CFG_APE_ENABLE)
 		tg3.ape_en = TRUE;
-	NetLog("TG3: nic_cfg=0x%X ASF=%d APE=%d", tg3.nic_cfg, tg3.asf_en, tg3.ape_en);
-	"TG3: nic_cfg=0x%X ASF=%d APE=%d\n", tg3.nic_cfg, tg3.asf_en, tg3.ape_en;
+	cfg2 = TG3MemRead(TG3_NIC_SRAM_DATA_CFG_2);
+	NetLog("TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d",
+		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2,
+		!!(cfg2 & TG3_NIC_CFG_2_APD_EN));
+	"TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d\n",
+		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2,
+		!!(cfg2 & TG3_NIC_CFG_2_APD_EN));
 }
 
 U0 TG3MemArbEnable()
@@ -646,6 +691,12 @@ U0 TG3PcieTxHangFix()
 	val = TG3Read(TG3_CPMU_LSPD_10MB_CLK);
 	val = (val & ~TG3_CPMU_10MB_MACCLK_MASK) | TG3_CPMU_10MB_MACCLK_6_25;
 	TG3WriteFlush(TG3_CPMU_LSPD_10MB_CLK, val);
+
+	/* Bootcode may leave EEE LPI on. Without EEE firmware/timers, RX dies. */
+	val = TG3Read(TG3_CPMU_EEE_MODE);
+	NetLog("TG3: CPMU_EEE_MODE before=0x%X", val);
+	"TG3: EEE_MODE=0x%X (clearing LPI)\n", val;
+	TG3WriteFlush(TG3_CPMU_EEE_MODE, 0);
 	NetLog("TG3: 57765 TX-hang workarounds applied");
 }
 
@@ -745,6 +796,23 @@ Bool TG3PhyWrite(I64 phy, I64 phy_reg, U32 val)
 	return FALSE;
 }
 
+U0 TG3PhyApdOff()
+{/* Clear PWRCTL shadow + disable APD (Linux tg3_setup_copper_phy). */
+	U32 shdw;
+
+	if (tg3.phy_addr < 0)
+		return;
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_AUX_CTRL, TG3_AUXCTL_SHDWSEL_PWRCTL);
+	shdw = TG3_MISC_SHDW_SCR5_SEL | TG3_MISC_SHDW_WREN |
+		TG3_MISC_SHDW_SCR5_LPED | TG3_MISC_SHDW_SCR5_DLPTLM |
+		TG3_MISC_SHDW_SCR5_SDTL | TG3_MISC_SHDW_SCR5_C125OE |
+		TG3_MISC_SHDW_SCR5_DLLAPD;
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_MISC_SHDW, shdw);
+	shdw = TG3_MISC_SHDW_APD_SEL | TG3_MISC_SHDW_WREN |
+		TG3_MISC_SHDW_APD_WKTM_84MS;
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_MISC_SHDW, shdw);
+}
+
 Bool TG3PhyInit()
 {/* Prefer bootcode's already-trained link when present. Full BMCR reset
 	only if link is down ΓÇö avoids clobbering a good 1G link then racing AN. */
@@ -773,6 +841,7 @@ Bool TG3PhyInit()
 	}
 	NetLog("TG3: PHY addr=%d id=0x%04X%04X", tg3.phy_addr, id1, id2);
 	"TG3: PHY id=0x%04X%04X addr=%d\n", id1, id2, tg3.phy_addr;
+	TG3PhyApdOff;
 
 	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr);
 	ok = TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) && ok;
@@ -852,6 +921,7 @@ U0 TG3LinkApply()
 		return;
 	TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE);
 	Busy(80);
+	TG3PhyApdOff;
 
 	/* 1000BASE-T can report BMSR link before AUX settles; poll. */
 	for (i = 0; i < 40; i++)
@@ -911,7 +981,7 @@ U0 TG3LinkApply()
 	if (!full)
 		mac_mode |= TG3_MAC_MODE_HALF_DUPLEX;
 	TG3WriteFlush(TG3_MAC_MODE, mac_mode);
-	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3RxModeRun;
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
@@ -1227,7 +1297,7 @@ U0 TG3EnableBlocks()
 	/* Program RX path config before enabling RCVLPC (Linux order). */
 	TG3Write(TG3_MAC_RCV_RULE_CFG, TG3_RCV_RULE_CFG_DEFAULT);
 	TG3Write(TG3_RCVLPC_CONFIG, 0x0181);
-	TG3Write(TG3_MAC_LOW_WMARK_MAX_RX, 2);
+	TG3Write(TG3_MAC_LOW_WMARK_MAX_RX, 1); /* 57765_CLASS */
 	TG3Write(TG3_MAC_RX_MTU_SIZE, 1522);
 	TG3Write(TG3_MAC_TX_LENGTHS, (2 << 12) | (6 << 8) | 0x20);
 	TG3Write(TG3_MAC_HASH_REG_0, 0xFFFFFFFF);
@@ -1268,6 +1338,7 @@ U0 TG3EnableBlocks()
 	/* RDE/TDE must be live before RCVBDI (Linux tg3_reset_hw). */
 	val = TG3MacModeBits(TG3_MAC_MODE_PORT_GMII);
 	TG3WriteFlush(TG3_MAC_MODE, val);
+	TG3Write(TG3_MAC_MI_STAT, TG3_MAC_MI_STAT_LNKSTAT_ATTN);
 	Busy(40);
 
 	TG3Write(TG3_SNDDATAC_MODE, TG3_MODE_ENABLE);
@@ -1306,7 +1377,7 @@ U0 TG3EnableBlocks()
 
 	TG3MACWriteHW;
 
-	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3RxModeRun;
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
@@ -1519,6 +1590,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
 	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast;
+	U32 fcs, und, frag, oct, rxst, eee;
 
 	tg3.tx_prod = next;
 	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
@@ -1534,15 +1606,25 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		st2 = tg3.status[2];
 		bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
+		fcs = TG3Read(TG3_MAC_RX_STATS_FCS);
+		und = TG3Read(TG3_MAC_RX_STATS_UNDERSIZE);
+		frag = TG3Read(TG3_MAC_RX_STATS_FRAGMENTS);
+		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
+		rxst = TG3Read(TG3_MAC_RX_STATUS);
+		eee = TG3Read(TG3_CPMU_EEE_MODE);
 		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
 			"tx_cons=%d rx_prod=%d TX=0x%X RX=0x%X WDMAC=0x%X BUFMGR=0x%X "
-			"rx_bcast=%d rx_ucast=%d std_bd=%d",
+			"rx_bcast=%d rx_ucast=%d fcs=%d und=%d frag=%d oct=%d "
+			"rxst=0x%X eee=0x%X std_bd=%d",
 			next, mbox, tg3.status[0], st2, tg3.status[4],
 			TG3StatusTxConsumer, TG3StatusRxProducer, txm, rxm, wdm, bfm,
-			bcast, ucast, TG3Read(TG3_RCVDBDI_STD_CON_IDX));
+			bcast, ucast, fcs, und, frag, oct, rxst, eee,
+			TG3Read(TG3_RCVDBDI_STD_CON_IDX));
 		if (next <= 4)
-			"TG3: TX dbg rx_u=%d rx_b=%d std_bd=%d rx_prod=%d\n",
-				ucast, bcast, TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+			"TG3: TX dbg rx_u=%d rx_b=%d fcs=%d und=%d frag=%d oct=%d "
+			"rxst=0x%X eee=0x%X std_bd=%d rx_prod=%d\n",
+				ucast, bcast, fcs, und, frag, oct, rxst, eee,
+				TG3Read(TG3_RCVDBDI_STD_CON_IDX),
 				TG3StatusRxProducer;
 	}
 }
@@ -1727,7 +1809,7 @@ U0 NetStop()
 
 U0 NetStart()
 {
-	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
+	TG3RxModeRun;
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 }
@@ -1798,8 +1880,8 @@ U0 TG3Init()
 
 	tg3.init_ok = TRUE;
 	TG3InterruptsSetup;
-	/* Diagnose RX DMA before DHCP; restore link mode after. */
-	TG3LoopbackTest;
+	/* Skip PHY loopback: CPMU never reports TX_STATUS LINK_UP, and it
+	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
