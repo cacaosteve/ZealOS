@@ -1535,14 +1535,19 @@ U0 TG3StdRingRefill()
 
 U0 TG3RxProcess()
 {/* Drain return ring. Must advance RCVRET consumer or HW RX stalls
-	after a small in-flight batch (~std_bd stuck, no new octets). */
+	after a small in-flight batch (~std_bd stuck, no new octets).
+
+	Do NOT recycle onto the std producer ring while plenty of original
+	BDs remain (prod still at 200, cons at ~25 ΓåÆ ~175 free). Early
+	recycle+kick to 225 coincided with RX dying despite avail=200. */
 	U16 hw_prod;
 	I64 cons = tg3.rx_cons;
-	I64 std_posted = 0;
+	I64 avail;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
 	U8 *pkt;
+	U8 *eth;
 
 	hw_prod = TG3StatusRxProducer();
 
@@ -1566,39 +1571,41 @@ U0 TG3RxProcess()
 			NetQueuePush(pkt, pkt_len);
 			tg3.rx_push_count++;
 			if (tg3.rx_push_count <= 4 || !(tg3.rx_push_count & 0xF))
-				"TG3: RX push#%d len=%d opq=%d eth=%02X%02X "
-				"prod=%d cons=%d\n",
+			{
+				eth = pkt;
+				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X "
+				"eth=%02X%02X prod=%d cons=%d\n",
 					tg3.rx_push_count, pkt_len, opaque,
-					pkt[12], pkt[13], hw_prod, cons;
+					eth[0], eth[1], eth[2],
+					eth[12], eth[13], hw_prod, cons;
+			}
 		}
 		else
 			tg3.rx_drop_count++;
-
-		/* Re-post this buffer at the next producer slot. */
-		if (opaque < TG3_RX_PENDING)
-		{
-			TG3StdRingRepost(opaque, tg3.rx_std_prod);
-			tg3.rx_std_prod = (tg3.rx_std_prod + 1) &
-				(TG3_RX_STD_RING_SIZE - 1);
-			std_posted++;
-		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
 
-	/* Linux order: ACK return ring first, then kick std producer. */
+	/* Linux order: ACK return ring first. */
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
 		TG3RcvRetKick(cons);
 	}
-	if (std_posted)
-		TG3StdProdKick(tg3.rx_std_prod);
 
-	/* Guard against empty producer ring (std_prod collapsed onto std_bd). */
-	TG3StdRingRefill;
+	/* Only refill std producer when running low on never-used BDs. */
+	avail = TG3StdAvail;
+	if (avail < (TG3_RX_PENDING / 4))
+	{
+		/* Recycle return-ring opaques into producer slots, then kick. */
+		/* For now full-window rebuild from HW cons ΓÇö safe when low. */
+		TG3StdRingRefill;
+		"TG3: post-recycle avail=%d std_prod=%d std_bd=%d\n",
+			TG3StdAvail, tg3.rx_std_prod,
+			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
+	}
 
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
