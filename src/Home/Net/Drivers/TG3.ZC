@@ -717,12 +717,12 @@ U0 TG3PcieTxHangFix()
 	val = (val & ~TG3_CPMU_10MB_MACCLK_MASK) | TG3_CPMU_10MB_MACCLK_6_25;
 	TG3WriteFlush(TG3_CPMU_LSPD_10MB_CLK, val);
 
-	/* Bootcode may leave link-idle/aware CPMU modes that gate MAC RX. */
+	/* Bootcode may leave link-idle/aware/speed CPMU modes that gate MAC RX. */
 	val = TG3Read(TG3_CPMU_CTRL);
 	"TG3: CPMU_CTRL=0x%X\n", val;
 	NetLog("TG3: CPMU_CTRL before=0x%X", val);
 	val &= ~(TG3_CPMU_CTRL_LINK_AWARE | TG3_CPMU_CTRL_LINK_IDLE |
-		TG3_CPMU_CTRL_GPHY_10MB_RXONLY);
+		TG3_CPMU_CTRL_LINK_SPEED | TG3_CPMU_CTRL_GPHY_10MB_RXONLY);
 	TG3WriteFlush(TG3_CPMU_CTRL, val);
 	"TG3: CPMU_CTRL after=0x%X\n", TG3Read(TG3_CPMU_CTRL);
 
@@ -917,11 +917,13 @@ Bool TG3PhyInit()
 	TG3PhyEeeAdvOff;
 	TG3PhyApdOff;
 
+	/* A/B: force 10/100 only. If RX works at 100F, GMII/1G path is broken. */
 	adv = TG3_ADVERTISE_CSMA | TG3_ADVERTISE_10_HALF | TG3_ADVERTISE_10_FULL |
 		TG3_ADVERTISE_100_HALF | TG3_ADVERTISE_100_FULL;
-	ctrl1000 = TG3_ADVERTISE_1000_HALF | TG3_ADVERTISE_1000_FULL;
+	ctrl1000 = 0;
 	TG3PhyWrite(tg3.phy_addr, TG3_MII_ADVERTISE, adv);
 	TG3PhyWrite(tg3.phy_addr, TG3_MII_CTRL1000, ctrl1000);
+	"TG3: PHY advertise 10/100 only (no 1000) for RX A/B\n";
 	TG3PhyWrite(tg3.phy_addr, TG3_MII_BMCR,
 		TG3_BMCR_ANENABLE | TG3_BMCR_ANRESTART);
 
