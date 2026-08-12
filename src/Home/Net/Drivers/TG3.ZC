@@ -437,6 +437,9 @@ class CTG3
 
 	I64 tx_length[TG3_TX_PENDING];
 	I64 poll_task;
+	I64 rx_push_count;
+	I64 rx_drop_count;
+	I64 rx_seen_count;
 } tg3;
 
 U32 TG3Read(U32 off)
@@ -1477,22 +1480,31 @@ U16 TG3StatusTxConsumer()
 }
 
 U0 TG3RxProcess()
-{
-	U16 hw_prod = TG3StatusRxProducer;
+{/* Drain return ring. Must advance RCVRET consumer or HW RX stalls
+	after a small in-flight batch (~std_bd stuck, no new octets). */
+	U16 hw_prod = TG3StatusRxProducer();
 	I64 cons = tg3.rx_cons;
+	I64 std_posted = 0;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
 	U8 *pkt;
+
+	/* Force status-block refresh before comparing producers. */
+	TG3WriteFlush(TG3_HOSTCC_MODE,
+		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
 	{
 		rd = &tg3.rx_ret[cons];
 		pkt_len = rd->idx_len & TG3_RXD_LEN_MASK;
 		opaque = rd->opaque & TG3_RXD_OPAQUE_INDEX_MASK;
+		tg3.rx_seen_count++;
 
-		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) && pkt_len >= 14 &&
-			opaque < TG3_RX_PENDING)
+		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) &&
+			!(rd->err_vlan & 0x00FF0000) &&
+			pkt_len >= 14 && opaque < TG3_RX_PENDING)
 		{
 			pkt = tg3.rx_bufs + opaque * ETHERNET_FRAME_SIZE;
 			if (pkt_len > ETHERNET_FRAME_SIZE)
@@ -1501,10 +1513,15 @@ U0 TG3RxProcess()
 			if (pkt_len >= 4)
 				pkt_len -= 4;
 			NetQueuePush(pkt, pkt_len);
-			if (!(tg3.rx_cons & 0x1F))
-				NetLog("TG3: RX len=%d opaque=%d prod=%d cons=%d",
-					pkt_len, opaque, hw_prod, cons);
+			tg3.rx_push_count++;
+			if (tg3.rx_push_count <= 4 || !(tg3.rx_push_count & 0xF))
+				"TG3: RX push#%d len=%d opq=%d eth=%02X%02X "
+				"prod=%d cons=%d\n",
+					tg3.rx_push_count, pkt_len, opaque,
+					pkt[12], pkt[13], hw_prod, cons;
 		}
+		else
+			tg3.rx_drop_count++;
 
 		/* Re-post producer descriptor for this buffer index. */
 		if (opaque < TG3_RX_PENDING)
@@ -1518,12 +1535,16 @@ U0 TG3RxProcess()
 			rd->err_vlan = 0;
 			rd->reserved = 0;
 			rd->opaque = TG3_RXD_OPAQUE_RING_STD | opaque;
-			tg3.rx_std_prod = (tg3.rx_std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			TG3StdProdKick(tg3.rx_std_prod);
+			tg3.rx_std_prod = (tg3.rx_std_prod + 1) &
+				(TG3_RX_STD_RING_SIZE - 1);
+			std_posted++;
 		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 	}
+
+	if (std_posted)
+		TG3StdProdKick(tg3.rx_std_prod);
 
 	if (cons != tg3.rx_cons)
 	{
@@ -1531,12 +1552,12 @@ U0 TG3RxProcess()
 		TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
 	}
 
-	tg3.tx_cons = TG3StatusTxConsumer;
+	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 interrupt U0 TG3IRQ()
 {
-	U32 st;
+	U32 tag;
 
 	if (!tg3.init_ok)
 	{
@@ -1544,15 +1565,13 @@ interrupt U0 TG3IRQ()
 		return;
 	}
 
-	st = tg3.status[0];
 	TG3MiscHostCtrl;
+	/* TAGGED_STATUS: mask with 1, work, reenable with status_tag<<24. */
 	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
-
-	if (st & (TG3_SD_STATUS_UPDATED | TG3_SD_STATUS_LINK_CHG))
-		TG3RxProcess;
-
+	TG3RxProcess;
+	tag = tg3.status[1];
 	tg3.status[0] = 0;
-	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 0);
+	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
 
 	*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
 }
@@ -1618,7 +1637,7 @@ U0 TG3PollTask()
 			}
 			TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
 		}
-		Sleep(20);
+		Sleep(5);
 	}
 }
 
@@ -1648,13 +1667,19 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
-	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast;
+	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast, mcast;
 	U32 fcs, und, frag, oct, rxst, eee;
+	CTG3RxDesc *rd0;
 
 	tg3.tx_prod = next;
 	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
 	TG3MboxWrite(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
 	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, next);
+
+	/* DHCP TX path is known-live ΓÇö reclaim RX here so RCVRET advances
+	   even if the poll task/IRQ path is late. */
+	TG3RxProcess;
+
 	if (next <= 4 || (next & 0xF) == 0)
 	{
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
@@ -1665,26 +1690,31 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		st2 = tg3.status[2];
 		bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
+		mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
 		fcs = TG3Read(TG3_MAC_RX_STATS_FCS);
 		und = TG3Read(TG3_MAC_RX_STATS_UNDERSIZE);
 		frag = TG3Read(TG3_MAC_RX_STATS_FRAGMENTS);
 		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
 		rxst = TG3Read(TG3_MAC_RX_STATUS);
 		eee = TG3Read(TG3_CPMU_EEE_MODE);
+		rd0 = &tg3.rx_ret[0];
 		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
-			"tx_cons=%d rx_prod=%d TX=0x%X RX=0x%X WDMAC=0x%X BUFMGR=0x%X "
-			"rx_bcast=%d rx_ucast=%d fcs=%d und=%d frag=%d oct=%d "
-			"rxst=0x%X eee=0x%X std_bd=%d",
+			"tx_cons=%d rx_prod=%d rx_cons=%d TX=0x%X RX=0x%X "
+			"rx_b=%d rx_u=%d rx_m=%d oct=%d std_bd=%d push=%d drop=%d seen=%d",
 			next, mbox, tg3.status[0], st2, tg3.status[4],
-			TG3StatusTxConsumer, TG3StatusRxProducer, txm, rxm, wdm, bfm,
-			bcast, ucast, fcs, und, frag, oct, rxst, eee,
-			TG3Read(TG3_RCVDBDI_STD_CON_IDX));
+			TG3StatusTxConsumer(), TG3StatusRxProducer(), tg3.rx_cons,
+			txm, rxm, bcast, ucast, mcast, oct,
+			TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count);
 		if (next <= 4)
-			"TG3: TX dbg rx_u=%d rx_b=%d fcs=%d und=%d frag=%d oct=%d "
-			"rxst=0x%X eee=0x%X rxm=0x%X std_bd=%d rx_prod=%d\n",
-				ucast, bcast, fcs, und, frag, oct, rxst, eee, rxm,
+			"TG3: TX dbg rx_u=%d rx_b=%d rx_m=%d oct=%d std_bd=%d "
+			"rx_prod=%d rx_cons=%d push=%d drop=%d "
+			"ret0 len=0x%X fl=0x%X opq=0x%X\n",
+				ucast, bcast, mcast, oct,
 				TG3Read(TG3_RCVDBDI_STD_CON_IDX),
-				TG3StatusRxProducer;
+				TG3StatusRxProducer(), tg3.rx_cons,
+				tg3.rx_push_count, tg3.rx_drop_count,
+				rd0->idx_len, rd0->type_flags, rd0->opaque;
 	}
 }
 
@@ -1942,6 +1972,12 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
+	/* Drain any frames already sitting in the return ring before DHCP. */
+	Sleep(100);
+	TG3RxProcess;
+	"TG3: pre-DHCP drain push=%d drop=%d seen=%d rx_cons=%d rx_prod=%d\n",
+		tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
+		tg3.rx_cons, TG3StatusRxProducer();
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
