@@ -423,17 +423,21 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					NetErr("DHCP CONFIGURE INNER: Failed, DHCP Send Discover error.");
 					return error;
 				}
+				"DHCP: Discover sent xid=%08X ΓÇö waiting Offer\n", xid;
 
 				count = UDPSocketReceiveFrom(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in);
 
 				if (count > 0)
 				{ // 'Try a parse offer'
 					NetLog("DHCP CONFIGURE INNER: Trying Parse Offer.");
+					"DHCP: got %d bytes from UDP ΓÇö parsing Offer\n", count;
 					error = DHCPOfferParse(xid, buffer, count, your_ip_out, dns_ip_out, router_ip_out, subnet_mask_out);
 
 					if (error < 0)
 						NetWarn("DHCP CONFIGURE INNER: Unsuccessful DHCP Parse Offer.");
 				}
+				else
+					"DHCP: Offer wait timed out/empty (count=%d)\n", count;
 
 				if (count > 0 && error >= 0)
 				{

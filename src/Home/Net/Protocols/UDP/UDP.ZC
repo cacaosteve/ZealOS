@@ -469,12 +469,20 @@ I64 UDPHandler(CIPV4Packet *packet)
 		return error;
 	}
 
+	/* Visible DHCP breadcrumb ΓÇö photos need this if Offers arrive but miss the socket. */
+	if (destination_port == 68 || source_port == 67 || destination_port == 67)
+		"UDP: bootp/dhcp sport=%d dport=%d len=%d src_ip=%08X dst_ip=%08X\n",
+			source_port, destination_port, length,
+			packet->source_ip_address, packet->destination_ip_address;
+
 	if (head)
 	{
 		node = UDPTreeNodeFind(destination_port, head);
 		if (node)
 		{
-			queue = UDPTreeNodeQueueIPV4Find(packet->source_ip_address, node); // TODO: make sure bit order is correct here!!
+			/* Match on packet destination IP (INADDR_ANY catches DHCP Offers).
+			   Source-IP match was wrong for servers talking to INADDR_ANY binds. */
+			queue = UDPTreeNodeQueueIPV4Find(packet->destination_ip_address, node);
 			if (queue)
 			{
 				udp_socket = queue->socket;
@@ -484,18 +492,25 @@ I64 UDPHandler(CIPV4Packet *packet)
 			{
 				NetWarn("UDP HANDLER: Found node for port, but address is not in node queue.");
 				NetWarn("             UDP packet dest ip: 0x%0X.", packet->destination_ip_address);
+				if (destination_port == 68)
+					"UDP: port 68 bound but dest_ip %08X matched no socket\n",
+						packet->destination_ip_address;
 				return -1;
 			}
 		}
 		else
 		{
 			NetWarn("UDP HANDLER: Node for Port is not in tree.");
+			if (destination_port == 68)
+				"UDP: port 68 packet but nothing bound yet\n";
 			return -1;
 		}
 	}
 	else
 	{
 		NetWarn("UDP HANDLER: Socket tree is currently empty.");
+		if (destination_port == 68)
+			"UDP: port 68 packet, socket tree empty\n";
 		return -1;
 	}
 	// at this point, udp_socket is set, otherwise has already returned -1.

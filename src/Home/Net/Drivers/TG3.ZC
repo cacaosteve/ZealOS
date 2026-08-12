@@ -2027,13 +2027,10 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	/* Drain any frames already sitting in the return ring before DHCP. */
-	Sleep(100);
-	TG3RxProcess;
-	"TG3: pre-DHCP drain push=%d drop=%d seen=%d rx_cons=%d rx_prod=%d "
-	"std_prod=%d std_bd=%d avail=%d\n",
-		tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
-		tg3.rx_cons, TG3StatusRxProducer(), tg3.rx_std_prod,
+	/* Do NOT drain/push before DHCP ΓÇö that raced RCVRET/BD state and
+	   flooded NetHandler before UDP/68 was bound. Poll task will reclaim. */
+	"TG3: skip pre-DHCP drain (std_prod=%d std_bd=%d avail=%d)\n",
+		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
