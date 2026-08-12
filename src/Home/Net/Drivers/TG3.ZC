@@ -38,6 +38,10 @@
 #define TG3PCI_MEM_WIN_BASE_ADDR	0x0000007C
 #define TG3PCI_MEM_WIN_DATA		0x00000084
 #define TG3PCI_STD_RING_PROD_IDX	0x00000098
+#define TG3PCI_PCISTATE			0x00000070
+#define  TG3_PCISTATE_APE_CTLSPC_WR	0x00010000
+#define  TG3_PCISTATE_APE_SHMEM_WR	0x00020000
+#define  TG3_PCISTATE_APE_PSPACE_WR	0x00040000
 #define TG3PCI_PRODID_ASICREV		0x000000BC
 
 #define TG3_MAILBOX_INTERRUPT_0		0x00000200
@@ -55,6 +59,8 @@
 #define  TG3_MAC_MODE_TDE_ENABLE	0x00200000
 #define  TG3_MAC_MODE_RDE_ENABLE	0x00400000
 #define  TG3_MAC_MODE_FHDE_ENABLE	0x00800000
+#define  TG3_MAC_MODE_APE_RX_EN		0x08000000
+#define  TG3_MAC_MODE_APE_TX_EN		0x10000000
 #define TG3_MAC_STATUS			0x00000404
 #define  TG3_MAC_STATUS_PCS_SYNCED	0x00000001
 #define  TG3_MAC_STATUS_SIGNAL_DET	0x00000002
@@ -156,6 +162,7 @@
 #define TG3_RCVDBDI_JUMBO_BD		0x00002440
 #define TG3_RCVDBDI_STD_CON_IDX		0x00002474
 #define TG3_RCVDCC_MODE			0x00002800
+#define  TG3_RCVDCC_MODE_ATTN		0x00000004
 #define TG3_RCVBDI_MODE			0x00002C00
 #define  TG3_RCVBDI_MODE_RCB_ATTN	0x00000004
 #define TG3_RCVBDI_STD_THRESH		0x00002C18
@@ -231,14 +238,14 @@
 #define  TG3_GRC_MISC_CFG_CORECLK_RESET	0x00000001
 #define  TG3_GRC_MISC_CFG_KEEP_GPHY_POWER 0x04000000
 #define TG3_GRC_LOCAL_CTRL		0x00006808
+#define TG3_GRC_RX_CPU_EVENT		0x00006810
+#define  TG3_GRC_RX_CPU_DRIVER_EVENT	0x00004000
 
 #define TG3_PCIE_TLDLPL_PORT		0x00007C00
 #define TG3_PCIE_DL_LO_FTSMAX		0x0000000C
 #define  TG3_PCIE_DL_FTSMAX_MSK		0x000000FF
 #define  TG3_PCIE_DL_FTSMAX_VAL		0x0000002C
 
-/* Scratch for MEM_WIN R/W test ΓÇö NOT status blk @0xB00 (hw-owned). */
-#define TG3_NIC_SRAM_MEMWIN_TEST	0x00000B54
 #define TG3PCI_GEN15_PRODID_ASICREV	0x000000FC
 
 #define TG3_NIC_SRAM_SEND_RCB		0x00000100
@@ -254,9 +261,45 @@
 #define TG3_FW_HDR_LEN			12
 #define TG3_NIC_SRAM_FIRMWARE_MBOX	0x00000B50
 #define  TG3_FW_MBOX_MAGIC1		0x4B657654
+#define TG3_NIC_SRAM_DATA_SIG		0x00000B54
+#define  TG3_NIC_SRAM_DATA_SIG_MAGIC	0x4B657654
+#define TG3_NIC_SRAM_DATA_CFG		0x00000B58
+#define  TG3_NIC_CFG_ASF_ENABLE		0x00000080
+#define  TG3_NIC_CFG_APE_ENABLE		0x00200000
+#define TG3_NIC_SRAM_FW_CMD_MBOX	0x00000B78
+#define  TG3_FWCMD_PAUSE_FW		0x00000002
 #define TG3_NIC_SRAM_FW_DRV_STATE_MBOX	0x00000C04
 #define  TG3_DRV_STATE_START		0x00000001
 #define  TG3_DRV_STATE_START_DONE	0x80000001
+
+#define TG3_APE_EVENT			0x000C
+#define  TG3_APE_EVENT_1		0x00000001
+#define TG3_APE_SEG_SIG			0x4000
+#define  TG3_APE_SEG_SIG_MAGIC		0x41504521
+#define TG3_APE_FW_STATUS		0x400C
+#define  TG3_APE_FW_STATUS_READY	0x00000100
+#define TG3_APE_HOST_SEG_SIG		0x4200
+#define  TG3_APE_HOST_SEG_SIG_MAGIC	0x484F5354
+#define TG3_APE_HOST_SEG_LEN		0x4204
+#define  TG3_APE_HOST_SEG_LEN_MAGIC	0x00000020
+#define TG3_APE_HOST_INIT_COUNT		0x4208
+#define TG3_APE_HOST_DRIVER_ID		0x420C
+#define  TG3_APE_HOST_DRIVER_ID_ZEAL	0xF0010000
+#define TG3_APE_HOST_BEHAVIOR		0x4210
+#define  TG3_APE_HOST_BEHAV_NO_PHYLOCK	0x00000001
+#define TG3_APE_HOST_HEARTBEAT_INT_MS	0x4214
+#define TG3_APE_HOST_HEARTBEAT_COUNT	0x4218
+#define TG3_APE_HOST_DRVR_STATE		0x421C
+#define  TG3_APE_HOST_DRVR_STATE_START	0x00000001
+#define TG3_APE_EVENT_STATUS		0x4300
+#define  TG3_APE_EVENT_STATUS_DRIVER	0x00000010
+#define  TG3_APE_EVENT_STATUS_STATE_CHG	0x00000500
+#define  TG3_APE_EVENT_STATUS_STATE_START 0x00010000
+#define  TG3_APE_EVENT_STATUS_PENDING	0x80000000
+#define TG3_APE_PER_LOCK_REQ		0x8400
+#define TG3_APE_PER_LOCK_GRANT		0x8420
+#define  TG3_APE_LOCK_MEM		4
+#define  TG3_APE_LOCK_DRIVER		0x00001000
 
 #define TG3_TXD_FLAG_END		0x0004
 #define TG3_TXD_LEN_SHIFT		16
@@ -312,7 +355,11 @@ class CTG3
 	Bool init_ok;
 	Bool firmware_loaded;
 	Bool link_up;
+	Bool ape_en;
+	Bool asf_en;
 	I64 phy_addr;
+	U64 ape_mmio;
+	U32 nic_cfg;
 
 	I64 tx_prod;
 	I64 tx_cons;
@@ -355,6 +402,34 @@ U0 TG3WriteFlush(U32 off, U32 val)
 {
 	TG3Write(off, val);
 	TG3Read(off);
+}
+
+U32 TG3ApeRead(U32 off)
+{
+	U32 *mmio;
+	if (!tg3.ape_mmio)
+		return 0;
+	mmio = tg3.ape_mmio + off;
+	return *mmio;
+}
+
+U0 TG3ApeWrite(U32 off, U32 val)
+{
+	U32 *mmio;
+	if (!tg3.ape_mmio)
+		return;
+	mmio = tg3.ape_mmio + off;
+	*mmio = val;
+}
+
+U32 TG3MacModeBits(U32 extra=0)
+{/* Always keep APE RX/TX if firmware enabled them (Linux tg3). */
+	U32 mode = TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
+		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
+		TG3_MAC_MODE_FHDE_ENABLE | extra;
+	if (tg3.ape_en)
+		mode |= TG3_MAC_MODE_APE_RX_EN | TG3_MAC_MODE_APE_TX_EN;
+	return mode;
 }
 
 U0 TG3MboxWrite(U32 mbox, U32 val)
@@ -406,15 +481,144 @@ U32 TG3MemRead(U32 addr)
 }
 
 Bool TG3MemWinSelfTest()
-{
-	U32 magic = TG3_FW_MBOX_MAGIC1, got;
+{/* Read bootcode DATA_SIG ΓÇö do not smash 0xB54 (that is NIC_SRAM_DATA_SIG). */
+	U32 got = TG3MemRead(TG3_NIC_SRAM_DATA_SIG);
 
-	/* Do not touch FIRMWARE_MBOX ΓÇö bootcode signals ~MAGIC1 there. */
-	TG3MemWrite(TG3_NIC_SRAM_MEMWIN_TEST, magic);
-	got = TG3MemRead(TG3_NIC_SRAM_MEMWIN_TEST);
-	NetLog("TG3: MEM_WIN selftest wrote=0x%X read=0x%X", magic, got);
+	NetLog("TG3: MEM_WIN DATA_SIG=0x%X", got);
 	"TG3: MEM_WIN selftest read=0x%X\n", got;
-	return got == magic;
+	return got == TG3_NIC_SRAM_DATA_SIG_MAGIC || got == 0xB49A89AB;
+}
+
+U0 TG3FwEvent()
+{
+	U32 val = TG3Read(TG3_GRC_RX_CPU_EVENT);
+	TG3WriteFlush(TG3_GRC_RX_CPU_EVENT, val | TG3_GRC_RX_CPU_DRIVER_EVENT);
+}
+
+U0 TG3AsfPause()
+{/* ASF RX CPU steals frames until PAUSE_FW (Linux tg3_stop_fw). */
+	I64 i;
+
+	if (!tg3.asf_en || tg3.ape_en)
+		return;
+	TG3MemWrite(TG3_NIC_SRAM_FW_CMD_MBOX, TG3_FWCMD_PAUSE_FW);
+	TG3FwEvent;
+	for (i = 0; i < 300; i++)
+	{
+		if (!(TG3Read(TG3_GRC_RX_CPU_EVENT) & TG3_GRC_RX_CPU_DRIVER_EVENT))
+			break;
+		Busy(10);
+	}
+	NetLog("TG3: ASF pause i=%d", i);
+	"TG3: ASF pause_fw i=%d\n", i;
+}
+
+Bool TG3ApeLockMem()
+{
+	I64 i;
+	U32 st;
+
+	if (!tg3.ape_mmio)
+		return FALSE;
+	TG3ApeWrite(TG3_APE_PER_LOCK_REQ + 4 * TG3_APE_LOCK_MEM,
+		TG3_APE_LOCK_DRIVER);
+	for (i = 0; i < 100; i++)
+	{
+		st = TG3ApeRead(TG3_APE_PER_LOCK_GRANT + 4 * TG3_APE_LOCK_MEM);
+		if (st == TG3_APE_LOCK_DRIVER)
+			return TRUE;
+		Busy(10);
+	}
+	TG3ApeWrite(TG3_APE_PER_LOCK_GRANT + 4 * TG3_APE_LOCK_MEM,
+		TG3_APE_LOCK_DRIVER);
+	return FALSE;
+}
+
+U0 TG3ApeUnlockMem()
+{
+	if (!tg3.ape_mmio)
+		return;
+	TG3ApeWrite(TG3_APE_PER_LOCK_GRANT + 4 * TG3_APE_LOCK_MEM,
+		TG3_APE_LOCK_DRIVER);
+}
+
+U0 TG3ApeHostInit()
+{
+	U32 sig, st, cnt, ev, pci_st;
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+
+	if (!tg3.ape_en)
+		return;
+	if (!(tg3.pci->base[1] & ~0xF))
+	{
+		NetErr("TG3: APE enabled but BAR1 empty");
+		return;
+	}
+	tg3.ape_mmio = dev.uncached_alias + (tg3.pci->base[1] & ~0xF);
+
+	pci_st = TG3Read(TG3PCI_PCISTATE);
+	pci_st |= TG3_PCISTATE_APE_CTLSPC_WR | TG3_PCISTATE_APE_SHMEM_WR |
+		TG3_PCISTATE_APE_PSPACE_WR;
+	TG3WriteFlush(TG3PCI_PCISTATE, pci_st);
+	PCIWriteU32(bus, dev, fun, TG3PCI_PCISTATE, pci_st);
+
+	sig = TG3ApeRead(TG3_APE_SEG_SIG);
+	st = TG3ApeRead(TG3_APE_FW_STATUS);
+	"TG3: APE BAR1=0x%X sig=0x%X fwstat=0x%X\n",
+		tg3.pci->base[1] & ~0xF, sig, st;
+	NetLog("TG3: APE sig=0x%X fwstat=0x%X", sig, st);
+
+	TG3ApeWrite(TG3_APE_HOST_HEARTBEAT_COUNT, 1);
+	TG3ApeWrite(TG3_APE_HOST_SEG_SIG, TG3_APE_HOST_SEG_SIG_MAGIC);
+	TG3ApeWrite(TG3_APE_HOST_SEG_LEN, TG3_APE_HOST_SEG_LEN_MAGIC);
+	cnt = TG3ApeRead(TG3_APE_HOST_INIT_COUNT);
+	TG3ApeWrite(TG3_APE_HOST_INIT_COUNT, cnt + 1);
+	TG3ApeWrite(TG3_APE_HOST_DRIVER_ID, TG3_APE_HOST_DRIVER_ID_ZEAL);
+	TG3ApeWrite(TG3_APE_HOST_BEHAVIOR, TG3_APE_HOST_BEHAV_NO_PHYLOCK);
+	TG3ApeWrite(TG3_APE_HOST_DRVR_STATE, TG3_APE_HOST_DRVR_STATE_START);
+	TG3ApeWrite(TG3_APE_HOST_HEARTBEAT_INT_MS, 5000);
+
+	if (sig != TG3_APE_SEG_SIG_MAGIC || !(st & TG3_APE_FW_STATUS_READY))
+	{
+		NetWarn("TG3: APE firmware not ready ΓÇö MAC APE bits still set");
+		return;
+	}
+	if (!TG3ApeLockMem)
+	{
+		NetWarn("TG3: APE MEM lock busy");
+		return;
+	}
+	ev = TG3_APE_EVENT_STATUS_STATE_START | TG3_APE_EVENT_STATUS_DRIVER |
+		TG3_APE_EVENT_STATUS_STATE_CHG | TG3_APE_EVENT_STATUS_PENDING;
+	TG3ApeWrite(TG3_APE_EVENT_STATUS, ev);
+	TG3ApeUnlockMem;
+	TG3ApeWrite(TG3_APE_EVENT, TG3_APE_EVENT_1);
+	"TG3: APE host START sent\n";
+}
+
+U0 TG3NicCfgRead()
+{
+	U32 sig = TG3MemRead(TG3_NIC_SRAM_DATA_SIG);
+
+	tg3.nic_cfg = 0;
+	tg3.ape_en = FALSE;
+	tg3.asf_en = FALSE;
+	if (sig != TG3_NIC_SRAM_DATA_SIG_MAGIC)
+	{
+		NetWarn("TG3: DATA_SIG=0x%X (not KevT) ΓÇö APE/ASF unknown", sig);
+		"TG3: DATA_SIG=0x%X cfg=?\n", sig;
+		/* BAR1 present on Mac mini LOM: assume APE. */
+		if (tg3.pci->base[1] & ~0xF)
+			tg3.ape_en = TRUE;
+		return;
+	}
+	tg3.nic_cfg = TG3MemRead(TG3_NIC_SRAM_DATA_CFG);
+	if (tg3.nic_cfg & TG3_NIC_CFG_ASF_ENABLE)
+		tg3.asf_en = TRUE;
+	if (tg3.nic_cfg & TG3_NIC_CFG_APE_ENABLE)
+		tg3.ape_en = TRUE;
+	NetLog("TG3: nic_cfg=0x%X ASF=%d APE=%d", tg3.nic_cfg, tg3.asf_en, tg3.ape_en);
+	"TG3: nic_cfg=0x%X ASF=%d APE=%d\n", tg3.nic_cfg, tg3.asf_en, tg3.ape_en;
 }
 
 U0 TG3MemArbEnable()
@@ -700,13 +904,10 @@ U0 TG3LinkApply()
 		spd_str = "default-1000F";
 	}
 
-	mac_mode = TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
-		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
-		TG3_MAC_MODE_FHDE_ENABLE;
 	if (use_gmii)
-		mac_mode |= TG3_MAC_MODE_PORT_GMII;
+		mac_mode = TG3MacModeBits(TG3_MAC_MODE_PORT_GMII);
 	else
-		mac_mode |= TG3_MAC_MODE_PORT_MII;
+		mac_mode = TG3MacModeBits(TG3_MAC_MODE_PORT_MII);
 	if (!full)
 		mac_mode |= TG3_MAC_MODE_HALF_DUPLEX;
 	TG3WriteFlush(TG3_MAC_MODE, mac_mode);
@@ -811,6 +1012,10 @@ U0 TG3PollFw()
 	TG3MemWrite(TG3_NIC_SRAM_FW_DRV_STATE_MBOX, TG3_DRV_STATE_START);
 	Busy(100);
 	TG3MemWrite(TG3_NIC_SRAM_FW_DRV_STATE_MBOX, TG3_DRV_STATE_START_DONE);
+
+	TG3NicCfgRead;
+	TG3AsfPause;
+	TG3ApeHostInit;
 }
 
 U0 TG3ChipReset()
@@ -1061,9 +1266,7 @@ U0 TG3EnableBlocks()
 	Busy(100);
 
 	/* RDE/TDE must be live before RCVBDI (Linux tg3_reset_hw). */
-	val = TG3_MAC_MODE_PORT_GMII | TG3_MAC_MODE_RXSTAT_ENABLE |
-		TG3_MAC_MODE_TXSTAT_ENABLE | TG3_MAC_MODE_TDE_ENABLE |
-		TG3_MAC_MODE_RDE_ENABLE | TG3_MAC_MODE_FHDE_ENABLE;
+	val = TG3MacModeBits(TG3_MAC_MODE_PORT_GMII);
 	TG3WriteFlush(TG3_MAC_MODE, val);
 	Busy(40);
 
@@ -1081,7 +1284,7 @@ U0 TG3EnableBlocks()
 	val = TG3Read(TG3_RDMA_RSRVCTRL);
 	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
 
-	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE);
+	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE | TG3_RCVDCC_MODE_ATTN);
 	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
 	TG3WriteFlush(TG3_RCVDBDI_MODE,
 		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
@@ -1374,12 +1577,8 @@ Bool TG3LoopbackTest()
 	Busy(40);
 
 	saved_mode = TG3Read(TG3_MAC_MODE);
-	mode = (saved_mode & ~(0xC | TG3_MAC_MODE_HALF_DUPLEX |
-		TG3_MAC_MODE_PORT_INT_LPBACK)) |
-		TG3_MAC_MODE_PORT_GMII |
-		TG3_MAC_MODE_RXSTAT_ENABLE | TG3_MAC_MODE_TXSTAT_ENABLE |
-		TG3_MAC_MODE_TDE_ENABLE | TG3_MAC_MODE_RDE_ENABLE |
-		TG3_MAC_MODE_FHDE_ENABLE;
+	mode = TG3MacModeBits(TG3_MAC_MODE_PORT_GMII);
+	mode &= ~(TG3_MAC_MODE_HALF_DUPLEX | TG3_MAC_MODE_PORT_INT_LPBACK);
 	TG3WriteFlush(TG3_MAC_MODE, mode);
 	TG3Write(TG3_MAC_RX_MTU_SIZE, 64 + 4);
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC);
