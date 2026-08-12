@@ -1491,6 +1491,48 @@ U16 TG3StatusTxConsumer()
 	return w >> 16;
 }
 
+U0 TG3StdRingRepost(I64 buf_idx, I64 ring_idx)
+{/* Place buffer buf_idx into producer ring slot ring_idx. */
+	CTG3RxDesc *rd = &tg3.rx_std[ring_idx & (TG3_RX_STD_RING_SIZE - 1)];
+
+	rd->addr_hi = 0;
+	rd->addr_lo = tg3.rx_bufs_phys + buf_idx * ETHERNET_FRAME_SIZE;
+	rd->idx_len = TG3_RX_STD_DMA_SZ;
+	rd->type_flags = TG3_RXD_FLAG_END;
+	rd->ip_tcp_csum = 0;
+	rd->err_vlan = 0;
+	rd->reserved = 0;
+	rd->opaque = TG3_RXD_OPAQUE_RING_STD | buf_idx;
+}
+
+I64 TG3StdAvail()
+{
+	I64 cons = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
+	return (tg3.rx_std_prod - cons) & (TG3_RX_STD_RING_SIZE - 1);
+}
+
+U0 TG3StdRingRefill()
+{/* If soft producer collapsed onto HW consumer (avail==0), RX is dead.
+	Rebuild PENDING descriptors ahead of cons. Photos showed std_prod==std_bd. */
+	I64 cons = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
+	I64 avail = TG3StdAvail;
+	I64 i, ring, want;
+
+	if (avail >= (TG3_RX_PENDING / 4))
+		return;
+
+	want = (cons + TG3_RX_PENDING) & (TG3_RX_STD_RING_SIZE - 1);
+	"TG3: std ring LOW avail=%d cons=%d prod=%d ΓÇö refill to %d\n",
+		avail, cons, tg3.rx_std_prod, want;
+	for (i = 0; i < TG3_RX_PENDING; i++)
+	{
+		ring = (cons + i) & (TG3_RX_STD_RING_SIZE - 1);
+		TG3StdRingRepost(i, ring);
+	}
+	tg3.rx_std_prod = want;
+	TG3StdProdKick(want);
+}
+
 U0 TG3RxProcess()
 {/* Drain return ring. Must advance RCVRET consumer or HW RX stalls
 	after a small in-flight batch (~std_bd stuck, no new octets). */
@@ -1532,37 +1574,31 @@ U0 TG3RxProcess()
 		else
 			tg3.rx_drop_count++;
 
-		/* Re-post producer descriptor for this buffer index. */
+		/* Re-post this buffer at the next producer slot. */
 		if (opaque < TG3_RX_PENDING)
 		{
-			rd = &tg3.rx_std[tg3.rx_std_prod & (TG3_RX_STD_RING_SIZE - 1)];
-			rd->addr_hi = 0;
-			rd->addr_lo = tg3.rx_bufs_phys + opaque * ETHERNET_FRAME_SIZE;
-			rd->idx_len = TG3_RX_STD_DMA_SZ;
-			rd->type_flags = TG3_RXD_FLAG_END;
-			rd->ip_tcp_csum = 0;
-			rd->err_vlan = 0;
-			rd->reserved = 0;
-			rd->opaque = TG3_RXD_OPAQUE_RING_STD | opaque;
+			TG3StdRingRepost(opaque, tg3.rx_std_prod);
 			tg3.rx_std_prod = (tg3.rx_std_prod + 1) &
 				(TG3_RX_STD_RING_SIZE - 1);
 			std_posted++;
 		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
-		/* Refresh producer ΓÇö packets may arrive while draining. */
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
 
-	if (std_posted)
-		TG3StdProdKick(tg3.rx_std_prod);
-
+	/* Linux order: ACK return ring first, then kick std producer. */
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
 		TG3RcvRetKick(cons);
 	}
+	if (std_posted)
+		TG3StdProdKick(tg3.rx_std_prod);
+
+	/* Guard against empty producer ring (std_prod collapsed onto std_bd). */
+	TG3StdRingRefill;
 
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
@@ -1988,9 +2024,10 @@ U0 TG3Init()
 	Sleep(100);
 	TG3RxProcess;
 	"TG3: pre-DHCP drain push=%d drop=%d seen=%d rx_cons=%d rx_prod=%d "
-	"std_prod=%d\n",
+	"std_prod=%d std_bd=%d avail=%d\n",
 		tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
-		tg3.rx_cons, TG3StatusRxProducer(), tg3.rx_std_prod;
+		tg3.rx_cons, TG3StatusRxProducer(), tg3.rx_std_prod,
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
