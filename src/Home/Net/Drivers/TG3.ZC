@@ -639,6 +639,7 @@ U0 TG3NicCfgRead()
 {
 	U32 sig = TG3MemRead(TG3_NIC_SRAM_DATA_SIG);
 	U32 cfg2 = 0;
+	I64 apd;
 
 	tg3.nic_cfg = 0;
 	tg3.ape_en = FALSE;
@@ -658,12 +659,13 @@ U0 TG3NicCfgRead()
 	if (tg3.nic_cfg & TG3_NIC_CFG_APE_ENABLE)
 		tg3.ape_en = TRUE;
 	cfg2 = TG3MemRead(TG3_NIC_SRAM_DATA_CFG_2);
+	apd = 0;
+	if (cfg2 & TG3_NIC_CFG_2_APD_EN)
+		apd = 1;
 	NetLog("TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d",
-		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2,
-		!!(cfg2 & TG3_NIC_CFG_2_APD_EN));
+		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2, apd);
 	"TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d\n",
-		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2,
-		!!(cfg2 & TG3_NIC_CFG_2_APD_EN));
+		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2, apd);
 }
 
 U0 TG3MemArbEnable()
@@ -1544,7 +1546,7 @@ U0 TG3PollTask()
 				TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr))
 			{
 				was = tg3.link_up;
-				tg3.link_up = !!(bmsr & TG3_BMSR_LSTATUS);
+				tg3.link_up = ToBool(bmsr & TG3_BMSR_LSTATUS);
 				if (was != tg3.link_up)
 				{
 					mac_stat = TG3Read(TG3_MAC_STATUS);
@@ -1875,8 +1877,8 @@ U0 TG3Init()
 
 	mac_stat = TG3Read(TG3_MAC_STATUS);
 	NetLog("TG3: MAC_STATUS=0x%X pcs=%d sig=%d", mac_stat,
-		!!(mac_stat & TG3_MAC_STATUS_PCS_SYNCED),
-		!!(mac_stat & TG3_MAC_STATUS_SIGNAL_DET));
+		ToBool(mac_stat & TG3_MAC_STATUS_PCS_SYNCED),
+		ToBool(mac_stat & TG3_MAC_STATUS_SIGNAL_DET));
 
 	tg3.init_ok = TRUE;
 	TG3InterruptsSetup;
