@@ -665,7 +665,7 @@ U0 TG3NicCfgRead()
 	NetLog("TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d",
 		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2, apd);
 	"TG3: nic_cfg=0x%X ASF=%d APE=%d cfg2=0x%X APD=%d\n",
-		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2, apd);
+		tg3.nic_cfg, tg3.asf_en, tg3.ape_en, cfg2, apd;
 }
 
 U0 TG3MemArbEnable()
