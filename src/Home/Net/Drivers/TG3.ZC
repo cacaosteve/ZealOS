@@ -510,22 +510,20 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* MMIO mailbox + GRC alias + PCI config (57766 / Mac mini). */
+{/* Mac mini / 57766: Linux indirect_mbox writes STD prod via PCI config
+	ONLY (not MMIO). Triple-write may have been stomping the mailbox. */
 	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
 
-	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
-	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
-	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
+	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW,
+		prod & 0xFFFF);
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* Same triple-write as STD prod ΓÇö MMIO-only RCVRET left RX dead after
-	the first ~N frames (mbufs never freed). Linux uses PCI cfg too. */
+{/* Same ΓÇö Linux indirect path: PCI RCV_RET_RING_CON_IDX only. */
 	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
 
-	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
-	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
-	PCIWriteU32(bus, dev, fun, TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
+	PCIWriteU32(bus, dev, fun, TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW,
+		cons & 0xFFFF);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1542,16 +1540,13 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Hold return-ring until net_rx_deliver (DHCP bind).
+{/* Hold return-ring until DHCP bind, then copy+recycle every packet.
 
-	Photos (7212842a): first drain worked (push=20, ARP learned
-	192.168.2.1) but recycling to std_prod=220 froze further RX for
-	the Offer wait. So: copy+ACK only; refill std ring when avail low,
-	never advance std_prod past the original PENDING window unless
-	refilling. */
+	No-recycle ACK froze at ~25; batch recycle to std_prod=220 also froze.
+	Chip needs buffers reposted; mailbox kicks must be PCI-only like Linux. */
 	U16 hw_prod;
 	I64 cons;
-	I64 avail;
+	I64 std_prod;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
@@ -1562,6 +1557,7 @@ U0 TG3RxProcess()
 		return;
 
 	cons = tg3.rx_cons;
+	std_prod = tg3.rx_std_prod;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1582,8 +1578,7 @@ U0 TG3RxProcess()
 				pkt_len -= 4;
 			NetQueuePush(pkt, pkt_len);
 			tg3.rx_push_count++;
-			/* Always print early pushes; then every 16th. */
-			if (tg3.rx_push_count <= 24 || !(tg3.rx_push_count & 0xF))
+			if (tg3.rx_push_count <= 32 || !(tg3.rx_push_count & 0xF))
 			{
 				eth = pkt;
 				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
@@ -1592,30 +1587,29 @@ U0 TG3RxProcess()
 					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
 					eth[12], eth[13], hw_prod, cons;
 			}
+			TG3StdRingRepost(opaque, std_prod);
+			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+			tg3.rx_std_prod = std_prod;
+			TG3StdProdKick(std_prod);
 		}
 		else
+		{
 			tg3.rx_drop_count++;
+			if (opaque < TG3_RX_PENDING)
+			{
+				TG3StdRingRepost(opaque, std_prod);
+				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+				tg3.rx_std_prod = std_prod;
+				TG3StdProdKick(std_prod);
+			}
+		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
-		if (cons == hw_prod)
-			hw_prod = TG3StatusRxProducer();
-	}
-
-	if (cons != tg3.rx_cons)
-	{
 		tg3.rx_cons = cons;
 		TG3RcvRetKick(cons);
-	}
 
-	/* Keep original BD window (prod=200). Only rebuild if HW caught up. */
-	avail = TG3StdAvail;
-	if (avail < (TG3_RX_PENDING / 4))
-	{
-		TG3StdRingRefill;
-		"TG3: std refill avail was low -> prod=%d bd=%d avail=%d\n",
-			tg3.rx_std_prod,
-			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
-			TG3StdAvail;
+		if (cons == hw_prod)
+			hw_prod = TG3StatusRxProducer();
 	}
 
 	tg3.status[0] = 0;
