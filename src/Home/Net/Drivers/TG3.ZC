@@ -1542,18 +1542,16 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Do not touch the return ring until net_rx_deliver.
+{/* Hold return-ring until net_rx_deliver (DHCP bind).
 
-	Photos (52e21ba8): std_prod stayed 200 (good) but ACKing RCVRET for
-	the early mcast batch without recycling still froze RX at ~10
-	(push=0, prod=cons, oct=0 through the whole Offer wait).
-
-	Hold completions in the return ring until DHCP binds, then drain
-	with copy+recycle like Linux. */
+	Photos (7212842a): first drain worked (push=20, ARP learned
+	192.168.2.1) but recycling to std_prod=220 froze further RX for
+	the Offer wait. So: copy+ACK only; refill std ring when avail low,
+	never advance std_prod past the original PENDING window unless
+	refilling. */
 	U16 hw_prod;
 	I64 cons;
-	I64 std_prod;
-	I64 recycled;
+	I64 avail;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
@@ -1564,8 +1562,6 @@ U0 TG3RxProcess()
 		return;
 
 	cons = tg3.rx_cons;
-	std_prod = tg3.rx_std_prod;
-	recycled = 0;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1586,38 +1582,21 @@ U0 TG3RxProcess()
 				pkt_len -= 4;
 			NetQueuePush(pkt, pkt_len);
 			tg3.rx_push_count++;
-			if (tg3.rx_push_count <= 8 || !(tg3.rx_push_count & 0xF))
+			/* Always print early pushes; then every 16th. */
+			if (tg3.rx_push_count <= 24 || !(tg3.rx_push_count & 0xF))
 			{
 				eth = pkt;
-				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X "
+				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
 				"eth=%02X%02X prod=%d cons=%d\n",
 					tg3.rx_push_count, pkt_len, opaque,
-					eth[0], eth[1], eth[2],
+					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
 					eth[12], eth[13], hw_prod, cons;
 			}
-			TG3StdRingRepost(opaque, std_prod);
-			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			recycled++;
 		}
 		else
-		{
 			tg3.rx_drop_count++;
-			if (opaque < TG3_RX_PENDING)
-			{
-				TG3StdRingRepost(opaque, std_prod);
-				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-				recycled++;
-			}
-		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
-		/* Kick STD every few BDs ΓÇö 5750-class errata uses max_post=8;
-		   be conservative on 57766 too. */
-		if (recycled && !(recycled & 7))
-		{
-			tg3.rx_std_prod = std_prod;
-			TG3StdProdKick(std_prod);
-		}
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
@@ -1627,13 +1606,18 @@ U0 TG3RxProcess()
 		tg3.rx_cons = cons;
 		TG3RcvRetKick(cons);
 	}
-	if (recycled)
+
+	/* Keep original BD window (prod=200). Only rebuild if HW caught up. */
+	avail = TG3StdAvail;
+	if (avail < (TG3_RX_PENDING / 4))
 	{
-		tg3.rx_std_prod = std_prod;
-		TG3StdProdKick(std_prod);
+		TG3StdRingRefill;
+		"TG3: std refill avail was low -> prod=%d bd=%d avail=%d\n",
+			tg3.rx_std_prod,
+			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
+			TG3StdAvail;
 	}
 
-	/* Allow HOSTCC to DMA a fresh status block (tagged or not). */
 	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
@@ -1642,6 +1626,7 @@ U0 TG3KeepRxAlive()
 {
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
+	I64 push0;
 
 	if (!tg3.init_ok)
 		return;
@@ -1650,11 +1635,8 @@ U0 TG3KeepRxAlive()
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	tg3.status[0] = 0;
 
-	if (net_rx_deliver)
-		TG3RxProcess;
-	else
+	if (!net_rx_deliver)
 	{
-		/* Peek only ΓÇö do not ACK RCVRET before DHCP bind. */
 		prod = TG3StatusRxProducer();
 		std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
 		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
@@ -1666,9 +1648,10 @@ U0 TG3KeepRxAlive()
 		return;
 	}
 
+	push0 = tg3.rx_push_count;
+	TG3RxProcess;
 	TG3RxModeRun;
 	TG3StdProdKick(tg3.rx_std_prod);
-	TG3RcvRetKick(tg3.rx_cons);
 
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
@@ -1676,10 +1659,13 @@ U0 TG3KeepRxAlive()
 	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
 	mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
-	"TG3: alive push=%d seen=%d prod=%d cons=%d "
-	"std_bd=%d std_prod=%d oct=%d u=%d b=%d m=%d\n",
-		tg3.rx_push_count, tg3.rx_seen_count, prod, tg3.rx_cons,
-		std_bd, tg3.rx_std_prod, oct, ucast, bcast, mcast;
+	/* Print when RX moved, else sparsely ΓÇö avoid drowning DHCP lines. */
+	if (tg3.rx_push_count != push0 || prod != tg3.rx_cons ||
+		!(tg3.rx_push_count & 3))
+		"TG3: alive push=%d seen=%d prod=%d cons=%d "
+		"std_bd=%d std_prod=%d oct=%d u=%d b=%d m=%d\n",
+			tg3.rx_push_count, tg3.rx_seen_count, prod, tg3.rx_cons,
+			std_bd, tg3.rx_std_prod, oct, ucast, bcast, mcast;
 }
 
 interrupt U0 TG3IRQ()
