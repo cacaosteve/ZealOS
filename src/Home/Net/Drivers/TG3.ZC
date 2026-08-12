@@ -545,7 +545,7 @@ U0 TG3ApeUnlockMem()
 U0 TG3ApeHostInit()
 {
 	U32 sig, st, cnt, ev, pci_st;
-	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
 
 	if (!tg3.ape_en)
 		return;
@@ -560,7 +560,7 @@ U0 TG3ApeHostInit()
 	pci_st |= TG3_PCISTATE_APE_CTLSPC_WR | TG3_PCISTATE_APE_SHMEM_WR |
 		TG3_PCISTATE_APE_PSPACE_WR;
 	TG3WriteFlush(TG3PCI_PCISTATE, pci_st);
-	PCIWriteU32(bus, dev, fun, TG3PCI_PCISTATE, pci_st);
+	PCIWriteU32(bus, pdev, fun, TG3PCI_PCISTATE, pci_st);
 
 	sig = TG3ApeRead(TG3_APE_SEG_SIG);
 	st = TG3ApeRead(TG3_APE_FW_STATUS);
