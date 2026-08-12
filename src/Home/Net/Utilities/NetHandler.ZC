@@ -104,8 +104,9 @@ interrupt U0 NetHandler()
 U0 NetHandlerInit()
 {
 	IntEntrySet(I_NETHANDLER, &NetHandler);
-	net_rx_deliver = TRUE;
-	"Net: RX delivery enabled (NetHandler live)\n";
+	/* Do not enable net_rx_deliver yet ΓÇö wait until DHCP binds port 68.
+	   TG3 still reclaims RCVRET while deliver is FALSE. */
+	"Net: NetHandler live (RX deliver deferred until DHCP bind)\n";
 }
 
 NetHandlerInit;

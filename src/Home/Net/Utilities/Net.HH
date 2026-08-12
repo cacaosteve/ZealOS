@@ -33,5 +33,9 @@ DefinePrint("I_NETHANDLER", "%d", IntEntryAlloc);
 
 /* Drivers load before NetHandler.ZC installs I_NETHANDLER. Until then,
    NetQueuePush must drop frames or the queue grows forever (mcast flood
-   during TG3Init) and DHCP never starts. Set TRUE in NetHandlerInit. */
+   during TG3Init) and DHCP never starts. Prefer enabling only after
+   DHCP binds UDP/68 so Offers are not dropped on an empty socket tree. */
 Bool net_rx_deliver = FALSE;
+
+/* Optional NIC poll hook (TG3 sets this) ΓÇö DHCP Offer wait calls it. */
+U0 (*net_nic_poll)() = NULL;

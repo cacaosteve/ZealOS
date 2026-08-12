@@ -386,6 +386,7 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 	U32 dhcp_addr;
 	U8	buffer[2048];
 	I64 count;
+	I64 i;
 
 	CSocketAddressIPV4	ipv4_addr;
 	CSocketAddressIPV4	ipv4_addr_in;
@@ -402,6 +403,11 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 		NetErr("DHCP CONFIGURE INNER: Failed to Bind UDP Socket.");
 		return -1;
 	}
+	/* Now Offers have a socket ΓÇö enable RX delivery. */
+	net_rx_deliver = TRUE;
+	"DHCP: UDP/68 bound ΓÇö RX delivery enabled\n";
+	if (net_nic_poll)
+		(*net_nic_poll)();
 
 	xid = DHCPTransactionBegin;
 
@@ -425,7 +431,20 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 				}
 				"DHCP: Discover sent xid=%08X ΓÇö waiting Offer\n", xid;
 
-				count = UDPSocketReceiveFrom(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in);
+				/* Slice the wait so we can poke the NIC; RX was freezing
+				   at ~20 frames across a single long ReceiveFrom. */
+				udp_socket->receive_timeout_ms = 250;
+				count = -1;
+				for (i = 0; i < (timeout / 250); i++)
+				{
+					if (net_nic_poll)
+						(*net_nic_poll)();
+					count = UDPSocketReceiveFrom(udp_socket, buffer,
+						sizeof(buffer), &ipv4_addr_in);
+					if (count > 0)
+						break;
+				}
+				udp_socket->receive_timeout_ms = timeout;
 
 				if (count > 0)
 				{ // 'Try a parse offer'
@@ -463,7 +482,18 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					return error;
 				}
 
-				count = UDPSocketReceiveFrom(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in);
+				udp_socket->receive_timeout_ms = 250;
+				count = -1;
+				for (i = 0; i < (timeout / 250); i++)
+				{
+					if (net_nic_poll)
+						(*net_nic_poll)();
+					count = UDPSocketReceiveFrom(udp_socket, buffer,
+						sizeof(buffer), &ipv4_addr_in);
+					if (count > 0)
+						break;
+				}
+				udp_socket->receive_timeout_ms = timeout;
 
 				if (count > 0)
 				{ // 'Try parse Ack'

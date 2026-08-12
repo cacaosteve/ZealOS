@@ -1534,15 +1534,13 @@ U0 TG3StdRingRefill()
 }
 
 U0 TG3RxProcess()
-{/* Drain return ring. Must advance RCVRET consumer or HW RX stalls
-	after a small in-flight batch (~std_bd stuck, no new octets).
-
-	Do NOT recycle onto the std producer ring while plenty of original
-	BDs remain (prod still at 200, cons at ~25 ΓåÆ ~175 free). Early
-	recycle+kick to 225 coincided with RX dying despite avail=200. */
+{/* Drain return ring like Linux tg3_rx:
+	copy (optional) ΓåÆ recycle buffer onto std producer ΓåÆ ACK RCVRET ΓåÆ
+	kick STD prod. Deferred-only refill left rx_prod stuck ~20 on 57766. */
 	U16 hw_prod;
 	I64 cons = tg3.rx_cons;
-	I64 avail;
+	I64 std_prod = tg3.rx_std_prod;
+	I64 recycled = 0;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
@@ -1568,7 +1566,7 @@ U0 TG3RxProcess()
 			/* Strip Ethernet FCS if present in length. */
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			/* Still reclaim RCVRET when stack not ready; only deliver later. */
+			/* NetQueuePush MemCopy's ΓÇö safe to recycle buffer after. */
 			if (net_rx_deliver)
 			{
 				NetQueuePush(pkt, pkt_len);
@@ -1583,35 +1581,50 @@ U0 TG3RxProcess()
 						eth[12], eth[13], hw_prod, cons;
 				}
 			}
+			TG3StdRingRepost(opaque, std_prod);
+			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+			recycled++;
 		}
 		else
+		{
 			tg3.rx_drop_count++;
+			/* Still recycle errored buffers so the ring cannot stall. */
+			if (opaque < TG3_RX_PENDING)
+			{
+				TG3StdRingRepost(opaque, std_prod);
+				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+				recycled++;
+			}
+		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
 
-	/* Linux order: ACK return ring first. */
+	/* Linux order: ACK return ring, then kick std producer. */
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
 		TG3RcvRetKick(cons);
 	}
-
-	/* Only refill std producer when running low on never-used BDs. */
-	avail = TG3StdAvail;
-	if (avail < (TG3_RX_PENDING / 4))
+	if (recycled)
 	{
-		/* Recycle return-ring opaques into producer slots, then kick. */
-		/* For now full-window rebuild from HW cons ΓÇö safe when low. */
-		TG3StdRingRefill;
-		"TG3: post-recycle avail=%d std_prod=%d std_bd=%d\n",
-			TG3StdAvail, tg3.rx_std_prod,
-			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
+		tg3.rx_std_prod = std_prod;
+		TG3StdProdKick(std_prod);
 	}
 
 	tg3.tx_cons = TG3StatusTxConsumer();
+}
+
+U0 TG3KeepRxAlive()
+{/* Called from DHCP Offer wait ΓÇö reclaim + force status DMA refresh. */
+	if (!tg3.init_ok)
+		return;
+	TG3WriteFlush(TG3_HOSTCC_MODE,
+		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	TG3RxProcess;
+	TG3RxModeRun;
 }
 
 interrupt U0 TG3IRQ()
@@ -1728,7 +1741,6 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
 	U32 mbox, txm, wdm, bfm, rxm, st2, bcast, ucast, mcast;
 	U32 fcs, und, frag, oct, rxst, eee;
-	CTG3RxDesc *rd0;
 
 	tg3.tx_prod = next;
 	/* Write TX producer twice (TXD_MBOX_HWBUG style) then flush-read. */
@@ -1756,7 +1768,6 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
 		rxst = TG3Read(TG3_MAC_RX_STATUS);
 		eee = TG3Read(TG3_CPMU_EEE_MODE);
-		rd0 = &tg3.rx_ret[0];
 		NetLog("TG3: TX prod=%d mbox=%d status0=0x%X status2=0x%X status4=0x%X "
 			"tx_cons=%d rx_prod=%d rx_cons=%d TX=0x%X RX=0x%X "
 			"rx_b=%d rx_u=%d rx_m=%d oct=%d std_bd=%d push=%d drop=%d seen=%d",
@@ -1767,13 +1778,13 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count);
 		if (next <= 4)
 			"TG3: TX dbg rx_u=%d rx_b=%d rx_m=%d oct=%d std_bd=%d "
-			"rx_prod=%d rx_cons=%d push=%d drop=%d "
-			"ret0 len=0x%X fl=0x%X opq=0x%X\n",
+			"rx_prod=%d rx_cons=%d push=%d drop=%d seen=%d "
+			"std_prod=%d avail=%d\n",
 				ucast, bcast, mcast, oct,
-				TG3Read(TG3_RCVDBDI_STD_CON_IDX),
+				TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
 				TG3StatusRxProducer(), tg3.rx_cons,
-				tg3.rx_push_count, tg3.rx_drop_count,
-				rd0->idx_len, rd0->type_flags, rd0->opaque;
+				tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
+				tg3.rx_std_prod, TG3StdAvail;
 	}
 }
 
@@ -2034,6 +2045,7 @@ U0 TG3Init()
 	"TG3: skip pre-DHCP drain (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
+	net_nic_poll = &TG3KeepRxAlive;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
