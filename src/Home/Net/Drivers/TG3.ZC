@@ -39,6 +39,7 @@
 #define TG3PCI_MEM_WIN_BASE_ADDR	0x0000007C
 #define TG3PCI_MEM_WIN_DATA		0x00000084
 #define TG3PCI_STD_RING_PROD_IDX	0x00000098
+#define TG3PCI_RCV_RET_RING_CON_IDX	0x000000A0
 #define TG3PCI_PCISTATE			0x00000070
 #define  TG3_PCISTATE_APE_CTLSPC_WR	0x00010000
 #define  TG3_PCISTATE_APE_SHMEM_WR	0x00020000
@@ -49,6 +50,8 @@
 #define TG3_MAILBOX_RCV_STD_PROD_IDX	0x00000268
 #define TG3_MAILBOX_RCVRET_CON_IDX_0	0x00000280
 #define TG3_MAILBOX_SNDHOST_PROD_IDX_0	0x00000300
+#define TG3_GRCMBOX_RCVSTD_PROD_IDX	0x00005868
+#define TG3_GRCMBOX_RCVRET_CON_IDX_0	0x00005880
 
 #define TG3_MAC_MODE			0x00000400
 #define  TG3_MAC_MODE_HALF_DUPLEX	0x00000002
@@ -134,7 +137,6 @@
 #define  TG3_BMSR_LSTATUS		0x0004
 #define TG3_MAC_TX_STATUS		0x00000460
 #define  TG3_TX_STATUS_LINK_UP		0x00000008
-#define TG3_GRCMBOX_RCVSTD_PROD_IDX	0x00005868
 #define TG3_MII_PHYSID1			0x02
 #define TG3_MII_PHYSID2			0x03
 #define TG3_MII_ADVERTISE		0x04
@@ -513,6 +515,16 @@ U0 TG3StdProdKick(U32 prod)
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
 	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
+}
+
+U0 TG3RcvRetKick(U32 cons)
+{/* Same triple-write as STD prod ΓÇö MMIO-only RCVRET left RX dead after
+	the first ~N frames (mbufs never freed). Linux uses PCI cfg too. */
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+
+	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
+	PCIWriteU32(bus, dev, fun, TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1346,7 +1358,7 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_HOSTCC_STATUS_BLK_HOST_ADDR + TG3_64BIT_LOW, tg3.status_phys);
 
 	TG3MboxWriteFlush(TG3_MAILBOX_SNDHOST_PROD_IDX_0, 0);
-	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, 0);
+	TG3RcvRetKick(0);
 	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, 1);
 
 	TG3Write(TG3_HOSTCC_RXCOL_TICKS, 0x48);
@@ -1482,7 +1494,7 @@ U16 TG3StatusTxConsumer()
 U0 TG3RxProcess()
 {/* Drain return ring. Must advance RCVRET consumer or HW RX stalls
 	after a small in-flight batch (~std_bd stuck, no new octets). */
-	U16 hw_prod = TG3StatusRxProducer();
+	U16 hw_prod;
 	I64 cons = tg3.rx_cons;
 	I64 std_posted = 0;
 	CTG3RxDesc *rd;
@@ -1490,9 +1502,6 @@ U0 TG3RxProcess()
 	U32 opaque;
 	U8 *pkt;
 
-	/* Force status-block refresh before comparing producers. */
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1541,6 +1550,9 @@ U0 TG3RxProcess()
 		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
+		/* Refresh producer ΓÇö packets may arrive while draining. */
+		if (cons == hw_prod)
+			hw_prod = TG3StatusRxProducer();
 	}
 
 	if (std_posted)
@@ -1549,7 +1561,7 @@ U0 TG3RxProcess()
 	if (cons != tg3.rx_cons)
 	{
 		tg3.rx_cons = cons;
-		TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+		TG3RcvRetKick(cons);
 	}
 
 	tg3.tx_cons = TG3StatusTxConsumer();
@@ -1975,9 +1987,10 @@ U0 TG3Init()
 	/* Drain any frames already sitting in the return ring before DHCP. */
 	Sleep(100);
 	TG3RxProcess;
-	"TG3: pre-DHCP drain push=%d drop=%d seen=%d rx_cons=%d rx_prod=%d\n",
+	"TG3: pre-DHCP drain push=%d drop=%d seen=%d rx_cons=%d rx_prod=%d "
+	"std_prod=%d\n",
 		tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
-		tg3.rx_cons, TG3StatusRxProducer();
+		tg3.rx_cons, TG3StatusRxProducer(), tg3.rx_std_prod;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
