@@ -1503,7 +1503,7 @@ U0 TG3RxProcess()
 		tg3.rx_seen_count++;
 
 		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) &&
-			!(rd->err_vlan & 0x00FF0000) &&
+			!(rd->err_vlan & 0x01FF0000) &&
 			pkt_len >= 14 && opaque < TG3_RX_PENDING)
 		{
 			pkt = tg3.rx_bufs + opaque * ETHERNET_FRAME_SIZE;
