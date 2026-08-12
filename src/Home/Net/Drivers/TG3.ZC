@@ -510,20 +510,14 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* Mac mini / 57766: Linux indirect_mbox writes STD prod via PCI config
-	ONLY (not MMIO). Triple-write may have been stomping the mailbox. */
-	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
-
-	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW,
-		prod & 0xFFFF);
+{/* 57766: Linux write32_rx_mbox is plain MMIO (not ICH indirect/PCI).
+	Flush-read so posted writes hit the ASIC before we continue. */
+	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod & 0xFFFF);
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* Same ΓÇö Linux indirect path: PCI RCV_RET_RING_CON_IDX only. */
-	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
-
-	PCIWriteU32(bus, dev, fun, TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW,
-		cons & 0xFFFF);
+{/* Same ΓÇö MMIO RCVRET consumer mailbox. */
+	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons & 0xFFFF);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1540,13 +1534,16 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Hold return-ring until DHCP bind, then copy+recycle every packet.
+{/* Hold return-ring until DHCP bind, then copy+recycle.
 
-	No-recycle ACK froze at ~25; batch recycle to std_prod=220 also froze.
-	Chip needs buffers reposted; mailbox kicks must be PCI-only like Linux. */
+	Photos (f3fa513e): first 11 frames + std_prodΓåÆ211 then freeze during
+	Offer wait. Linux tg3_rx: recycle BDs, then ONE RCVRET kick and ONE
+	STD prod kick at the end (not per packet). */
 	U16 hw_prod;
 	I64 cons;
 	I64 std_prod;
+	I64 cons0;
+	I64 std0;
 	CTG3RxDesc *rd;
 	U16 pkt_len;
 	U32 opaque;
@@ -1557,7 +1554,9 @@ U0 TG3RxProcess()
 		return;
 
 	cons = tg3.rx_cons;
+	cons0 = cons;
 	std_prod = tg3.rx_std_prod;
+	std0 = std_prod;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1589,8 +1588,6 @@ U0 TG3RxProcess()
 			}
 			TG3StdRingRepost(opaque, std_prod);
 			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			tg3.rx_std_prod = std_prod;
-			TG3StdProdKick(std_prod);
 		}
 		else
 		{
@@ -1599,17 +1596,24 @@ U0 TG3RxProcess()
 			{
 				TG3StdRingRepost(opaque, std_prod);
 				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-				tg3.rx_std_prod = std_prod;
-				TG3StdProdKick(std_prod);
 			}
 		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
-		tg3.rx_cons = cons;
-		TG3RcvRetKick(cons);
 
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
+	}
+
+	if (cons != cons0)
+	{
+		tg3.rx_cons = cons;
+		TG3RcvRetKick(cons);
+	}
+	if (std_prod != std0)
+	{
+		tg3.rx_std_prod = std_prod;
+		TG3StdProdKick(std_prod);
 	}
 
 	tg3.status[0] = 0;
@@ -1617,7 +1621,8 @@ U0 TG3RxProcess()
 }
 
 U0 TG3KeepRxAlive()
-{
+{/* Never pulse MAC_RX_MODE reset here ΓÇö that was killing RX during the
+	sliced DHCP Offer wait (net_nic_poll every 250ms). */
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
 	I64 push0;
@@ -1637,15 +1642,11 @@ U0 TG3KeepRxAlive()
 		"TG3: hold prod=%d cons=%d std_bd=%d std_prod=%d oct=%d "
 		"(RX deliver off)\n",
 			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, oct;
-		TG3RxModeRun;
-		TG3StdProdKick(tg3.rx_std_prod);
 		return;
 	}
 
 	push0 = tg3.rx_push_count;
 	TG3RxProcess;
-	TG3RxModeRun;
-	TG3StdProdKick(tg3.rx_std_prod);
 
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
