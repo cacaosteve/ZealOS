@@ -443,6 +443,7 @@ class CTG3
 	I64 rx_push_count;
 	I64 rx_drop_count;
 	I64 rx_seen_count;
+	I64 rx_hold_drop;
 } tg3;
 
 U32 TG3Read(U32 off)
@@ -510,14 +511,17 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* 57766: Linux write32_rx_mbox is plain MMIO (not ICH indirect/PCI).
-	Flush-read so posted writes hit the ASIC before we continue. */
-	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod & 0xFFFF);
+{/* Mac mini: TX needed MMIO+GRC; use the same for RX producer. */
+	prod &= 0xFFFF;
+	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* Same ΓÇö MMIO RCVRET consumer mailbox. */
-	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons & 0xFFFF);
+{/* Same dual-write for return-ring consumer. */
+	cons &= 0xFFFF;
+	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1534,11 +1538,9 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Hold return-ring until DHCP bind, then copy+recycle.
-
-	Photos (f3fa513e): first 11 frames + std_prodΓåÆ211 then freeze during
-	Offer wait. Linux tg3_rx: recycle BDs, then ONE RCVRET kick and ONE
-	STD prod kick at the end (not per packet). */
+{/* Always reclaim RCVRET + recycle STD (Linux does). Only NetQueuePush
+	after DHCP bind ΓÇö holding the return-ring until bind left std_bd stuck
+	after the first drain (photos: push=18 std_prod=218 then freeze). */
 	U16 hw_prod;
 	I64 cons;
 	I64 std_prod;
@@ -1549,8 +1551,9 @@ U0 TG3RxProcess()
 	U32 opaque;
 	U8 *pkt;
 	U8 *eth;
+	Bool deliver = net_rx_deliver;
 
-	if (!tg3.init_ok || !net_rx_deliver)
+	if (!tg3.init_ok)
 		return;
 
 	cons = tg3.rx_cons;
@@ -1575,17 +1578,22 @@ U0 TG3RxProcess()
 				pkt_len = ETHERNET_FRAME_SIZE;
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			NetQueuePush(pkt, pkt_len);
-			tg3.rx_push_count++;
-			if (tg3.rx_push_count <= 32 || !(tg3.rx_push_count & 0xF))
+			if (deliver)
 			{
-				eth = pkt;
-				"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
-				"eth=%02X%02X prod=%d cons=%d\n",
-					tg3.rx_push_count, pkt_len, opaque,
-					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
-					eth[12], eth[13], hw_prod, cons;
+				NetQueuePush(pkt, pkt_len);
+				tg3.rx_push_count++;
+				if (tg3.rx_push_count <= 32 || !(tg3.rx_push_count & 0xF))
+				{
+					eth = pkt;
+					"TG3: RX push#%d len=%d opq=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
+					"eth=%02X%02X prod=%d cons=%d\n",
+						tg3.rx_push_count, pkt_len, opaque,
+						eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
+						eth[12], eth[13], hw_prod, cons;
+				}
 			}
+			else
+				tg3.rx_hold_drop++;
 			TG3StdRingRepost(opaque, std_prod);
 			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
 		}
@@ -1621,11 +1629,11 @@ U0 TG3RxProcess()
 }
 
 U0 TG3KeepRxAlive()
-{/* Never pulse MAC_RX_MODE reset here ΓÇö that was killing RX during the
-	sliced DHCP Offer wait (net_nic_poll every 250ms). */
+{/* Reclaim always; never pulse MAC_RX_MODE reset on the poll path. */
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
 	I64 push0;
+	I64 hold0;
 
 	if (!tg3.init_ok)
 		return;
@@ -1634,18 +1642,8 @@ U0 TG3KeepRxAlive()
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	tg3.status[0] = 0;
 
-	if (!net_rx_deliver)
-	{
-		prod = TG3StatusRxProducer();
-		std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
-		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
-		"TG3: hold prod=%d cons=%d std_bd=%d std_prod=%d oct=%d "
-		"(RX deliver off)\n",
-			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, oct;
-		return;
-	}
-
 	push0 = tg3.rx_push_count;
+	hold0 = tg3.rx_hold_drop;
 	TG3RxProcess;
 
 	prod = TG3StatusRxProducer();
@@ -1654,7 +1652,17 @@ U0 TG3KeepRxAlive()
 	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
 	mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
-	/* Print when RX moved, else sparsely ΓÇö avoid drowning DHCP lines. */
+
+	if (!net_rx_deliver)
+	{
+		if (tg3.rx_hold_drop != hold0 || !(tg3.rx_seen_count & 7))
+			"TG3: hold-reclaim drop=%d seen=%d prod=%d cons=%d "
+			"std_bd=%d std_prod=%d oct=%d\n",
+				tg3.rx_hold_drop, tg3.rx_seen_count, prod, tg3.rx_cons,
+				std_bd, tg3.rx_std_prod, oct;
+		return;
+	}
+
 	if (tg3.rx_push_count != push0 || prod != tg3.rx_cons ||
 		!(tg3.rx_push_count & 3))
 		"TG3: alive push=%d seen=%d prod=%d cons=%d "
@@ -2056,9 +2064,8 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	/* Do NOT drain/push before DHCP ΓÇö that raced RCVRET/BD state and
-	   flooded NetHandler before UDP/68 was bound. Poll task will reclaim. */
-	"TG3: skip pre-DHCP drain (std_prod=%d std_bd=%d avail=%d)\n",
+	/* Reclaim without push until DHCP binds (poll task). Do not hold RCVRET. */
+	"TG3: skip pre-DHCP push (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	net_nic_poll = &TG3KeepRxAlive;

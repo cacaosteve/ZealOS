@@ -532,6 +532,11 @@ I64 DHCPConfigure()
 	I64				 state = DHCPInnerConfigure(udp_socket, &your_ip, &dns_ip, &router_ip, &subnet_mask);
 
 	UDPSocketClose(udp_socket);
+	/* After close the DHCP socket is gone ΓÇö only keep delivering if we
+	   got an address (stack stays up for ARP/TCP). On failure, stop push
+	   so TG3 can reclaim without empty-tree UDP spam between retries. */
+	if (state != DHCP_STATE_CLIENT_REQ_ACCEPTED)
+		net_rx_deliver = FALSE;
 
 	if (state == DHCP_STATE_CLIENT_REQ_ACCEPTED)
 	{
