@@ -253,8 +253,19 @@
 #define TG3_BUFMGR_DMA_HIGH_WATER	0x00004438
 
 #define TG3_RDMAC_MODE			0x00004800
+#define TG3_RDMAC_STATUS		0x00004804
 #define TG3_WDMAC_MODE			0x00004C00
+#define TG3_WDMAC_STATUS		0x00004C04
 #define  TG3_DMA_MODE_ENABLE		0x00000002
+#define  TG3_DMA_MODE_TGTABORT		0x00000004
+#define  TG3_DMA_MODE_MSTABORT		0x00000008
+#define  TG3_DMA_MODE_PARITYERR		0x00000010
+#define  TG3_DMA_MODE_ADDROFLOW		0x00000020
+#define  TG3_DMA_MODE_FIFOOFLOW		0x00000040
+#define  TG3_DMA_MODE_FIFOURUN		0x00000080
+#define  TG3_DMA_MODE_FIFOOREAD		0x00000100
+#define  TG3_DMA_MODE_LNGREAD		0x00000200
+#define  TG3_DMA_MODE_ERRS		(TG3_DMA_MODE_TGTABORT | TG3_DMA_MODE_MSTABORT | TG3_DMA_MODE_PARITYERR | TG3_DMA_MODE_ADDROFLOW | TG3_DMA_MODE_FIFOOFLOW | TG3_DMA_MODE_FIFOURUN | TG3_DMA_MODE_FIFOOREAD | TG3_DMA_MODE_LNGREAD)
 #define  TG3_RDMAC_MODE_JMB_2K_MMRR	0x00800000
 #define  TG3_RDMAC_MODE_FIFO_LONG_BURST	0x00030000
 #define  TG3_WDMAC_MODE_STATUS_TAG_FIX	0x20000000
@@ -379,7 +390,7 @@
    Linux: jumbo-capable 57765_PLUS uses RX return ring 1024 (5700-size). */
 #define TG3_TX_RING_SIZE		512
 #define TG3_RX_STD_RING_SIZE		512
-#define TG3_RX_RET_RING_SIZE		1024
+#define TG3_RX_RET_RING_SIZE		512
 #define TG3_RX_STD_DMA_SZ		1536
 #define TG3_RX_PENDING			200
 #define TG3_TX_PENDING			64
@@ -1325,11 +1336,9 @@ U0 TG3EnableBlocks()
 	if (i >= 200)
 		NetErr("TG3: BUFMGR enable failed");
 
-	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_PENDING / 8);
-	if (TG3_RX_PENDING / 8 < 1)
-		TG3Write(TG3_RCVBDI_STD_THRESH, 1);
-	/* 57765+: without STD_REPLENISH_LWM the chip may never fetch RX BDs. */
-	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_STD_BDCACHE_SIZE);
+	TG3Write(TG3_RCVBDI_STD_THRESH, 4);
+	/* LWM=128 filled on-chip cache (bdi=127) before poll could drain return DMA. */
+	TG3Write(TG3_STD_REPLENISH_LWM, 8);
 
 	/* 57765+: maxlen = ring size; DMA sz in low bits << 2.
 	   57766 is 57765_CLASS but NOT 5717_PLUS ΓÇö Linux still programs
@@ -1437,14 +1446,15 @@ U0 TG3EnableBlocks()
 
 	TG3Write(TG3_SNDDATAC_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDC_MODE, TG3_MODE_ENABLE | TG3_SNDBDC_MODE_ATTN);
-	/* Linux: WDMAC before RDMAC. 5755+/57766 need STATUS_TAG_FIX. */
+	/* Linux: WDMAC before RDMAC. Full err bits + STATUS_TAG_FIX (5755+). */
 	TG3WriteFlush(TG3_WDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+		TG3_WDMAC_MODE_STATUS_TAG_FIX);
 	Busy(40);
 	/* PCIe: LONG_BURST; 57766: JMB_2K_MMRR. Then RDMA FIFO overflow fix. */
 	TG3WriteFlush(TG3_RDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_RDMAC_MODE_FIFO_LONG_BURST |
-		TG3_RDMAC_MODE_JMB_2K_MMRR);
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+		TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
 	Busy(40);
 	val = TG3Read(TG3_RDMA_RSRVCTRL);
 	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
@@ -1822,7 +1832,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
 		"std_bd=%d bdi=%d rcc=%d hcc=%d rx_prod=%d rx_cons=%d "
 		"push=%d hold=%d seen=%d sw_prod=%d hw_std=%d hw_ret=%d "
-		"rbd=0x%X flow=0x%X bfmgr=0x%X\n",
+		"rbd=0x%X wd=0x%X rd=0x%X bfmgr=0x%X\n",
 			next, mbox, TG3StatusTxConsumer(),
 			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
 			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
@@ -1833,7 +1843,8 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			tg3.rx_std_prod,
 			TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF,
 			TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-			TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_HOSTCC_FLOW_ATTN),
+			TG3Read(TG3_RCVDBDI_STATUS),
+			TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS),
 			TG3Read(TG3_BUFMGR_STATUS);
 	}
 }
@@ -2075,6 +2086,11 @@ U0 TG3Init()
 	NetLog("TG3: DMA tx_bufs=0x%X rx_bufs=0x%X status=0x%X",
 		tg3.tx_bufs_phys, tg3.rx_bufs_phys, tg3.status_phys);
 	TG3EnableBlocks;
+	/* Drain RX during PHY/link wait ΓÇö waiting until after PhyInit let
+	   on-chip cache hit 127 before any RCVRET ACK. */
+	tg3.init_ok = TRUE;
+	net_nic_poll = &TG3KeepRxAlive;
+	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 	TG3PhyInit;
 	if (tg3.link_up)
 		TG3LinkApply;
@@ -2084,18 +2100,14 @@ U0 TG3Init()
 		ToBool(mac_stat & TG3_MAC_STATUS_PCS_SYNCED),
 		ToBool(mac_stat & TG3_MAC_STATUS_SIGNAL_DET));
 
-	tg3.init_ok = TRUE;
 	TG3InterruptsSetup;
 	/* Skip PHY loopback: CPMU never reports TX_STATUS LINK_UP, and it
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	/* Reclaim from init so mbufs free; NetQueuePush still waits for bind. */
-	"TG3: untagged status + reclaim (std_prod=%d std_bd=%d avail=%d)\n",
+	"TG3: ret512 LWM=8 poll-early (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
-	net_nic_poll = &TG3KeepRxAlive;
-	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
