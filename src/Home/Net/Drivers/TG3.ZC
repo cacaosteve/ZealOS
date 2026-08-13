@@ -1536,13 +1536,14 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Photos (7f7e884c): copy-only delivered the first 24 frames (IPv6 mcast,
-	std_prod stayed 200) then HW stopped posting. 57766 return path likely
-	needs RCVRET cons ACK to DMA more status BDs. Still no STD recycle ΓÇö
-	176 posted buffers remain. Clear status UPDATED so HOSTCC can refresh. */
+{/* Copy + RCVRET ACK first (that delivered IPv4/IPv6). Then recycle STD
+	like Linux ΓÇö on-chip mbufs likely need host BD replenish past ~20.
+	Doorbell the same std_prod if nothing was recycled. */
 	U16 hw_prod;
 	I64 cons;
 	I64 cons0;
+	I64 std_prod;
+	I64 std0;
 	I64 buf_idx;
 	I64 slot;
 	CTG3RxDesc *rd;
@@ -1557,6 +1558,8 @@ U0 TG3RxProcess()
 
 	cons = tg3.rx_cons;
 	cons0 = cons;
+	std_prod = tg3.rx_std_prod;
+	std0 = std_prod;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1591,9 +1594,24 @@ U0 TG3RxProcess()
 					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
 					etype, hw_prod, cons;
 			}
+			if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+				"TG3: ipv4/udp sport=%d dport=%d dst=%d.%d.%d.%d\n",
+					(pkt[34] << 8) | pkt[35], (pkt[36] << 8) | pkt[37],
+					pkt[30], pkt[31], pkt[32], pkt[33];
+			tg3.rx_slot_buf[slot] = -1;
+			TG3StdRingRepost(buf_idx, std_prod);
+			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
 		}
 		else
+		{
 			tg3.rx_drop_count++;
+			if (buf_idx >= 0 && buf_idx < TG3_RX_PENDING)
+			{
+				tg3.rx_slot_buf[slot] = -1;
+				TG3StdRingRepost(buf_idx, std_prod);
+				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
+			}
+		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		tg3.rx_cons = cons;
@@ -1604,13 +1622,20 @@ U0 TG3RxProcess()
 
 	if (cons != cons0)
 		TG3RcvRetKick(cons);
+	if (std_prod != std0)
+	{
+		tg3.rx_std_prod = std_prod;
+		TG3StdProdKick(std_prod);
+	}
+	else
+		TG3StdProdKick(tg3.rx_std_prod);
 
 	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 U0 TG3KeepRxAlive()
-{/* Poll: HOSTCC_NOW + copy + RCVRET ACK. No STD recycle / RX_MODE reset. */
+{/* Poll: copy + RCVRET ACK + STD recycle/doorbell. No RX_MODE reset. */
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
 	I64 push0;
