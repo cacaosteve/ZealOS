@@ -1355,7 +1355,7 @@ U0 TG3EnableBlocks()
 		val, TG3Read(TG3_RCVDBDI_STD_BD + TG3_BDINFO_MAXLEN_FLAGS),
 		TG3Read(TG3_RCVDBDI_STD_BD + TG3_BDINFO_NIC_ADDR), tg3.rx_std_prod;
 
-	TG3StdProdKick(tg3.rx_std_prod);
+	/* Do not StdProdKick yet ΓÇö RCVBDI is still off. */
 
 	TG3BDInfoWriteSRAM(TG3_NIC_SRAM_SEND_RCB, tg3.tx_ring_phys,
 		TG3_TX_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT);
@@ -1457,18 +1457,8 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
 
 	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE | TG3_RCVDCC_MODE_ATTN);
-	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
-	TG3WriteFlush(TG3_RCVDBDI_MODE,
-		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
-	/* Re-program STD_BD + producer after RCVDBDI is live. */
-	val = (TG3_RX_STD_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT) |
-		(TG3_RX_STD_DMA_SZ << 2);
-	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
-		TG3_NIC_SRAM_RX_BUFFER_DESC);
-	TG3StdProdKick(tg3.rx_std_prod);
-	"TG3: RCVDBDI_STATUS=0x%X BUFMGR_STATUS=0x%X std_mbox=%d\n",
-		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS),
-		TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW);
+	/* RCVBDI/RCVDBDI stay off until TG3RxStart ΓÇö LWM=128 prefetched a
+	   full on-chip cache during PHY wait, then WDMAC jammed at ~17. */
 
 	TG3Write(TG3_SNDDATAI_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDI_MODE, TG3_MODE_ENABLE | TG3_SNDBDI_MODE_ATTN);
@@ -1481,16 +1471,8 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
-	/* RCVBDI may fetch lazily; std_bd=0 here is not proof of failure. */
-	for (i = 0; i < 20; i++)
-	{
-		if (TG3Read(TG3_RCVDBDI_STD_CON_IDX))
-			break;
-		Busy(100);
-	}
-	"TG3: post-enable std_bd=%d rbd=0x%X bfm=0x%X "
+	"TG3: post-enable (RCVBDI deferred) rbd=0x%X bfm=0x%X "
 	"RCVBDI=0x%X RCVDBDI=0x%X sram0=0x%X\n",
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX),
 		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS),
 		TG3Read(TG3_RCVBDI_MODE), TG3Read(TG3_RCVDBDI_MODE),
 		TG3MemRead(TG3_NIC_SRAM_RX_BUFFER_DESC);
@@ -1502,6 +1484,31 @@ U0 TG3EnableBlocks()
 		TG3_GRC_MODE_NO_TX_PHDR_CSUM |
 		TG3_GRC_MODE_IRQ_ON_MAC_ATTN;
 	TG3Write(TG3_GRC_MODE, val);
+}
+
+U0 TG3RxStart()
+{/* Enable RCVBDI + MAC RX only after poll is live. */
+	U32 val;
+	I64 i;
+
+	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+	TG3WriteFlush(TG3_RCVDBDI_MODE,
+		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
+	val = (TG3_RX_STD_RING_SIZE << TG3_BDINFO_MAXLEN_SHIFT) |
+		(TG3_RX_STD_DMA_SZ << 2);
+	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
+		TG3_NIC_SRAM_RX_BUFFER_DESC);
+	TG3StdProdKick(tg3.rx_std_prod);
+	TG3RxModeRun;
+	for (i = 0; i < 20; i++)
+	{
+		if (TG3Read(TG3_RCVDBDI_STD_CON_IDX))
+			break;
+		Busy(50);
+	}
+	"TG3: RxStart std_bd=%d RCVBDI=0x%X prod=%d\n",
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
+		TG3Read(TG3_RCVBDI_MODE), tg3.rx_std_prod;
 }
 
 U16 TG3StatusRxProducer()
@@ -2148,15 +2155,14 @@ U0 TG3Init()
 	if (tg3.link_up)
 		TG3LinkApply;
 
-	/* Poll first, then MAC RX ΓÇö BMCR reset + RX + LWM=128 jammed WDMAC. */
+	/* Poll first, then RCVBDI+MAC RX ΓÇö no 128-BD prefetch during PHY. */
 	tg3.init_ok = TRUE;
 	net_nic_poll = &TG3KeepRxAlive;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	TG3RxModeRun;
-	TG3StdProdKick(tg3.rx_std_prod);
+	TG3RxStart;
 	Sleep(80);
 	TG3RxPoll;
-	"TG3: tag-ack mmio-ret 4k/1024 (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
+	"TG3: rx-start-late (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail,
 		tg3.rx_seen_count, tg3.last_tag;
