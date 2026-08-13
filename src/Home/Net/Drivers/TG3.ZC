@@ -513,13 +513,24 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* 57766: Linux write32_rx_mbox is MMIO only (not GRC, not ICH PCI). */
-	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod & 0xFFFF);
+{/* Mac mini: TX only moved with MMIO+GRC. STD prod MMIO-only may explain
+	std_prod=220 in software while HW stays at 200 and RX dies at ~20. */
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+
+	prod &= 0xFFFF;
+	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
+	PCIWriteU32(bus, dev, fun, TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
 }
 
 U0 TG3RcvRetKick(U32 cons)
 {
-	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons & 0xFFFF);
+	I64 bus = tg3.pci->bus, dev = tg3.pci->dev, fun = tg3.pci->fun;
+
+	cons &= 0xFFFF;
+	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
+	PCIWriteU32(bus, dev, fun, TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1553,7 +1564,7 @@ U0 TG3RxProcess()
 	U8 *eth;
 	U16 etype;
 
-	if (!tg3.init_ok || !net_rx_deliver)
+	if (!tg3.init_ok)
 		return;
 
 	cons = tg3.rx_cons;
@@ -1581,23 +1592,28 @@ U0 TG3RxProcess()
 				pkt_len = ETHERNET_FRAME_SIZE;
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			NetQueuePush(pkt, pkt_len);
-			tg3.rx_push_count++;
-			eth = pkt;
-			etype = (eth[12] << 8) | eth[13];
-			if (tg3.rx_push_count <= 40 || !(tg3.rx_push_count & 0xF) ||
-				etype == 0x0800 || eth[0] == 0xFF)
+			if (net_rx_deliver)
 			{
-				"TG3: RX push#%d len=%d slot=%d buf=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
-				"eth=%04X prod=%d cons=%d\n",
-					tg3.rx_push_count, pkt_len, slot, buf_idx,
-					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
-					etype, hw_prod, cons;
+				NetQueuePush(pkt, pkt_len);
+				tg3.rx_push_count++;
+				eth = pkt;
+				etype = (eth[12] << 8) | eth[13];
+				if (tg3.rx_push_count <= 40 || !(tg3.rx_push_count & 0xF) ||
+					etype == 0x0800 || eth[0] == 0xFF)
+				{
+					"TG3: RX push#%d len=%d slot=%d buf=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
+					"eth=%04X prod=%d cons=%d\n",
+						tg3.rx_push_count, pkt_len, slot, buf_idx,
+						eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
+						etype, hw_prod, cons;
+				}
+				if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+					"TG3: ipv4/udp sport=%d dport=%d dst=%d.%d.%d.%d\n",
+						(pkt[34] << 8) | pkt[35], (pkt[36] << 8) | pkt[37],
+						pkt[30], pkt[31], pkt[32], pkt[33];
 			}
-			if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
-				"TG3: ipv4/udp sport=%d dport=%d dst=%d.%d.%d.%d\n",
-					(pkt[34] << 8) | pkt[35], (pkt[36] << 8) | pkt[37],
-					pkt[30], pkt[31], pkt[32], pkt[33];
+			else
+				tg3.rx_hold_drop++;
 			tg3.rx_slot_buf[slot] = -1;
 			TG3StdRingRepost(buf_idx, std_prod);
 			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
@@ -1635,10 +1651,11 @@ U0 TG3RxProcess()
 }
 
 U0 TG3KeepRxAlive()
-{/* Poll: copy + RCVRET ACK + STD recycle/doorbell. No RX_MODE reset. */
-	U32 oct, bcast, mcast, ucast;
+{/* Always reclaim (even before DHCP bind). Print HW std mailbox vs software. */
+	U32 oct, bcast, mcast, ucast, hw_std;
 	U16 prod, std_bd;
 	I64 push0;
+	I64 hold0;
 
 	if (!tg3.init_ok)
 		return;
@@ -1647,29 +1664,24 @@ U0 TG3KeepRxAlive()
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 
 	push0 = tg3.rx_push_count;
-	if (net_rx_deliver)
-		TG3RxProcess;
+	hold0 = tg3.rx_hold_drop;
+	TG3RxProcess;
 
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
+	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
 	oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
 	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
 	mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
 
-	if (!net_rx_deliver)
-	{
-		"TG3: hold (no mbox) prod=%d cons=%d std_bd=%d std_prod=%d oct=%d\n",
-			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, oct;
-		return;
-	}
-
-	if (tg3.rx_push_count != push0 || prod != tg3.rx_cons ||
-		!(tg3.rx_push_count & 3))
-		"TG3: alive push=%d seen=%d prod=%d cons=%d "
-		"std_bd=%d std_prod=%d oct=%d u=%d b=%d m=%d\n",
-			tg3.rx_push_count, tg3.rx_seen_count, prod, tg3.rx_cons,
-			std_bd, tg3.rx_std_prod, oct, ucast, bcast, mcast;
+	if (tg3.rx_push_count != push0 || tg3.rx_hold_drop != hold0 ||
+		prod != tg3.rx_cons || !(tg3.rx_seen_count & 3))
+		"TG3: alive push=%d hold=%d seen=%d prod=%d cons=%d "
+		"std_bd=%d sw_prod=%d hw_std=%d oct=%d u=%d b=%d m=%d\n",
+			tg3.rx_push_count, tg3.rx_hold_drop, tg3.rx_seen_count,
+			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, hw_std,
+			oct, ucast, bcast, mcast;
 }
 
 interrupt U0 TG3IRQ()
@@ -2065,8 +2077,8 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	/* Do not reclaim/kick RX mailboxes before DHCP ΓÇö that froze the 57766. */
-	"TG3: skip pre-DHCP reclaim (std_prod=%d std_bd=%d avail=%d)\n",
+	/* Reclaim from poll immediately; NetQueuePush still waits for DHCP bind. */
+	"TG3: poll reclaim on (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	net_nic_poll = &TG3KeepRxAlive;
