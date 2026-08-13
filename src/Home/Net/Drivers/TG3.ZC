@@ -1536,14 +1536,11 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Always reclaim RCVRET + recycle STD (Linux does). Only NetQueuePush
-	after DHCP bind. Opaque is the producer ring slot; map to buf via
-	rx_slot_buf (do not stuff buf_idx into opaque ΓÇö that froze RX ~24). */
+{/* Copy-only until DHCP has an address. Every RCVRET/STD mailbox kick after
+	the first ~20 frames has frozen this 57766 (PCI, MMIO, MMIO+GRC, recycle
+	or not). Return ring is 1024 ΓÇö enough for Discover/Offer without reclaim. */
 	U16 hw_prod;
 	I64 cons;
-	I64 std_prod;
-	I64 cons0;
-	I64 std0;
 	I64 buf_idx;
 	I64 slot;
 	CTG3RxDesc *rd;
@@ -1551,15 +1548,11 @@ U0 TG3RxProcess()
 	U32 opaque;
 	U8 *pkt;
 	U8 *eth;
-	Bool deliver = net_rx_deliver;
 
-	if (!tg3.init_ok)
+	if (!tg3.init_ok || !net_rx_deliver)
 		return;
 
 	cons = tg3.rx_cons;
-	cons0 = cons;
-	std_prod = tg3.rx_std_prod;
-	std0 = std_prod;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1581,75 +1574,47 @@ U0 TG3RxProcess()
 				pkt_len = ETHERNET_FRAME_SIZE;
 			if (pkt_len >= 4)
 				pkt_len -= 4;
-			if (deliver)
+			NetQueuePush(pkt, pkt_len);
+			tg3.rx_push_count++;
+			if (tg3.rx_push_count <= 40 || !(tg3.rx_push_count & 0xF))
 			{
-				NetQueuePush(pkt, pkt_len);
-				tg3.rx_push_count++;
-				if (tg3.rx_push_count <= 32 || !(tg3.rx_push_count & 0xF))
-				{
-					eth = pkt;
-					"TG3: RX push#%d len=%d slot=%d buf=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
-					"eth=%02X%02X prod=%d cons=%d\n",
-						tg3.rx_push_count, pkt_len, slot, buf_idx,
-						eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
-						eth[12], eth[13], hw_prod, cons;
-				}
+				eth = pkt;
+				"TG3: RX push#%d len=%d slot=%d buf=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
+				"eth=%02X%02X prod=%d cons=%d\n",
+					tg3.rx_push_count, pkt_len, slot, buf_idx,
+					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
+					eth[12], eth[13], hw_prod, cons;
 			}
-			else
-				tg3.rx_hold_drop++;
-			tg3.rx_slot_buf[slot] = -1;
-			TG3StdRingRepost(buf_idx, std_prod);
-			std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
 		}
 		else
-		{
 			tg3.rx_drop_count++;
-			if (buf_idx >= 0 && buf_idx < TG3_RX_PENDING)
-			{
-				tg3.rx_slot_buf[slot] = -1;
-				TG3StdRingRepost(buf_idx, std_prod);
-				std_prod = (std_prod + 1) & (TG3_RX_STD_RING_SIZE - 1);
-			}
-		}
 
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
+		tg3.rx_cons = cons;
 
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
 
-	if (cons != cons0)
-	{
-		tg3.rx_cons = cons;
-		TG3RcvRetKick(cons);
-	}
-	if (std_prod != std0)
-	{
-		tg3.rx_std_prod = std_prod;
-		TG3StdProdKick(std_prod);
-	}
-
-	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 U0 TG3KeepRxAlive()
-{/* Reclaim always; never pulse MAC_RX_MODE reset on the poll path. */
+{/* Refresh status block only. Do not kick RX mailboxes or zero status[0]
+	here ΓÇö that raced HOSTCC and froze RX after the first drain. */
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
 	I64 push0;
-	I64 hold0;
 
 	if (!tg3.init_ok)
 		return;
 
 	TG3WriteFlush(TG3_HOSTCC_MODE,
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
-	tg3.status[0] = 0;
 
 	push0 = tg3.rx_push_count;
-	hold0 = tg3.rx_hold_drop;
-	TG3RxProcess;
+	if (net_rx_deliver)
+		TG3RxProcess;
 
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
@@ -1660,11 +1625,8 @@ U0 TG3KeepRxAlive()
 
 	if (!net_rx_deliver)
 	{
-		if (tg3.rx_hold_drop != hold0 || !(tg3.rx_seen_count & 7))
-			"TG3: hold-reclaim drop=%d seen=%d prod=%d cons=%d "
-			"std_bd=%d std_prod=%d oct=%d\n",
-				tg3.rx_hold_drop, tg3.rx_seen_count, prod, tg3.rx_cons,
-				std_bd, tg3.rx_std_prod, oct;
+		"TG3: hold (no mbox) prod=%d cons=%d std_bd=%d std_prod=%d oct=%d\n",
+			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, oct;
 		return;
 	}
 
@@ -2069,8 +2031,8 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	/* Reclaim without push until DHCP binds (poll task). Do not hold RCVRET. */
-	"TG3: skip pre-DHCP push (std_prod=%d std_bd=%d avail=%d)\n",
+	/* Do not reclaim/kick RX mailboxes before DHCP ΓÇö that froze the 57766. */
+	"TG3: skip pre-DHCP reclaim (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	net_nic_poll = &TG3KeepRxAlive;
