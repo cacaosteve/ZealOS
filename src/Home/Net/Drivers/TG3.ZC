@@ -396,7 +396,7 @@
    Linux: jumbo-capable 57765_PLUS uses RX return ring 1024 (5700-size). */
 #define TG3_TX_RING_SIZE		512
 #define TG3_RX_STD_RING_SIZE		512
-#define TG3_RX_RET_RING_SIZE		512
+#define TG3_RX_RET_RING_SIZE		1024
 #define TG3_RX_STD_DMA_SZ		1536
 #define TG3_RX_PENDING			200
 #define TG3_TX_PENDING			64
@@ -545,22 +545,10 @@ U0 TG3StdProdKick(U32 prod)
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* STD doorbell works via MMIO+GRC (hw_std matches). Return-ring cons may
-	not ΓÇö freeze at ~21 is the on-chip RCVRET cache filling. Linux ICH
-	special-cases this mailbox through PCI config 0xA4. */
-	I64 bus, pdev, fun;
-
+{/* Linux 57766: tw32_rx_mbox = plain MMIO. GRC+PCI 0xA4 is ICH-only and
+	may confuse PCIe mailbox consumption (on-chip ret cache ~16). */
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
-	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
-	if (tg3.pci)
-	{
-		bus = tg3.pci->bus;
-		pdev = tg3.pci->dev;
-		fun = tg3.pci->fun;
-		PCIWriteU32(bus, pdev, fun,
-			TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
-	}
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1244,18 +1232,18 @@ U0 TG3RingsAlloc()
 	U32 buf_phys;
 
 	tg3.tx_ring_phys = CAllocAligned(sizeof(CTG3TxDesc) * TG3_TX_RING_SIZE,
-		16, Fs->code_heap);
+		0x1000, Fs->code_heap);
 	tg3.tx_ring = dev.uncached_alias + tg3.tx_ring_phys;
 
 	tg3.rx_std_phys = CAllocAligned(sizeof(CTG3RxDesc) * TG3_RX_STD_RING_SIZE,
-		16, Fs->code_heap);
+		0x1000, Fs->code_heap);
 	tg3.rx_std = dev.uncached_alias + tg3.rx_std_phys;
 
 	tg3.rx_ret_phys = CAllocAligned(sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE,
-		16, Fs->code_heap);
+		0x1000, Fs->code_heap);
 	tg3.rx_ret = dev.uncached_alias + tg3.rx_ret_phys;
 
-	tg3.status_phys = CAllocAligned(TG3_HW_STATUS_SIZE, 16, Fs->code_heap);
+	tg3.status_phys = CAllocAligned(TG3_HW_STATUS_SIZE, 0x1000, Fs->code_heap);
 	tg3.status = dev.uncached_alias + tg3.status_phys;
 	MemSet(tg3.status, 0, TG3_HW_STATUS_SIZE);
 
@@ -1716,11 +1704,10 @@ U0 TG3RxProcess()
 }
 
 U0 TG3RxPoll()
-{/* Tagged: mask, drain, ACK status_tag. Writing mbox=0 never retires the
-	tag ΓÇö HOSTCC/WDMAC then stop DMA after ~4 coalesce events (16 BDs). */
+{/* Tagged ACK only ΓÇö do not write mbox=1 every poll (Linux does that once
+	on IRQ entry). Spamming 1 aborts in-flight HOSTCC/WDMAC DMA. */
 	U32 tag;
 
-	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
 	TG3RxProcess;
 	tag = tg3.status[1];
 	tg3.last_tag = tag;
@@ -1898,12 +1885,13 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS),
 			TG3Read(TG3_BUFMGR_STATUS), tg3.last_tag;
 		"TG3: rxlpc hp=%d disc=%d nbd=%d wqf=%d ne=0x%X "
-		"ret[%d] len=%d op=0x%X\n",
+		"s0=0x%X s1=0x%X ret[%d] len=%d op=0x%X\n",
 			TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
 			TG3Read(TG3_RCVLPC_IN_DISCARDS_CNT),
 			TG3Read(TG3_RCVLPC_NO_RCV_BD_CNT),
 			TG3Read(TG3_RCVLPC_DMA_WQ_FULL_CNT),
 			TG3Read(TG3_RCVLPC_NON_EMPTY_BITS),
+			tg3.status[0], tg3.status[1],
 			tg3.rx_cons, prd->idx_len & TG3_RXD_LEN_MASK, prd->opaque;
 	}
 }
@@ -2168,7 +2156,7 @@ U0 TG3Init()
 	TG3StdProdKick(tg3.rx_std_prod);
 	Sleep(80);
 	TG3RxPoll;
-	"TG3: tagged rx-after-link (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
+	"TG3: tag-ack mmio-ret 4k/1024 (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail,
 		tg3.rx_seen_count, tg3.last_tag;
