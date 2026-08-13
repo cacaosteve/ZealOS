@@ -520,10 +520,22 @@ U0 TG3StdProdKick(U32 prod)
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{
+{/* STD doorbell works via MMIO+GRC (hw_std matches). Return-ring cons may
+	not ΓÇö freeze at ~21 is the on-chip RCVRET cache filling. Linux ICH
+	special-cases this mailbox through PCI config 0xA4. */
+	I64 bus, pdev, fun;
+
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
+	if (tg3.pci)
+	{
+		bus = tg3.pci->bus;
+		pdev = tg3.pci->dev;
+		fun = tg3.pci->fun;
+		PCIWriteU32(bus, pdev, fun,
+			TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
+	}
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1620,6 +1632,10 @@ U0 TG3RxProcess()
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		tg3.rx_cons = cons;
 
+		/* Free on-chip return BDs during drain ΓÇö cache is ~20. */
+		if (!((cons - cons0) & 7))
+			TG3RcvRetKick(cons);
+
 		if (cons == hw_prod)
 			hw_prod = TG3StatusRxProducer();
 	}
@@ -1639,8 +1655,8 @@ U0 TG3RxProcess()
 }
 
 U0 TG3KeepRxAlive()
-{/* After bind: copy+ack+recycle. Always print hw_std (mailbox readback). */
-	U32 oct, bcast, mcast, ucast, hw_std;
+{/* After bind: copy+ack+recycle. Print hw_std + hw_ret mailbox readback. */
+	U32 oct, bcast, mcast, ucast, hw_std, hw_ret, bfmgr;
 	U16 prod, std_bd;
 	I64 push0;
 
@@ -1657,6 +1673,8 @@ U0 TG3KeepRxAlive()
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
 	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
+	hw_ret = TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
+	bfmgr = TG3Read(TG3_BUFMGR_STATUS);
 	oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
 	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
 	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
@@ -1665,10 +1683,11 @@ U0 TG3KeepRxAlive()
 	if (!net_rx_deliver || tg3.rx_push_count != push0 ||
 		prod != tg3.rx_cons || !(tg3.rx_seen_count & 3))
 		"TG3: alive push=%d seen=%d prod=%d cons=%d "
-		"std_bd=%d sw_prod=%d hw_std=%d oct=%d u=%d b=%d m=%d\n",
+		"std_bd=%d sw_prod=%d hw_std=%d hw_ret=%d bfmgr=0x%X "
+		"oct=%d u=%d b=%d m=%d\n",
 			tg3.rx_push_count, tg3.rx_seen_count,
-			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, hw_std,
-			oct, ucast, bcast, mcast;
+			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, hw_std, hw_ret,
+			bfmgr, oct, ucast, bcast, mcast;
 }
 
 interrupt U0 TG3IRQ()
@@ -1783,7 +1802,7 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
-	U32 mbox, txm, rxm, bcast, ucast, mcast, oct;
+	U32 mbox, txm, rxm;
 
 	tg3.tx_prod = next;
 	TG3TxProdKick(next);
@@ -1796,21 +1815,17 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		txm = TG3Read(TG3_MAC_TX_MODE);
 		rxm = TG3Read(TG3_MAC_RX_MODE);
-		bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
-		ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
-		mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
-		oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
-		"TG3: TX dbg next=%d mbox=%d tx_cons=%d rx_u=%d rx_b=%d rx_m=%d "
-		"oct=%d std_bd=%d rx_prod=%d rx_cons=%d push=%d drop=%d "
-		"seen=%d sw_prod=%d hw_std=%d avail=%d TX=0x%X RX=0x%X\n",
+		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
+		"std_bd=%d rx_prod=%d rx_cons=%d push=%d drop=%d seen=%d "
+		"sw_prod=%d hw_std=%d hw_ret=%d avail=%d bfmgr=0x%X TX=0x%X RX=0x%X\n",
 			next, mbox, TG3StatusTxConsumer(),
-			ucast, bcast, mcast, oct,
 			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
 			TG3StatusRxProducer(), tg3.rx_cons,
 			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
 			tg3.rx_std_prod,
 			TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF,
-			TG3StdAvail, txm, rxm;
+			TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
+			TG3StdAvail, TG3Read(TG3_BUFMGR_STATUS), txm, rxm;
 	}
 }
 
