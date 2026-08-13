@@ -205,10 +205,13 @@
 #define  TG3_RCVDCC_MODE_ATTN		0x00000004
 #define TG3_RCVBDI_MODE			0x00002C00
 #define  TG3_RCVBDI_MODE_RCB_ATTN	0x00000004
+#define TG3_RCVBDI_STATUS		0x00002C04
+#define TG3_RCVBDI_STD_PROD_IDX		0x00002C0C
 #define TG3_RCVBDI_STD_THRESH		0x00002C18
 #define TG3_STD_REPLENISH_LWM		0x00002D00
 #define TG3_RCVCC_MODE			0x00003000
 #define  TG3_RCVCC_MODE_ATTN		0x00000004
+#define TG3_RCVCC_STD_PROD_IDX		0x0000300C
 
 #define TG3_RX_STD_BDCACHE_SIZE		128
 
@@ -227,6 +230,7 @@
 #define TG3_HOSTCC_RXCOAL_MAXF_INT	0x00003C20
 #define TG3_HOSTCC_TXCOAL_MAXF_INT	0x00003C24
 #define TG3_HOSTCC_STATUS_BLK_HOST_ADDR	0x00003C38
+#define TG3_HOSTCC_STD_CON_IDX		0x00003C54
 
 #define TG3_BUFMGR_MODE			0x00004400
 #define  TG3_BUFMGR_MODE_ENABLE		0x00000002
@@ -513,10 +517,12 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* Same path as TX on this mini: MMIO + GRC. PCI cfg stomped RX before. */
+{/* Mailbox + GRC (known good on this mini) and RCVBDI's own prod idx.
+	Do not kick 0 after RCVDBDI enable ΓÇö that aborted BD fetch at ~21. */
 	prod &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
+	TG3WriteFlush(TG3_RCVBDI_STD_PROD_IDX, prod);
 }
 
 U0 TG3RcvRetKick(U32 cons)
@@ -1452,8 +1458,6 @@ U0 TG3EnableBlocks()
 		(TG3_RX_STD_DMA_SZ << 2);
 	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
 		TG3_NIC_SRAM_RX_BUFFER_DESC);
-	TG3StdProdKick(0);
-	Busy(10);
 	TG3StdProdKick(tg3.rx_std_prod);
 	"TG3: RCVDBDI_STATUS=0x%X BUFMGR_STATUS=0x%X std_mbox=%d\n",
 		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS),
@@ -1658,7 +1662,7 @@ U0 TG3RxProcess()
 
 U0 TG3KeepRxAlive()
 {/* Always reclaim. Print hw_std + hw_ret. */
-	U32 oct, bcast, mcast, ucast, hw_std, hw_ret, bfmgr;
+	U32 oct, hw_std, hw_ret, bfmgr;
 	U16 prod, std_bd;
 	I64 push0;
 
@@ -1677,18 +1681,18 @@ U0 TG3KeepRxAlive()
 	hw_ret = TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
 	bfmgr = TG3Read(TG3_BUFMGR_STATUS);
 	oct = TG3Read(TG3_MAC_RX_STATS_OCTETS);
-	bcast = TG3Read(TG3_MAC_RX_STATS_BCAST);
-	ucast = TG3Read(TG3_MAC_RX_STATS_UCAST);
-	mcast = TG3Read(TG3_MAC_RX_STATS_MCAST);
 
 	if (tg3.rx_push_count != push0 || prod != tg3.rx_cons ||
 		!(tg3.rx_seen_count & 3) || !net_rx_deliver)
 		"TG3: alive push=%d hold=%d seen=%d prod=%d cons=%d "
-		"std_bd=%d sw_prod=%d hw_std=%d hw_ret=%d bfmgr=0x%X "
-		"oct=%d u=%d b=%d m=%d\n",
+		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hw_ret=%d "
+		"rbd=0x%X bfmgr=0x%X oct=%d\n",
 			tg3.rx_push_count, tg3.rx_hold_drop, tg3.rx_seen_count,
-			prod, tg3.rx_cons, std_bd, tg3.rx_std_prod, hw_std, hw_ret,
-			bfmgr, oct, ucast, bcast, mcast;
+			prod, tg3.rx_cons, std_bd,
+			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
+			TG3Read(TG3_RCVCC_STD_PROD_IDX) & 0xFFFF,
+			tg3.rx_std_prod, hw_std, hw_ret,
+			TG3Read(TG3_RCVDBDI_STATUS), bfmgr, oct;
 }
 
 interrupt U0 TG3IRQ()
@@ -1803,7 +1807,7 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
-	U32 mbox, txm, rxm;
+	U32 mbox;
 
 	tg3.tx_prod = next;
 	TG3TxProdKick(next);
@@ -1814,19 +1818,22 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	if (next <= 8)
 	{
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
-		txm = TG3Read(TG3_MAC_TX_MODE);
-		rxm = TG3Read(TG3_MAC_RX_MODE);
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
-		"std_bd=%d rx_prod=%d rx_cons=%d push=%d drop=%d seen=%d "
-		"sw_prod=%d hw_std=%d hw_ret=%d avail=%d bfmgr=0x%X TX=0x%X RX=0x%X\n",
+		"std_bd=%d bdi=%d rcc=%d hcc=%d rx_prod=%d rx_cons=%d "
+		"push=%d hold=%d seen=%d sw_prod=%d hw_std=%d hw_ret=%d "
+		"rbd=0x%X rbs=0x%X bfmgr=0x%X\n",
 			next, mbox, TG3StatusTxConsumer(),
 			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
+			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
+			TG3Read(TG3_RCVCC_STD_PROD_IDX) & 0xFFFF,
+			TG3Read(TG3_HOSTCC_STD_CON_IDX) & 0xFFFF,
 			TG3StatusRxProducer(), tg3.rx_cons,
-			tg3.rx_push_count, tg3.rx_drop_count, tg3.rx_seen_count,
+			tg3.rx_push_count, tg3.rx_hold_drop, tg3.rx_seen_count,
 			tg3.rx_std_prod,
 			TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF,
 			TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-			TG3StdAvail, TG3Read(TG3_BUFMGR_STATUS), txm, rxm;
+			TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_RCVBDI_STATUS),
+			TG3Read(TG3_BUFMGR_STATUS);
 	}
 }
 
