@@ -227,7 +227,7 @@
 #define  TG3_HOSTCC_MODE_32BYTE		0x00000100
 #define  TG3_HOSTCC_MODE_CLRTICK_RXBD	0x00000200
 #define  TG3_HOSTCC_MODE_CLRTICK_TXBD	0x00000400
-#define  TG3_HOSTCC_MODE_RUN		(TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_32BYTE)
+#define  TG3_HOSTCC_MODE_RUN		(TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_32BYTE | TG3_HOSTCC_MODE_CLRTICK_RXBD | TG3_HOSTCC_MODE_CLRTICK_TXBD)
 #define TG3_HOSTCC_RXCOL_TICKS		0x00003C08
 #define TG3_HOSTCC_TXCOL_TICKS		0x00003C0C
 #define TG3_HOSTCC_RXMAX_FRAMES		0x00003C10
@@ -467,6 +467,7 @@ class CTG3
 	I64 rx_drop_count;
 	I64 rx_seen_count;
 	I64 rx_hold_drop;
+	U32 last_tag;
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
 	I16 rx_slot_buf[TG3_RX_STD_RING_SIZE];
 } tg3;
@@ -563,11 +564,11 @@ U0 TG3RcvRetKick(U32 cons)
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
-{/* Untagged status: Linux uses TAGGED_STATUS + IRQ tag handshake.
-	Poll-only still froze at 21 host BDs with bdi=rcc=127. */
+{/* 57766 is TAGGED_STATUS (Linux: everything except 5700/5788). */
 	TG3WriteFlush(TG3PCI_MISC_HOST_CTRL,
 		TG3_MHC_CLEAR_INT | TG3_MHC_WORD_SWAP |
-		TG3_MHC_INDIR_ACCESS | TG3_MHC_PCISTATE_RW | extra);
+		TG3_MHC_INDIR_ACCESS | TG3_MHC_PCISTATE_RW |
+		TG3_MHC_TAGGED_STATUS | extra);
 }
 
 U0 TG3MemWrite(U32 addr, U32 val)
@@ -1711,16 +1712,19 @@ U0 TG3RxProcess()
 		TG3StdProdKick(std_prod);
 	}
 
-	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 U0 TG3RxPoll()
-{/* Untagged: mask, drain, clear UPDATED, re-enable ints (mbox=0). */
+{/* Tagged: mask, drain, ACK status_tag. Writing mbox=0 never retires the
+	tag ΓÇö HOSTCC/WDMAC then stop DMA after ~4 coalesce events (16 BDs). */
+	U32 tag;
+
 	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
 	TG3RxProcess;
-	tg3.status[0] = 0;
-	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, 0);
+	tag = tg3.status[1];
+	tg3.last_tag = tag;
+	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
 }
 
 U0 TG3KeepRxAlive()
@@ -1749,12 +1753,12 @@ U0 TG3KeepRxAlive()
 		!(tg3.rx_seen_count & 3) || !net_rx_deliver)
 		"TG3: alive push=%d hold=%d seen=%d prod=%d cons=%d "
 		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hw_ret=%d "
-		"rbd=0x%X flow=0x%X bfmgr=0x%X oct=%d\n",
+		"tag=0x%X rbd=0x%X flow=0x%X bfmgr=0x%X oct=%d\n",
 			tg3.rx_push_count, tg3.rx_hold_drop, tg3.rx_seen_count,
 			prod, tg3.rx_cons, std_bd,
 			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
 			TG3Read(TG3_RCVCC_STD_PROD_IDX) & 0xFFFF,
-			tg3.rx_std_prod, hw_std, hw_ret,
+			tg3.rx_std_prod, hw_std, hw_ret, tg3.last_tag,
 			TG3Read(TG3_RCVDBDI_STATUS),
 			TG3Read(TG3_HOSTCC_FLOW_ATTN), bfmgr, oct;
 }
@@ -1879,7 +1883,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
 		"std_bd=%d bdi=%d rcc=%d hcc=%d rx_prod=%d rx_cons=%d "
 		"push=%d hold=%d seen=%d sw_prod=%d hw_std=%d hw_ret=%d "
-		"rbd=0x%X wd=0x%X rd=0x%X bfmgr=0x%X\n",
+		"rbd=0x%X wd=0x%X rd=0x%X bfmgr=0x%X tag=0x%X\n",
 			next, mbox, TG3StatusTxConsumer(),
 			TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
 			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
@@ -1892,7 +1896,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
 			TG3Read(TG3_RCVDBDI_STATUS),
 			TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS),
-			TG3Read(TG3_BUFMGR_STATUS);
+			TG3Read(TG3_BUFMGR_STATUS), tg3.last_tag;
 		"TG3: rxlpc hp=%d disc=%d nbd=%d wqf=%d ne=0x%X "
 		"ret[%d] len=%d op=0x%X\n",
 			TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
@@ -2164,10 +2168,10 @@ U0 TG3Init()
 	TG3StdProdKick(tg3.rx_std_prod);
 	Sleep(80);
 	TG3RxPoll;
-	"TG3: rx-after-link (std_prod=%d std_bd=%d avail=%d seen=%d)\n",
+	"TG3: tagged rx-after-link (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail,
-		tg3.rx_seen_count;
+		tg3.rx_seen_count, tg3.last_tag;
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
