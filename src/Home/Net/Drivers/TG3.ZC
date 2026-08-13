@@ -190,10 +190,15 @@
 #define TG3_SNDBDC_MODE			0x00001C00
 #define  TG3_SNDBDC_MODE_ATTN		0x00000004
 #define TG3_RCVLPC_MODE			0x00002000
+#define TG3_RCVLPC_STATUS		0x00002004
+#define TG3_RCVLPC_NON_EMPTY_BITS	0x0000200C
 #define TG3_RCVLPC_CONFIG		0x00002010
 #define TG3_RCVLPC_STATSCTRL		0x00002014
 #define  TG3_RCVLPC_STATSCTRL_ENABLE	0x00000001
 #define TG3_RCVLPC_STATS_ENABLE		0x00002018
+#define TG3_RCVLPC_DMA_WQ_FULL_CNT	0x00002244
+#define TG3_RCVLPC_NO_RCV_BD_CNT	0x0000224C
+#define TG3_RCVLPC_IN_DISCARDS_CNT	0x00002250
 #define TG3_RCVDBDI_MODE		0x00002400
 #define  TG3_RCVDBDI_MODE_INV_RING_SZ	0x00000010
 #define TG3_RCVDBDI_STATUS		0x00002404
@@ -232,6 +237,7 @@
 #define TG3_HOSTCC_STATUS_BLK_HOST_ADDR	0x00003C38
 #define TG3_HOSTCC_STD_CON_IDX		0x00003C54
 #define TG3_HOSTCC_FLOW_ATTN		0x00003C48
+#define TG3_HOSTCC_RET_PROD_IDX_0	0x00003C80
 #define  TG3_HOSTCC_FLOW_ATTN_MBUF_LWM	0x00000040
 
 #define TG3_BUFMGR_MODE			0x00004400
@@ -1481,7 +1487,8 @@ U0 TG3EnableBlocks()
 
 	TG3MACWriteHW;
 
-	TG3RxModeRun;
+	/* MAC RX stays off until poll is live after PHY/link. LWM=128 + RX
+	   during BMCR reset filled the on-chip cache and WDMAC jammed at 3. */
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
@@ -1509,10 +1516,17 @@ U0 TG3EnableBlocks()
 }
 
 U16 TG3StatusRxProducer()
-{/* Return-ring producer: LE status.idx[0].rx_producer (low half of word4).
-	NOT status.rx_consumer (word2) ΓÇö that tracks the std *buffer* ring. */
-	U32 w = tg3.status[4];
-	return w & 0xFFFF;
+{/* Return-ring producer: max(status.idx[0].rx_producer, HOSTCC_RET_PROD_0).
+	Status DMA can stall while HOSTCC still advances. */
+	I64 st = tg3.status[4] & 0xFFFF;
+	I64 hw = TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF;
+	I64 cons = tg3.rx_cons & 0xFFFF;
+	I64 a = (st - cons) & 0xFFFF;
+	I64 b = (hw - cons) & 0xFFFF;
+
+	if (b > a)
+		return hw;
+	return st;
 }
 
 U16 TG3StatusTxConsumer()
@@ -1567,6 +1581,24 @@ U0 TG3TxProdKick(U32 prod)
 	TG3MboxWriteFlush(TG3_GRCMBOX_SNDHOST_PROD_IDX_0, prod);
 }
 
+U16 TG3RetRingScanProd(U16 cons)
+{/* Status/HOSTCC producer can lag. Return BDs are zeroed after we consume
+	them, so a non-zero STD opaque + len here is hardware DMA we missed. */
+	I64 i, idx;
+	CTG3RxDesc *rd;
+	U16 len;
+
+	for (i = 0; i < 32; i++)
+	{
+		idx = (cons + i) & (TG3_RX_RET_RING_SIZE - 1);
+		rd = &tg3.rx_ret[idx];
+		len = rd->idx_len & TG3_RXD_LEN_MASK;
+		if (!(rd->opaque & TG3_RXD_OPAQUE_RING_STD) || len < 14)
+			break;
+	}
+	return (cons + i) & (TG3_RX_RET_RING_SIZE - 1);
+}
+
 U0 TG3RxProcess()
 {/* Always ACK+recycle so on-chip mbufs free (stall was exactly 21 =
 	MACRX low-water). NetQueuePush still waits for DHCP bind. */
@@ -1592,6 +1624,8 @@ U0 TG3RxProcess()
 	std_prod = tg3.rx_std_prod;
 	std0 = std_prod;
 	hw_prod = TG3StatusRxProducer();
+	if (cons == hw_prod)
+		hw_prod = TG3RetRingScanProd(cons);
 
 	while (cons != hw_prod)
 	{
@@ -1649,6 +1683,11 @@ U0 TG3RxProcess()
 			}
 		}
 
+		rd->idx_len = 0;
+		rd->type_flags = 0;
+		rd->opaque = 0;
+		rd->err_vlan = 0;
+
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		tg3.rx_cons = cons;
 
@@ -1657,7 +1696,11 @@ U0 TG3RxProcess()
 			TG3RcvRetKick(cons);
 
 		if (cons == hw_prod)
+		{
 			hw_prod = TG3StatusRxProducer();
+			if (cons == hw_prod)
+				hw_prod = TG3RetRingScanProd(cons);
+		}
 	}
 
 	if (cons != cons0)
@@ -1821,6 +1864,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
 	U32 mbox;
+	CTG3RxDesc *prd;
 
 	tg3.tx_prod = next;
 	TG3TxProdKick(next);
@@ -1830,6 +1874,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 
 	if (next <= 8)
 	{
+		prd = &tg3.rx_ret[tg3.rx_cons & (TG3_RX_RET_RING_SIZE - 1)];
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
 		"std_bd=%d bdi=%d rcc=%d hcc=%d rx_prod=%d rx_cons=%d "
@@ -1848,6 +1893,14 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			TG3Read(TG3_RCVDBDI_STATUS),
 			TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS),
 			TG3Read(TG3_BUFMGR_STATUS);
+		"TG3: rxlpc hp=%d disc=%d nbd=%d wqf=%d ne=0x%X "
+		"ret[%d] len=%d op=0x%X\n",
+			TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
+			TG3Read(TG3_RCVLPC_IN_DISCARDS_CNT),
+			TG3Read(TG3_RCVLPC_NO_RCV_BD_CNT),
+			TG3Read(TG3_RCVLPC_DMA_WQ_FULL_CNT),
+			TG3Read(TG3_RCVLPC_NON_EMPTY_BITS),
+			tg3.rx_cons, prd->idx_len & TG3_RXD_LEN_MASK, prd->opaque;
 	}
 }
 
@@ -2088,11 +2141,6 @@ U0 TG3Init()
 	NetLog("TG3: DMA tx_bufs=0x%X rx_bufs=0x%X status=0x%X",
 		tg3.tx_bufs_phys, tg3.rx_bufs_phys, tg3.status_phys);
 	TG3EnableBlocks;
-	/* Drain RX during PHY/link wait ΓÇö waiting until after PhyInit let
-	   on-chip cache hit 127 before any RCVRET ACK. */
-	tg3.init_ok = TRUE;
-	net_nic_poll = &TG3KeepRxAlive;
-	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
 	TG3PhyInit;
 	if (tg3.link_up)
 		TG3LinkApply;
@@ -2107,9 +2155,19 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	"TG3: ret512 LWM=128 THRESH=25 poll-early (std_prod=%d std_bd=%d avail=%d)\n",
+
+	/* Poll first, then MAC RX ΓÇö BMCR reset + RX + LWM=128 jammed WDMAC. */
+	tg3.init_ok = TRUE;
+	net_nic_poll = &TG3KeepRxAlive;
+	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
+	TG3RxModeRun;
+	TG3StdProdKick(tg3.rx_std_prod);
+	Sleep(80);
+	TG3RxPoll;
+	"TG3: rx-after-link (std_prod=%d std_bd=%d avail=%d seen=%d)\n",
 		tg3.rx_std_prod,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail,
+		tg3.rx_seen_count;
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
