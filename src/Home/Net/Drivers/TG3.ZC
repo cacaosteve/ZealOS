@@ -1536,11 +1536,13 @@ U0 TG3TxProdKick(U32 prod)
 }
 
 U0 TG3RxProcess()
-{/* Copy-only until DHCP has an address. Every RCVRET/STD mailbox kick after
-	the first ~20 frames has frozen this 57766 (PCI, MMIO, MMIO+GRC, recycle
-	or not). Return ring is 1024 ΓÇö enough for Discover/Offer without reclaim. */
+{/* Photos (7f7e884c): copy-only delivered the first 24 frames (IPv6 mcast,
+	std_prod stayed 200) then HW stopped posting. 57766 return path likely
+	needs RCVRET cons ACK to DMA more status BDs. Still no STD recycle ΓÇö
+	176 posted buffers remain. Clear status UPDATED so HOSTCC can refresh. */
 	U16 hw_prod;
 	I64 cons;
+	I64 cons0;
 	I64 buf_idx;
 	I64 slot;
 	CTG3RxDesc *rd;
@@ -1548,11 +1550,13 @@ U0 TG3RxProcess()
 	U32 opaque;
 	U8 *pkt;
 	U8 *eth;
+	U16 etype;
 
 	if (!tg3.init_ok || !net_rx_deliver)
 		return;
 
 	cons = tg3.rx_cons;
+	cons0 = cons;
 	hw_prod = TG3StatusRxProducer();
 
 	while (cons != hw_prod)
@@ -1576,14 +1580,16 @@ U0 TG3RxProcess()
 				pkt_len -= 4;
 			NetQueuePush(pkt, pkt_len);
 			tg3.rx_push_count++;
-			if (tg3.rx_push_count <= 40 || !(tg3.rx_push_count & 0xF))
+			eth = pkt;
+			etype = (eth[12] << 8) | eth[13];
+			if (tg3.rx_push_count <= 40 || !(tg3.rx_push_count & 0xF) ||
+				etype == 0x0800 || eth[0] == 0xFF)
 			{
-				eth = pkt;
 				"TG3: RX push#%d len=%d slot=%d buf=%d dst=%02X:%02X:%02X:%02X:%02X:%02X "
-				"eth=%02X%02X prod=%d cons=%d\n",
+				"eth=%04X prod=%d cons=%d\n",
 					tg3.rx_push_count, pkt_len, slot, buf_idx,
 					eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
-					eth[12], eth[13], hw_prod, cons;
+					etype, hw_prod, cons;
 			}
 		}
 		else
@@ -1596,12 +1602,15 @@ U0 TG3RxProcess()
 			hw_prod = TG3StatusRxProducer();
 	}
 
+	if (cons != cons0)
+		TG3RcvRetKick(cons);
+
+	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
 U0 TG3KeepRxAlive()
-{/* Refresh status block only. Do not kick RX mailboxes or zero status[0]
-	here ΓÇö that raced HOSTCC and froze RX after the first drain. */
+{/* Poll: HOSTCC_NOW + copy + RCVRET ACK. No STD recycle / RX_MODE reset. */
 	U32 oct, bcast, mcast, ucast;
 	U16 prod, std_bd;
 	I64 push0;
