@@ -222,7 +222,7 @@
 #define  TG3_HOSTCC_MODE_32BYTE		0x00000100
 #define  TG3_HOSTCC_MODE_CLRTICK_RXBD	0x00000200
 #define  TG3_HOSTCC_MODE_CLRTICK_TXBD	0x00000400
-#define  TG3_HOSTCC_MODE_RUN		(TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_ATTN | TG3_HOSTCC_MODE_32BYTE | TG3_HOSTCC_MODE_CLRTICK_RXBD | TG3_HOSTCC_MODE_CLRTICK_TXBD)
+#define  TG3_HOSTCC_MODE_RUN		(TG3_HOSTCC_MODE_ENABLE | TG3_HOSTCC_MODE_32BYTE)
 #define TG3_HOSTCC_RXCOL_TICKS		0x00003C08
 #define TG3_HOSTCC_TXCOL_TICKS		0x00003C0C
 #define TG3_HOSTCC_RXMAX_FRAMES		0x00003C10
@@ -546,12 +546,11 @@ U0 TG3RcvRetKick(U32 cons)
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
-{/* WORD_SWAP + INDIR_ACCESS required for MEM_WIN on many tg3 parts.
-	57766: TAGGED_STATUS (Linux sets this on all non-5700). */
+{/* Untagged status: Linux uses TAGGED_STATUS + IRQ tag handshake.
+	Poll-only still froze at 21 host BDs with bdi=rcc=127. */
 	TG3WriteFlush(TG3PCI_MISC_HOST_CTRL,
 		TG3_MHC_CLEAR_INT | TG3_MHC_WORD_SWAP |
-		TG3_MHC_INDIR_ACCESS | TG3_MHC_PCISTATE_RW |
-		TG3_MHC_TAGGED_STATUS | extra);
+		TG3_MHC_INDIR_ACCESS | TG3_MHC_PCISTATE_RW | extra);
 }
 
 U0 TG3MemWrite(U32 addr, U32 val)
@@ -1661,17 +1660,12 @@ U0 TG3RxProcess()
 	tg3.tx_cons = TG3StatusTxConsumer();
 }
 
-U0 TG3TaggedRxPoll()
-{/* TAGGED_STATUS: HW stops DMA'ing more return BDs until we retire the
-	status tag. IRQ does this; poll must too or rcc runs to 127 with
-	only ~17 host rx_prod. Must live after TG3RxProcess (ZealC). */
-	U32 st_tag;
-
+U0 TG3RxPoll()
+{/* Untagged: mask, drain, clear UPDATED, re-enable ints (mbox=0). */
 	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
 	TG3RxProcess;
-	st_tag = tg3.status[1];
 	tg3.status[0] = 0;
-	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, st_tag << 24);
+	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, 0);
 }
 
 U0 TG3KeepRxAlive()
@@ -1687,7 +1681,7 @@ U0 TG3KeepRxAlive()
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 
 	push0 = tg3.rx_push_count;
-	TG3TaggedRxPoll;
+	TG3RxPoll;
 
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
@@ -1712,8 +1706,6 @@ U0 TG3KeepRxAlive()
 
 interrupt U0 TG3IRQ()
 {
-	U32 tag;
-
 	if (!tg3.init_ok)
 	{
 		*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
@@ -1721,13 +1713,7 @@ interrupt U0 TG3IRQ()
 	}
 
 	TG3MiscHostCtrl;
-	/* TAGGED_STATUS: mask with 1, work, reenable with status_tag<<24. */
-	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
-	TG3RxProcess;
-	tag = tg3.status[1];
-	tg3.status[0] = 0;
-	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
-
+	TG3RxPoll;
 	*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
 }
 
@@ -1767,7 +1753,7 @@ U0 TG3PollTask()
 
 	while (tg3.init_ok)
 	{
-		TG3TaggedRxPoll;
+		TG3RxPoll;
 		ticks++;
 		if (!(ticks & 0x1F) && tg3.phy_addr >= 0)
 		{
@@ -1828,7 +1814,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	TG3TxProdKick(next);
 
 	/* DHCP TX path ΓÇö reclaim + retire tagged status so return DMA continues. */
-	TG3TaggedRxPoll;
+	TG3RxPoll;
 
 	if (next <= 8)
 	{
@@ -2105,7 +2091,7 @@ U0 TG3Init()
 	if (tg3.link_up)
 		TG3LinkApply;
 	/* Reclaim from init so mbufs free; NetQueuePush still waits for bind. */
-	"TG3: reclaim from init (std_prod=%d std_bd=%d avail=%d)\n",
+	"TG3: untagged status + reclaim (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 	net_nic_poll = &TG3KeepRxAlive;
