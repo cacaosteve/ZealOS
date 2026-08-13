@@ -1336,9 +1336,11 @@ U0 TG3EnableBlocks()
 	if (i >= 200)
 		NetErr("TG3: BUFMGR enable failed");
 
-	TG3Write(TG3_RCVBDI_STD_THRESH, 4);
-	/* LWM=128 filled on-chip cache (bdi=127) before poll could drain return DMA. */
-	TG3Write(TG3_STD_REPLENISH_LWM, 8);
+	/* Linux tg3_setup_rxbd_thresholds: THRESH = min(cache/2, pending/8),
+	   LWM = bdcache (128). LWM=8 fetched exactly 8 then stalled ΓÇö empty
+	   cache does not retrigger. Poll-early now ACKs during PHY wait. */
+	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_PENDING / 8);
+	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_STD_BDCACHE_SIZE);
 
 	/* 57765+: maxlen = ring size; DMA sz in low bits << 2.
 	   57766 is 57765_CLASS but NOT 5717_PLUS ΓÇö Linux still programs
@@ -1823,7 +1825,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 	tg3.tx_prod = next;
 	TG3TxProdKick(next);
 
-	/* DHCP TX path ΓÇö reclaim + retire tagged status so return DMA continues. */
+	/* DHCP TX path ΓÇö reclaim so RCVRET advances even if poll is late. */
 	TG3RxPoll;
 
 	if (next <= 8)
@@ -2105,7 +2107,7 @@ U0 TG3Init()
 	   clobbers the live 1G link before DHCP. Trust real traffic. */
 	if (tg3.link_up)
 		TG3LinkApply;
-	"TG3: ret512 LWM=8 poll-early (std_prod=%d std_bd=%d avail=%d)\n",
+	"TG3: ret512 LWM=128 THRESH=25 poll-early (std_prod=%d std_bd=%d avail=%d)\n",
 		tg3.rx_std_prod,
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail;
 
