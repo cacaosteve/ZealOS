@@ -526,19 +526,6 @@ U0 TG3StdProdKick(U32 prod)
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
 }
 
-U0 TG3TaggedRxPoll()
-{/* TAGGED_STATUS: HW stops DMA'ing more return BDs until we retire the
-	status tag. IRQ does this; poll must too or rcc runs to 127 with
-	only ~17 host rx_prod. */
-	U32 tag;
-
-	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
-	TG3RxProcess;
-	tag = tg3.status[1];
-	tg3.status[0] = 0;
-	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
-}
-
 U0 TG3RcvRetKick(U32 cons)
 {/* STD doorbell works via MMIO+GRC (hw_std matches). Return-ring cons may
 	not ΓÇö freeze at ~21 is the on-chip RCVRET cache filling. Linux ICH
@@ -1672,6 +1659,19 @@ U0 TG3RxProcess()
 
 	tg3.status[0] = 0;
 	tg3.tx_cons = TG3StatusTxConsumer();
+}
+
+U0 TG3TaggedRxPoll()
+{/* TAGGED_STATUS: HW stops DMA'ing more return BDs until we retire the
+	status tag. IRQ does this; poll must too or rcc runs to 127 with
+	only ~17 host rx_prod. Must live after TG3RxProcess (ZealC). */
+	U32 st_tag;
+
+	TG3MboxWrite(TG3_MAILBOX_INTERRUPT_0, 1);
+	TG3RxProcess;
+	st_tag = tg3.status[1];
+	tg3.status[0] = 0;
+	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, st_tag << 24);
 }
 
 U0 TG3KeepRxAlive()
