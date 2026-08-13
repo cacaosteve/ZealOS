@@ -473,6 +473,7 @@ class CTG3
 	U16 last_hw_ret;
 	I64 rx_stall_ticks;
 	I64 rx_unstick_count;
+	Bool rx_started;
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
 	I16 rx_slot_buf[TG3_RX_STD_RING_SIZE];
 } tg3;
@@ -1491,9 +1492,13 @@ U0 TG3EnableBlocks()
 }
 
 U0 TG3RxStart()
-{/* Enable RCVBDI + MAC RX only after poll is live. */
+{/* Enable RCVBDI + MAC RX. DHCP calls this after UDP/68 bind. */
 	U32 val;
 	I64 i;
+
+	if (tg3.rx_started)
+		return;
+	tg3.rx_started = TRUE;
 
 	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
 	TG3WriteFlush(TG3_RCVDBDI_MODE,
@@ -1726,20 +1731,33 @@ U0 TG3RxPoll()
 }
 
 U0 TG3RxUnstick()
-{/* Cache-full or cache-empty both freeze fetch/return. Poke RCVBDI + LWM,
-	and after DHCP bind pulse MAC RX once in a while. */
+{/* RCVBDI poke alone left hw_ret=22. Also bounce WDMAC/RDMAC + MAC RX. */
 	tg3.rx_unstick_count++;
-	"TG3: unstick #%d hw_ret=%d bdi=%d seen=%d deliver=%d\n",
+	"TG3: unstick #%d hw_ret=%d bdi=%d seen=%d wd=0x%X rd=0x%X\n",
 		tg3.rx_unstick_count,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
 		TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
-		tg3.rx_seen_count, net_rx_deliver;
+		tg3.rx_seen_count,
+		TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS);
 	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_THRESH);
 	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_LWM);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+	TG3WriteFlush(TG3_RDMAC_MODE,
+		TG3_DMA_MODE_ERRS | TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
+	Busy(20);
+	TG3WriteFlush(TG3_RDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+		TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
+	Busy(20);
 	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
 	Busy(20);
 	TG3WriteFlush(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
-	if (net_rx_deliver && !(tg3.rx_unstick_count & 1))
+	if (net_rx_deliver)
 		TG3RxModeRun;
 	TG3StdProdKick(tg3.rx_std_prod);
 	TG3RcvRetKick(tg3.rx_cons);
@@ -2190,17 +2208,12 @@ U0 TG3Init()
 	if (tg3.link_up)
 		TG3LinkApply;
 
-	/* Poll first, then RCVBDI+MAC RX ΓÇö no 128-BD prefetch during PHY. */
+	/* Poll live, MAC RX off until DHCP bind ΓÇö first ~20 frames must be Offers. */
 	tg3.init_ok = TRUE;
 	net_nic_poll = &TG3KeepRxAlive;
+	net_nic_rx_start = &TG3RxStart;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	TG3RxStart;
-	Sleep(80);
-	TG3RxPoll;
-	"TG3: lwm32 unstick (std_prod=%d std_bd=%d avail=%d seen=%d tag=0x%X)\n",
-		tg3.rx_std_prod,
-		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF, TG3StdAvail,
-		tg3.rx_seen_count, tg3.last_tag;
+	"TG3: rx-at-dhcp (poll live, MAC RX off until Discover)\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",

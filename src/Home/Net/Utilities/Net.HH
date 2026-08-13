@@ -39,3 +39,5 @@ Bool net_rx_deliver = FALSE;
 
 /* Optional NIC poll hook (TG3 sets this) ΓÇö DHCP Offer wait calls it. */
 U0 (*net_nic_poll)() = NULL;
+/* Open MAC RX immediately before Discover so the ~20-frame window includes Offers. */
+U0 (*net_nic_rx_start)() = NULL;

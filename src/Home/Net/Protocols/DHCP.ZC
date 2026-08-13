@@ -403,9 +403,13 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 		NetErr("DHCP CONFIGURE INNER: Failed to Bind UDP Socket.");
 		return -1;
 	}
-	/* Now Offers have a socket ΓÇö enable RX delivery. */
+	/* Now Offers have a socket ΓÇö enable RX delivery and open the NIC.
+	   TG3 only keeps ~20 RX frames before WDMAC jams; Discover must
+	   go out inside that window. */
 	net_rx_deliver = TRUE;
 	"DHCP: UDP/68 bound ΓÇö RX delivery enabled\n";
+	if (net_nic_rx_start)
+		(*net_nic_rx_start)();
 	if (net_nic_poll)
 		(*net_nic_poll)();
 
