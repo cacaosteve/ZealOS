@@ -478,6 +478,7 @@ class CTG3
 	U16 last_hw_ret;
 	I64 rx_stall_ticks;
 	I64 rx_unstick_count;
+	I64 rx_echo_drop;
 	I64 offer_guard; /* KeepRxAlive calls to skip WDMAC bounce after Discover */
 	Bool rx_started;
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
@@ -1672,36 +1673,46 @@ U0 TG3RxProcess()
 				pkt_len -= 4;
 			if (net_rx_deliver)
 			{
-				NetQueuePush(pkt, pkt_len);
-				tg3.rx_push_count++;
 				eth = pkt;
 				etype = (eth[12] << 8) | eth[13];
-				/* First window census ΓÇö see what burns the ~25 slots. */
-				if (tg3.rx_push_count <= 48)
+				/* Switch often reflects our own Discover ΓÇö not an Offer. */
+				if (!MemCompare(pkt + 6, tg3.mac_address, 6))
 				{
-					if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+					tg3.rx_echo_drop++;
+					if (tg3.rx_echo_drop <= 8)
+						"TG3: drop own-TX echo #%d len=%d\n",
+							tg3.rx_echo_drop, pkt_len;
+				}
+				else
+				{
+					NetQueuePush(pkt, pkt_len);
+					tg3.rx_push_count++;
+					if (tg3.rx_push_count <= 48)
+					{
+						if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+						{
+							sport = (pkt[34] << 8) | pkt[35];
+							dport = (pkt[36] << 8) | pkt[37];
+							"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
+								tg3.rx_push_count, sport, dport,
+								pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
+						}
+						else if (etype == 0x0806)
+							"TG3: rx#%d ARP len=%d\n", tg3.rx_push_count, pkt_len;
+						else
+							"TG3: rx#%d et=0x%04X len=%d\n",
+								tg3.rx_push_count, etype, pkt_len;
+					}
+					else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
 					{
 						sport = (pkt[34] << 8) | pkt[35];
 						dport = (pkt[36] << 8) | pkt[37];
-						"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
-							tg3.rx_push_count, sport, dport,
-							pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
+						if (dport == 68 || sport == 67 || dport == 67)
+							"TG3: DHCP-ish UDP sport=%d dport=%d dst=%d.%d.%d.%d "
+							"len=%d push=%d\n",
+								sport, dport, pkt[30], pkt[31], pkt[32], pkt[33],
+								pkt_len, tg3.rx_push_count;
 					}
-					else if (etype == 0x0806)
-						"TG3: rx#%d ARP len=%d\n", tg3.rx_push_count, pkt_len;
-					else
-						"TG3: rx#%d et=0x%04X len=%d\n",
-							tg3.rx_push_count, etype, pkt_len;
-				}
-				else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
-				{
-					sport = (pkt[34] << 8) | pkt[35];
-					dport = (pkt[36] << 8) | pkt[37];
-					if (dport == 68 || sport == 67 || dport == 67)
-						"TG3: DHCP-ish UDP sport=%d dport=%d dst=%d.%d.%d.%d "
-						"len=%d push=%d\n",
-							sport, dport, pkt[30], pkt[31], pkt[32], pkt[33],
-							pkt_len, tg3.rx_push_count;
 				}
 			}
 			else
@@ -1763,84 +1774,63 @@ U0 TG3RxPoll()
 	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
 }
 
-U0 TG3RxArmOffer()
-{/* After Discover: open RX with unicast+bcast filter, hard-bounce rings
-	so mcast cannot pre-fill the WDMAC window (census was all 5353/IPv6). */
+U0 TG3RxHardBounce()
+{/* Clear return ring + bounce WDMAC. Soft unstick left hw_ret stuck at 1
+	after our own Discover echo; this path restored continuous RX before. */
 	I64 i;
 
+	for (i = 0; i < 4; i++)
+		TG3RxPoll;
+	TG3WriteFlush(TG3_MAC_RX_MODE, 0);
+	Busy(20);
+	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
+	Busy(20);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+		TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+	MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
+	tg3.rx_cons = 0;
+	tg3.status[0] = 0;
+	tg3.status[4] = 0;
+	tg3.last_hw_ret = 0;
+	tg3.rx_stall_ticks = 0;
+	TG3RcvRetKick(0);
+	TG3StdProdKick(tg3.rx_std_prod);
+	TG3WriteFlush(TG3_RCVBDI_MODE,
+		TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+	TG3RxModeRun;
+	TG3WriteFlush(TG3_HOSTCC_MODE,
+		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	tg3.rx_unstick_count++;
+	"TG3: hard-bounce #%d seen=%d push=%d echo=%d\n",
+		tg3.rx_unstick_count, tg3.rx_seen_count, tg3.rx_push_count,
+		tg3.rx_echo_drop;
+}
+
+U0 TG3RxArmOffer()
+{/* Open RX if needed, then always hard-bounce. Photos: first RX was our
+	own Discover echo (UDP 68->67) and hw_ret jammed at 1 ΓÇö Offer never
+	landed. Bounce after Discover so the return ring is live for 67->68. */
 	if (!tg3.rx_started)
 		TG3RxStart;
-	else
-	{
-		for (i = 0; i < 8; i++)
-			TG3RxPoll;
-		TG3WriteFlush(TG3_MAC_RX_MODE, 0);
-		Busy(20);
-		TG3WriteFlush(TG3_RCVBDI_MODE, 0);
-		Busy(20);
-		TG3WriteFlush(TG3_WDMAC_MODE,
-			TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
-		Busy(20);
-		TG3WriteFlush(TG3_WDMAC_MODE,
-			TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
-			TG3_WDMAC_MODE_STATUS_TAG_FIX);
-		Busy(20);
-		MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
-		tg3.rx_cons = 0;
-		tg3.status[0] = 0;
-		tg3.status[4] = 0;
-		tg3.last_hw_ret = 0;
-		TG3RcvRetKick(0);
-		TG3StdProdKick(tg3.rx_std_prod);
-		TG3WriteFlush(TG3_RCVBDI_MODE,
-			TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
-		TG3RxModeRun;
-		TG3WriteFlush(TG3_HOSTCC_MODE,
-			TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
-	}
-	tg3.offer_guard = 300;
+	TG3RxHardBounce;
+	tg3.offer_guard = 80;
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
-	"TG3: RxArmOffer after-Discover (seen=%d push=%d hold=%d hw_ret=%d "
+	"TG3: RxArmOffer after-Discover (seen=%d push=%d echo=%d hw_ret=%d "
 	"rx_mode=0x%X hash3=0x%X)\n",
-		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_hold_drop,
+		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
 		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_3);
 }
 
 U0 TG3RxUnstick()
-{/* RCVBDI poke alone left hw_ret=22. Also bounce WDMAC/RDMAC + MAC RX. */
-	tg3.rx_unstick_count++;
-	"TG3: unstick #%d hw_ret=%d bdi=%d seen=%d wd=0x%X rd=0x%X\n",
-		tg3.rx_unstick_count,
-		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-		TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
-		tg3.rx_seen_count,
-		TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS);
-	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_THRESH);
-	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_LWM);
-	TG3WriteFlush(TG3_WDMAC_MODE,
-		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
-	Busy(20);
-	TG3WriteFlush(TG3_WDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
-	Busy(20);
-	TG3WriteFlush(TG3_RDMAC_MODE,
-		TG3_DMA_MODE_ERRS | TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
-	Busy(20);
-	TG3WriteFlush(TG3_RDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
-		TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
-	Busy(20);
-	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
-	Busy(20);
-	TG3WriteFlush(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
-	if (net_rx_deliver)
-		TG3RxModeRun;
-	TG3StdProdKick(tg3.rx_std_prod);
-	TG3RcvRetKick(tg3.rx_cons);
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+{
+	TG3RxHardBounce;
 }
 
 U0 TG3KeepRxAlive()
@@ -1869,21 +1859,16 @@ U0 TG3KeepRxAlive()
 
 	if (tg3.offer_guard > 0)
 		tg3.offer_guard--;
-	if (hw_ret == tg3.last_hw_ret && tg3.rx_seen_count)
-		tg3.rx_stall_ticks++;
-	else
-		tg3.rx_stall_ticks = 0;
+	/* Idle with seen>0 is normal ΓÇö do not bounce (that looped unstick
+	   forever at hw_ret=1). ArmOffer hard-bounces after each Discover. */
 	tg3.last_hw_ret = hw_ret;
-	if (!tg3.offer_guard && tg3.rx_stall_ticks >= 12 &&
-		!((tg3.rx_stall_ticks - 12) % 40))
-		TG3RxUnstick;
+	tg3.rx_stall_ticks = 0;
 
-	if (tg3.rx_push_count != push0 ||
-		(tg3.rx_stall_ticks && !(tg3.rx_stall_ticks & 0x3F)))
-		"TG3: alive push=%d hold=%d seen=%d prod=%d cons=%d "
+	if (tg3.rx_push_count != push0)
+		"TG3: alive push=%d echo=%d seen=%d prod=%d cons=%d "
 		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hw_ret=%d "
 		"tag=0x%X un=%d\n",
-			tg3.rx_push_count, tg3.rx_hold_drop, tg3.rx_seen_count,
+			tg3.rx_push_count, tg3.rx_echo_drop, tg3.rx_seen_count,
 			prod, tg3.rx_cons, std_bd,
 			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
 			TG3Read(TG3_RCVCC_STD_PROD_IDX) & 0xFFFF,
@@ -2317,7 +2302,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: no PROMISC; mcast off; broadcast hash on\n";
+	"TG3: drop own-TX echo; hard-bounce after Discover\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
