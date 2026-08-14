@@ -101,8 +101,8 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-/* No PROMISC ΓÇö mDNS/IPv6 flooded the ~25-frame WDMAC window before DHCP. */
-#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_KEEP_VLAN)
+/* PROMISC back on for Internet Sharing ARP/ICMP; soft-drop mDNS/IPv6/own. */
+#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC | TG3_RX_MODE_KEEP_VLAN)
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -1687,33 +1687,40 @@ U0 TG3RxProcess()
 				}
 				else
 				{
-					NetQueuePush(pkt, pkt_len);
-					tg3.rx_push_count++;
-					if (tg3.rx_push_count <= 48)
-					{
-						if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
-						{
-							sport = (pkt[34] << 8) | pkt[35];
-							dport = (pkt[36] << 8) | pkt[37];
-							"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
-								tg3.rx_push_count, sport, dport,
-								pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
-						}
-						else if (etype == 0x0806)
-							"TG3: rx#%d ARP len=%d\n", tg3.rx_push_count, pkt_len;
-						else
-							"TG3: rx#%d et=0x%04X len=%d\n",
-								tg3.rx_push_count, etype, pkt_len;
-					}
+					etype = (eth[12] << 8) | eth[13];
+					/* Drop LAN noise before NetQueue ΓÇö keeps WDMAC slots for ARP/ICMP. */
+					if (etype == 0x86DD)
+						tg3.rx_hold_drop++;
 					else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
 					{
 						sport = (pkt[34] << 8) | pkt[35];
 						dport = (pkt[36] << 8) | pkt[37];
-						if (dport == 68 || sport == 67 || dport == 67)
-							"TG3: DHCP-ish UDP sport=%d dport=%d dst=%d.%d.%d.%d "
-							"len=%d push=%d\n",
-								sport, dport, pkt[30], pkt[31], pkt[32], pkt[33],
-								pkt_len, tg3.rx_push_count;
+						if (sport == 5353 || dport == 5353)
+							tg3.rx_hold_drop++;
+						else
+						{
+							NetQueuePush(pkt, pkt_len);
+							tg3.rx_push_count++;
+							if (tg3.rx_push_count <= 48 || dport == 68 ||
+								sport == 67 || dport == 67)
+								"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
+									tg3.rx_push_count, sport, dport,
+									pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
+						}
+					}
+					else if (etype == 0x0806)
+					{
+						NetQueuePush(pkt, pkt_len);
+						tg3.rx_push_count++;
+						"TG3: rx#%d ARP len=%d\n", tg3.rx_push_count, pkt_len;
+					}
+					else
+					{
+						NetQueuePush(pkt, pkt_len);
+						tg3.rx_push_count++;
+						if (tg3.rx_push_count <= 48)
+							"TG3: rx#%d et=0x%04X len=%d\n",
+								tg3.rx_push_count, etype, pkt_len;
 					}
 				}
 			}
@@ -1835,9 +1842,17 @@ U0 TG3RxArmOffer()
 		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_3);
 }
 
-U0 TG3RxUnstick()
-{
+U0 TG3RxRearm()
+{/* Static IP / post-DHCP: RX may already be open but jammed. Always
+	hard-bounce so ARP replies from Internet Sharing can land. */
+	net_rx_deliver = TRUE;
+	if (!tg3.rx_started)
+		TG3RxStart;
 	TG3RxHardBounce;
+	"TG3: RxRearm (seen=%d push=%d echo=%d hw_ret=%d rx_mode=0x%X)\n",
+		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
+		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
+		TG3Read(TG3_MAC_RX_MODE);
 }
 
 U0 TG3KeepRxAlive()
@@ -2312,8 +2327,9 @@ U0 TG3Init()
 	net_nic_poll = &TG3KeepRxAlive;
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
+	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: bounce after own-TX echo; try StartStatic if DHCP fails\n";
+	"TG3: build fa9b31dd+ rearm; PROMISC+soft-drop; Internet Sharing\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",

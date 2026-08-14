@@ -593,7 +593,9 @@ U0 NetStaticConfigure(U8 *ip_str, U8 *router_str, U8 *mask_str)
 		return;
 	}
 	net_rx_deliver = TRUE;
-	if (net_nic_rx_start)
+	if (net_nic_rx_rearm)
+		(*net_nic_rx_rearm)();
+	else if (net_nic_rx_start)
 		(*net_nic_rx_start)();
 	if (net_nic_poll)
 		(*net_nic_poll)();
@@ -601,6 +603,7 @@ U0 NetStaticConfigure(U8 *ip_str, U8 *router_str, U8 *mask_str)
 	IPV4SubnetSet(router, mask);
 	"==== Static configure %s router %s mask %s ====\n",
 		ip_str, router_str, mask_str;
+	"TG3 tip: macOS Internet Sharing is usually 192.168.2.1 on the share side\n";
 }
 
 U0 NetRep()

@@ -107,8 +107,10 @@ I64 IPV4AddressMACGet(U32 ip_address, U8 **mac_out)
 		return 0;
 	}
 
-	// "outside this subnet; needs routing"
-	if (ip_address & ipv4_globals.ipv4_subnet_mask != ipv4_globals.local_ip & ipv4_globals.ipv4_subnet_mask)
+	/* Need parens: != binds tighter than & in ZealC/C, which always
+	   took the "outside subnet" path and broke ARP for 192.168.2.1. */
+	if ((ip_address & ipv4_globals.ipv4_subnet_mask) !=
+		(ipv4_globals.local_ip & ipv4_globals.ipv4_subnet_mask))
 	{
 		NetWarn("GET MAC FOR IP: TODO: Doing IPV4AddressMACGet recursion, could infinite loop and overflow stack.");
 		return IPV4AddressMACGet(ipv4_globals.ipv4_router_address, mac_out);
@@ -135,10 +137,17 @@ I64 IPV4AddressMACGet(U32 ip_address, U8 **mac_out)
 					ipv4_globals.local_ip_be,
 					ethernet_globals.ethernet_null,
 					EndianU32(ip_address));
+			"ARP: who-has %d.%d.%d.%d tell %d.%d.%d.%d\n",
+				ip_address.u8[3], ip_address.u8[2],
+				ip_address.u8[1], ip_address.u8[0],
+				ipv4_globals.local_ip.u8[3], ipv4_globals.local_ip.u8[2],
+				ipv4_globals.local_ip.u8[1], ipv4_globals.local_ip.u8[0];
 
 			attempt = 0;
 			for (attempt = 0; attempt < 50; attempt++)
 			{
+				if (net_nic_poll)
+					(*net_nic_poll)();
 				Sleep(10);
 				entry = ARPCacheFind(ip_address);
 				if (entry)

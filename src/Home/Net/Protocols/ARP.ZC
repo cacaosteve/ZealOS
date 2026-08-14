@@ -88,7 +88,7 @@ CARPHash *ARPCacheFind(U32 ip_address)
 
 	if (entry == NULL)
 	{
-		NetLog("ARP CACHE FIND BY IP: Could not find an IP in ARP cache.");
+		/* Silent ΓÇö Ping ARP retries were flooding the screen. */
 	}
 
 	Free(ip_string);

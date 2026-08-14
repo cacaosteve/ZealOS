@@ -43,3 +43,5 @@ U0 (*net_nic_poll)() = NULL;
 U0 (*net_nic_rx_start)() = NULL;
 /* After Discover TX: flush RX so Offer lands in a fresh ~20-frame window. */
 U0 (*net_nic_rx_arm)() = NULL;
+/* Force RX live again (static IP after failed DHCP left rings jammed). */
+U0 (*net_nic_rx_rearm)() = NULL;
