@@ -562,18 +562,28 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* MMIO + GRC only. Do not write RCVBDI_STD_PROD_IDX ΓÇö Linux never does,
-	and it read back 127 (cache size-1) after we started. */
+{/* MMIO + GRC + PCI config. Mac mini ignored some MMIO-only mailboxes;
+	without PCI kick the std ring can starve after a few frames. */
+	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
+
 	prod &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
+	PCIWriteU32(bus, pdev, fun,
+		TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* Linux 57766: tw32_rx_mbox = plain MMIO. GRC+PCI 0xA4 is ICH-only and
-	may confuse PCIe mailbox consumption (on-chip ret cache ~16). */
+{/* On-chip return BD cache is ~16 ΓÇö if consumer updates never land, RX
+	stalls at seenΓëê14 with Mac still sending ICMP replies. Mirror TX:
+	MMIO + GRC + PCI config (Linux ICH path uses PCI 0xA0). */
+	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
+
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
+	PCIWriteU32(bus, pdev, fun,
+		TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1762,9 +1772,9 @@ U0 TG3RxProcess()
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		tg3.rx_cons = cons;
 
-		/* Free on-chip return BDs during drain ΓÇö cache is ~20. */
-		if (!((cons - cons0) & 7))
-			TG3RcvRetKick(cons);
+		/* Free on-chip return BDs every packet ΓÇö cache is ~16; delaying
+		   kicks was stalling RX while Mac ICMP replies piled up. */
+		TG3RcvRetKick(cons);
 
 		if (cons == hw_prod)
 		{
@@ -2364,7 +2374,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build rx-sync-bounce+ARP-inject; stall recovery\n";
+	"TG3: build rx-mbox-pci+kick-every; Mac ICMP replies on wire\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
