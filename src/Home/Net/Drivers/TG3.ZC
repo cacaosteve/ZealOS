@@ -562,28 +562,17 @@ U0 TG3MboxWriteFlush(U32 mbox, U32 val)
 }
 
 U0 TG3StdProdKick(U32 prod)
-{/* MMIO + GRC + PCI config. Mac mini ignored some MMIO-only mailboxes;
-	without PCI kick the std ring can starve after a few frames. */
-	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
-
+{/* MMIO + GRC. Do not write RCVBDI_STD_PROD_IDX ΓÇö Linux never does. */
 	prod &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCV_STD_PROD_IDX, prod);
 	TG3MboxWriteFlush(TG3_GRCMBOX_RCVSTD_PROD_IDX, prod);
-	PCIWriteU32(bus, pdev, fun,
-		TG3PCI_STD_RING_PROD_IDX + TG3_64BIT_LOW, prod);
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* On-chip return BD cache is ~16 ΓÇö if consumer updates never land, RX
-	stalls at seenΓëê14 with Mac still sending ICMP replies. Mirror TX:
-	MMIO + GRC + PCI config (Linux ICH path uses PCI 0xA0). */
-	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
-
+{/* PCIe 57766: Linux uses MMIO only. PCI+GRC triple-kick did not fix
+	the seenΓëê10 stall; keep MMIO (+ flush read). */
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
-	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
-	PCIWriteU32(bus, pdev, fun,
-		TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -1772,9 +1761,9 @@ U0 TG3RxProcess()
 		cons = (cons + 1) & (TG3_RX_RET_RING_SIZE - 1);
 		tg3.rx_cons = cons;
 
-		/* Free on-chip return BDs every packet ΓÇö cache is ~16; delaying
-		   kicks was stalling RX while Mac ICMP replies piled up. */
-		TG3RcvRetKick(cons);
+		/* Free on-chip return BDs during drain ΓÇö cache is ~16. */
+		if (!((cons - cons0) & 7))
+			TG3RcvRetKick(cons);
 
 		if (cons == hw_prod)
 		{
@@ -1796,20 +1785,27 @@ U0 TG3RxProcess()
 }
 
 U0 TG3RxPoll()
-{/* Tagged ACK only ΓÇö do not write mbox=1 every poll (Linux does that once
-	on IRQ entry). Spamming 1 aborts in-flight HOSTCC/WDMAC DMA. */
+{/* Process return ring. Tagged ACK only when work/tag moved ΓÇö Linux
+	writes last_tag<<24 once after napi work. Spamming it every
+	PollTask tick (~5ms) aborts in-flight HOSTCC/WDMAC and matches
+	our seenΓëê10 hang with Mac ICMP replies still on the wire. */
 	U32 tag;
+	I64 cons0 = tg3.rx_cons;
+	I64 seen0 = tg3.rx_seen_count;
 
 	TG3RxProcess;
 	tag = tg3.status[1];
-	tg3.last_tag = tag;
-	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
+	if (tg3.rx_cons != cons0 || tg3.rx_seen_count != seen0 ||
+		tag != tg3.last_tag)
+	{
+		tg3.last_tag = tag;
+		TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
+	}
 }
 
 U0 TG3RxHardBounce()
-{/* Sync cons to HW producer, then bounce WDMAC. Resetting cons to 0 while
-	HW producer stayed ~21 left the return ring desynced ΓÇö Mac ARP replies
-	never advanced status and we never saw "rx#N ARP". */
+{/* Sync cons, bounce WDMAC+RDMAC. Used sparingly ΓÇö StartShare no longer
+	bounces on every static configure (that left RX dead after ~10). */
 	I64 i;
 	U16 prod;
 
@@ -1825,13 +1821,16 @@ U0 TG3RxHardBounce()
 	Busy(20);
 	TG3WriteFlush(TG3_WDMAC_MODE,
 		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	TG3WriteFlush(TG3_RDMAC_MODE, TG3_DMA_MODE_ERRS);
 	Busy(20);
 	TG3WriteFlush(TG3_WDMAC_MODE,
 		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
 		TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	TG3WriteFlush(TG3_RDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+		TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
 	Busy(20);
 
-	/* Do not MemSet return ring / zero status producer ΓÇö that desyncs HW. */
 	tg3.rx_stall_ticks = 0;
 	TG3StdRingRefill;
 	TG3StdProdKick(tg3.rx_std_prod);
@@ -1841,17 +1840,15 @@ U0 TG3RxHardBounce()
 	TG3WriteFlush(TG3_HOSTCC_MODE,
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	tg3.rx_unstick_count++;
-	"TG3: hard-bounce #%d sync cons=%d seen=%d push=%d echo=%d "
-	"hostcc=%d st=%d\n",
+	"TG3: hard-bounce #%d sync cons=%d seen=%d push=%d "
+	"flow=0x%X bufmgr=0x%X wd=0x%X rd=0x%X\n",
 		tg3.rx_unstick_count, prod, tg3.rx_seen_count, tg3.rx_push_count,
-		tg3.rx_echo_drop,
-		TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
-		tg3.status[4] & 0xFFFF;
+		TG3Read(TG3_HOSTCC_FLOW_ATTN), TG3Read(TG3_BUFMGR_STATUS),
+		TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS);
 }
 
 U0 TG3RxArmOffer()
-{/* Soft open after Discover. Bounce only if we already saw our TX echo
-	(need_rx_bounce). Never bounce a cold ring ΓÇö that left seen=0 forever. */
+{/* Soft open after Discover. Bounce only if we already saw our TX echo. */
 	if (!tg3.rx_started)
 		TG3RxStart;
 	tg3.offer_guard = 40;
@@ -1865,22 +1862,29 @@ U0 TG3RxArmOffer()
 	else
 		tg3.need_rx_bounce = FALSE;
 	"TG3: RxArmOffer after-Discover (seen=%d push=%d echo=%d hw_ret=%d "
-	"rx_mode=0x%X hash3=0x%X)\n",
+	"rx_mode=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_3);
+		TG3Read(TG3_MAC_RX_MODE);
 }
 
 U0 TG3RxRearm()
-{/* Static IP / post-DHCP: RX may already be open but jammed. Always
-	hard-bounce so ARP replies from Internet Sharing can land. */
+{/* Static IP: open RX without hard-bounce. Bounce was killing continuous
+	RX after ~10 mDNS frames ΓÇö Mac ICMP replies never landed. */
 	net_rx_deliver = TRUE;
 	if (!tg3.rx_started)
 		TG3RxStart;
-	TG3RxHardBounce;
-	"TG3: RxRearm (seen=%d push=%d echo=%d hw_ret=%d rx_mode=0x%X)\n",
-		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
-		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
+	tg3.need_rx_bounce = FALSE;
+	tg3.rx_stall_ticks = 0;
+	TG3StdRingRefill;
+	TG3StdProdKick(tg3.rx_std_prod);
+	TG3RxModeRun;
+	TG3WriteFlush(TG3_HOSTCC_MODE,
+		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	TG3RxPoll;
+	"TG3: RxRearm no-bounce (seen=%d push=%d hostcc=%d rx_mode=0x%X)\n",
+		tg3.rx_seen_count, tg3.rx_push_count,
+		TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
 		TG3Read(TG3_MAC_RX_MODE);
 }
 
@@ -2374,7 +2378,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build rx-mbox-pci+kick-every; Mac ICMP replies on wire\n";
+	"TG3: build ack-on-work+no-rearm-bounce; Mac ICMP on wire\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
