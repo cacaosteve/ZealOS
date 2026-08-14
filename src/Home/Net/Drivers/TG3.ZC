@@ -1730,6 +1730,44 @@ U0 TG3RxPoll()
 	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
 }
 
+U0 TG3RxArmOffer()
+{/* After Discover: drain + bounce DMA so Offer gets a clean ~20 BD window. */
+	I64 i;
+
+	if (!tg3.rx_started)
+		TG3RxStart;
+
+	for (i = 0; i < 8; i++)
+		TG3RxPoll;
+
+	TG3WriteFlush(TG3_MAC_RX_MODE, 0);
+	Busy(20);
+	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
+	Busy(20);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+	TG3WriteFlush(TG3_WDMAC_MODE,
+		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+	Busy(20);
+
+	MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
+	tg3.rx_cons = 0;
+	tg3.status[0] = 0;
+	tg3.status[4] = 0;
+	tg3.last_hw_ret = 0;
+	tg3.rx_stall_ticks = 0;
+	TG3RcvRetKick(0);
+	TG3StdProdKick(tg3.rx_std_prod);
+	TG3WriteFlush(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+	TG3RxModeRun;
+	TG3WriteFlush(TG3_HOSTCC_MODE,
+		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	"TG3: RxArmOffer (seen=%d hold=%d push=%d prod=%d)\n",
+		tg3.rx_seen_count, tg3.rx_hold_drop, tg3.rx_push_count,
+		tg3.rx_std_prod;
+}
+
 U0 TG3RxUnstick()
 {/* RCVBDI poke alone left hw_ret=22. Also bounce WDMAC/RDMAC + MAC RX. */
 	tg3.rx_unstick_count++;
@@ -2212,8 +2250,9 @@ U0 TG3Init()
 	tg3.init_ok = TRUE;
 	net_nic_poll = &TG3KeepRxAlive;
 	net_nic_rx_start = &TG3RxStart;
+	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: rx-at-dhcp (poll live, MAC RX off until Discover)\n";
+	"TG3: rx-at-discover (arm Offer window after Discover TX)\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",

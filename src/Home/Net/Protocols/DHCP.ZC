@@ -434,6 +434,10 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					return error;
 				}
 				"DHCP: Discover sent xid=%08X ΓÇö waiting Offer\n", xid;
+				/* Fresh RX window ΓÇö mcast otherwise burns the ~20 WDMAC slots
+				   before the Offer arrives. */
+				if (net_nic_rx_arm)
+					(*net_nic_rx_arm)();
 
 				/* Slice the wait so we can poke the NIC; RX was freezing
 				   at ~20 frames across a single long ReceiveFrom. */

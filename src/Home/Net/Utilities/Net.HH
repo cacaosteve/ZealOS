@@ -41,3 +41,5 @@ Bool net_rx_deliver = FALSE;
 U0 (*net_nic_poll)() = NULL;
 /* Open MAC RX immediately before Discover so the ~20-frame window includes Offers. */
 U0 (*net_nic_rx_start)() = NULL;
+/* After Discover TX: flush RX so Offer lands in a fresh ~20-frame window. */
+U0 (*net_nic_rx_arm)() = NULL;
