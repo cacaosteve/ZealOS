@@ -1660,8 +1660,24 @@ U0 TG3RxProcess()
 				tg3.rx_push_count++;
 				eth = pkt;
 				etype = (eth[12] << 8) | eth[13];
-				/* Only shout about DHCP ΓÇö mDNS flood blanked the screen. */
-				if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+				/* First window census ΓÇö see what burns the ~25 slots. */
+				if (tg3.rx_push_count <= 48)
+				{
+					if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
+					{
+						sport = (pkt[34] << 8) | pkt[35];
+						dport = (pkt[36] << 8) | pkt[37];
+						"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
+							tg3.rx_push_count, sport, dport,
+							pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
+					}
+					else if (etype == 0x0806)
+						"TG3: rx#%d ARP len=%d\n", tg3.rx_push_count, pkt_len;
+					else
+						"TG3: rx#%d et=0x%04X len=%d\n",
+							tg3.rx_push_count, etype, pkt_len;
+				}
+				else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
 				{
 					sport = (pkt[34] << 8) | pkt[35];
 					dport = (pkt[36] << 8) | pkt[37];
@@ -1732,14 +1748,15 @@ U0 TG3RxPoll()
 }
 
 U0 TG3RxArmOffer()
-{/* Soft reclaim after Discover. Hold off WDMAC bounce ~2s so Offer can land;
-	hard bounce right after TX dropped Offers, soft-only re-jammed at ~28. */
+{/* Open RX *after* Discover is on the wire so the ~25-frame window
+	is not already full of mDNS/ARP. Soft reclaim first; KeepRxAlive
+	bounces WDMAC after offer_guard if hw_ret stalls. */
 	if (!tg3.rx_started)
 		TG3RxStart;
-	tg3.offer_guard = 400; /* ~2s at 5ms poll */
+	tg3.offer_guard = 300; /* ~1.5s at 5ms PollTask */
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
-	"TG3: RxArmOffer soft+guard (seen=%d push=%d hold=%d hw_ret=%d)\n",
+	"TG3: RxArmOffer after-Discover (seen=%d push=%d hold=%d hw_ret=%d)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_hold_drop,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
 }
@@ -1806,10 +1823,10 @@ U0 TG3KeepRxAlive()
 	else
 		tg3.rx_stall_ticks = 0;
 	tg3.last_hw_ret = hw_ret;
-	/* Bounce only after Offer guard ΓÇö hard ArmOffer ate Offers; no-bounce
-	   jammed at push=28 with only mDNS in the window. */
-	if (!tg3.offer_guard &&
-		(tg3.rx_stall_ticks == 12 || tg3.rx_stall_ticks == 40))
+	/* Bounce after Offer guard. Photos showed un=0 forever because
+	   PollTask skipped KeepRxAlive and guard never hit 0. */
+	if (!tg3.offer_guard && tg3.rx_stall_ticks >= 12 &&
+		!((tg3.rx_stall_ticks - 12) % 40))
 		TG3RxUnstick;
 
 	if (tg3.rx_push_count != push0 ||
@@ -1867,15 +1884,15 @@ U0 TG3InterruptsSetup()
 }
 
 U0 TG3PollTask()
-{/* Backup path if INTx delivery is slow/misrouted. Always scan rings ΓÇö
-	UPDATED status bit alone is not reliable enough for DHCP RX. */
+{/* KeepRxAlive (not bare RxPoll) so offer_guard/unstick run. DHCP
+	alone only polls ~24\times/6s ΓÇö guard=300 never expired (un=0). */
 	I64 ticks = 0;
 	U32 mac_stat, bmsr = 0;
 	Bool was;
 
 	while (tg3.init_ok)
 	{
-		TG3RxPoll;
+		TG3KeepRxAlive;
 		ticks++;
 		if (!(ticks & 0x1F) && tg3.phy_addr >= 0)
 		{
@@ -2230,7 +2247,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: soft arm + delayed unstick after Discover\n";
+	"TG3: RX opens after Discover; PollTask runs KeepRxAlive\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",

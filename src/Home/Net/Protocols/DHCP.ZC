@@ -403,13 +403,11 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 		NetErr("DHCP CONFIGURE INNER: Failed to Bind UDP Socket.");
 		return -1;
 	}
-	/* Now Offers have a socket ΓÇö enable RX delivery and open the NIC.
-	   TG3 only keeps ~20 RX frames before WDMAC jams; Discover must
-	   go out inside that window. */
+	/* Enable push path, but do NOT open the NIC RX engine yet.
+	   TG3 jams after ~25 frames; opening at bind filled the window
+	   with ARP/mDNS before Discover left the wire (seen=25, un=0). */
 	net_rx_deliver = TRUE;
-	"DHCP: UDP/68 bound ΓÇö RX delivery enabled\n";
-	if (net_nic_rx_start)
-		(*net_nic_rx_start)();
+	"DHCP: UDP/68 bound ΓÇö RX delivery enabled (NIC RX deferred)\n";
 	if (net_nic_poll)
 		(*net_nic_poll)();
 
@@ -434,10 +432,11 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					return error;
 				}
 				"DHCP: Discover sent xid=%08X ΓÇö waiting Offer\n", xid;
-				/* Fresh RX window ΓÇö mcast otherwise burns the ~20 WDMAC slots
-				   before the Offer arrives. */
+				/* Open / re-arm RX only after Discover is queued. */
 				if (net_nic_rx_arm)
 					(*net_nic_rx_arm)();
+				else if (net_nic_rx_start)
+					(*net_nic_rx_start)();
 
 				/* Slice the wait so we can poke the NIC; RX was freezing
 				   at ~20 frames across a single long ReceiveFrom. */
