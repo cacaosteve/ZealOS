@@ -1814,18 +1814,20 @@ U0 TG3RxHardBounce()
 }
 
 U0 TG3RxArmOffer()
-{/* Open RX after Discover. Do NOT hard-bounce here ΓÇö that left seen=0.
-	Bounce once after we see our own Discover echo (need_rx_bounce). */
+{/* Soft open after Discover. Bounce only if we already saw our TX echo
+	(need_rx_bounce). Never bounce a cold ring ΓÇö that left seen=0 forever. */
 	if (!tg3.rx_started)
 		TG3RxStart;
 	tg3.offer_guard = 40;
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
-	if (tg3.need_rx_bounce)
+	if (tg3.need_rx_bounce && tg3.rx_echo_drop)
 	{
 		tg3.need_rx_bounce = FALSE;
 		TG3RxHardBounce;
 	}
+	else
+		tg3.need_rx_bounce = FALSE;
 	"TG3: RxArmOffer after-Discover (seen=%d push=%d echo=%d hw_ret=%d "
 	"rx_mode=0x%X hash3=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
