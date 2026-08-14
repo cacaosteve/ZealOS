@@ -1,0 +1,23 @@
+/* Internet Sharing path: skip DHCP (mDNS jams RX) and go static.
+   On the sharing Mac, while this runs:
+	ifconfig | grep -A5 'inet 192.168.2'
+	sudo tcpdump -n -i bridge100 arp or host 192.168.2.50
+   (interface may be enX ù use the USB LAN or bridge100)
+
+   If tcpdump shows no ARP from 38:c9:86:4e:94:cb ? TX not on wire.
+   If Mac replies but ZealOS never prints "TG3: rx#N ARP" ? RX/VLAN bug.
+   If Mac never replies ? Sharing ignores static; need DHCP or ARP inject.
+
+   Manual gateway MAC (from ifconfig ether on bridge100 / USB NIC):
+	#include "StartShare"
+   then before Ping, or edit below:
+	U8 gmac[6]; gmac[0]=0x..; ... ARPCachePut(0xC0A80201, gmac);
+*/
+Cd(__DIR__);;
+#include "Load"
+"==== StartShare: static via macOS Internet Sharing ====\n";
+NetStaticConfigure("192.168.2.50", "192.168.2.1", "255.255.255.0");
+NetRep;
+"\nPinging 192.168.2.1 (any key to stop)...\n";
+"Watch for: TG3: rx#N ARP   then   Received reply\n\n";
+Ping("192.168.2.1");

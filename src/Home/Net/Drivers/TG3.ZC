@@ -101,8 +101,8 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-/* PROMISC back on for Internet Sharing ARP/ICMP; soft-drop mDNS/IPv6/own. */
-#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC | TG3_RX_MODE_KEEP_VLAN)
+/* PROMISC; let HW strip VLAN (KEEP_VLAN off) so ARP isn't ethertype 0x8100. */
+#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC)
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -1676,6 +1676,13 @@ U0 TG3RxProcess()
 			{
 				eth = pkt;
 				etype = (eth[12] << 8) | eth[13];
+				/* Strip 802.1Q so ARP/IPv4 ethertype is visible to the stack. */
+				if (etype == 0x8100 && pkt_len >= 18)
+				{
+					MemCopy(eth + 12, eth + 16, pkt_len - 16);
+					pkt_len -= 4;
+					etype = (eth[12] << 8) | eth[13];
+				}
 				/* Switch often reflects our own Discover ΓÇö not an Offer. */
 				if (!MemCompare(pkt + 6, tg3.mac_address, 6))
 				{
@@ -2335,7 +2342,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build 23ea423c+ IP checksum fix; log soft-drops\n";
+	"TG3: build vlan-strip+StartShare; no KEEP_VLAN; soft-drop logs\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
