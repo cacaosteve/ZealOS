@@ -126,6 +126,10 @@
 #define TG3_MAC_RX_STATS_FCS		0x00000898
 #define TG3_MAC_RX_STATS_ALIGN		0x0000089C
 #define TG3_MAC_RX_STATS_UNDERSIZE	0x000008B8
+#define TG3_MAC_TX_STATS_OCTETS		0x00000800
+#define TG3_MAC_TX_STATS_UCAST		0x0000086C
+#define TG3_MAC_TX_STATS_MCAST		0x00000870
+#define TG3_MAC_TX_STATS_BCAST		0x00000874
 
 #define TG3_MII_BMCR			0x00
 #define TG3_BMCR_RESET			0x8000
@@ -527,12 +531,13 @@ U32 TG3MacModeBits(U32 extra=0)
 }
 
 U0 TG3RxFilterDhcp()
-{/* Unicast (perfect MAC filter) + broadcast only. Zero hash = drop all
-	multicast (mDNS/IPv6 ND burned every Offer window). */
+{/* Unicast via perfect MAC filter. Multicast hash clear except the
+	broadcast address bit (CRC of ff:ff:ff:ff:ff:ff ΓåÆ HASH_REG_3 bit31).
+	All-zero hash dropped every RX including DHCP Offers (seen=0). */
 	TG3Write(TG3_MAC_HASH_REG_0, 0);
 	TG3Write(TG3_MAC_HASH_REG_1, 0);
 	TG3Write(TG3_MAC_HASH_REG_2, 0);
-	TG3Write(TG3_MAC_HASH_REG_3, 0);
+	TG3Write(TG3_MAC_HASH_REG_3, 0x80000000);
 }
 
 U0 TG3RxModeRun()
@@ -1420,7 +1425,7 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_MAC_HASH_REG_0, 0);
 	TG3Write(TG3_MAC_HASH_REG_1, 0);
 	TG3Write(TG3_MAC_HASH_REG_2, 0);
-	TG3Write(TG3_MAC_HASH_REG_3, 0);
+	TG3Write(TG3_MAC_HASH_REG_3, 0x80000000);
 	TG3Write(TG3_MAC_RCV_RULE_0, 0xC2000000 & TG3_RCV_RULE_DISABLE_MASK);
 	TG3Write(TG3_MAC_RCV_VALUE_0, 0xFFFFFFFF & TG3_RCV_RULE_DISABLE_MASK);
 	TG3Write(TG3_MAC_RCV_RULE_0 + 8, 0x86000004 & TG3_RCV_RULE_DISABLE_MASK);
@@ -1797,10 +1802,10 @@ U0 TG3RxArmOffer()
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
 	"TG3: RxArmOffer after-Discover (seen=%d push=%d hold=%d hw_ret=%d "
-	"rx_mode=0x%X hash0=0x%X)\n",
+	"rx_mode=0x%X hash3=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_hold_drop,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_0);
+		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_3);
 }
 
 U0 TG3RxUnstick()
@@ -1990,8 +1995,10 @@ I64 TG3TransmitPacketAllocate(U8 **packet_buffer_out, I64 length)
 U0 TG3TransmitPacketFinish(I64 de_index)
 {
 	I64 next = (de_index + 1) & (TG3_TX_RING_SIZE - 1);
+	I64 slot = de_index & (TG3_TX_PENDING - 1);
 	U32 mbox;
 	CTG3RxDesc *prd;
+	U8 *pkt;
 
 	tg3.tx_prod = next;
 	TG3TxProdKick(next);
@@ -2001,6 +2008,26 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 
 	if (next <= 8)
 	{
+		pkt = tg3.tx_bufs + slot * ETHERNET_FRAME_SIZE;
+		"TG3: TX frame[%d] dst=%02X:%02X:%02X:%02X:%02X:%02X "
+		"src=%02X:%02X:%02X:%02X:%02X:%02X et=0x%02X%02X len=%d "
+		"ip=%d.%d.%d.%d->%d.%d.%d.%d proto=%d\n",
+			de_index,
+			pkt[0], pkt[1], pkt[2], pkt[3], pkt[4], pkt[5],
+			pkt[6], pkt[7], pkt[8], pkt[9], pkt[10], pkt[11],
+			pkt[12], pkt[13], tg3.tx_length[slot],
+			pkt[26], pkt[27], pkt[28], pkt[29],
+			pkt[30], pkt[31], pkt[32], pkt[33], pkt[23];
+		"TG3: MAC tx_b=%d tx_u=%d tx_m=%d rx_b=%d rx_u=%d rx_m=%d "
+		"tx_oct=0x%X rx_oct=0x%X\n",
+			TG3Read(TG3_MAC_TX_STATS_BCAST),
+			TG3Read(TG3_MAC_TX_STATS_UCAST),
+			TG3Read(TG3_MAC_TX_STATS_MCAST),
+			TG3Read(TG3_MAC_RX_STATS_BCAST),
+			TG3Read(TG3_MAC_RX_STATS_UCAST),
+			TG3Read(TG3_MAC_RX_STATS_MCAST),
+			TG3Read(TG3_MAC_TX_STATS_OCTETS),
+			TG3Read(TG3_MAC_RX_STATS_OCTETS);
 		prd = &tg3.rx_ret[tg3.rx_cons & (TG3_RX_RET_RING_SIZE - 1)];
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
@@ -2017,9 +2044,9 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			tg3.rx_std_prod,
 			TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF,
 			TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
-			TG3Read(TG3_RCVDBDI_STATUS),
-			TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS),
-			TG3Read(TG3_BUFMGR_STATUS), tg3.last_tag;
+			TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_WDMAC_STATUS),
+			TG3Read(TG3_RDMAC_STATUS), TG3Read(TG3_BUFMGR_STATUS),
+			tg3.last_tag;
 		"TG3: rxlpc hp=%d disc=%d nbd=%d wqf=%d ne=0x%X "
 		"s0=0x%X s1=0x%X ret[%d] len=%d op=0x%X\n",
 			TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
@@ -2290,7 +2317,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: no PROMISC / no mcast ΓÇö RX after Discover\n";
+	"TG3: no PROMISC; mcast off; broadcast hash on\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
