@@ -1797,12 +1797,18 @@ U0 TG3RxPoll()
 }
 
 U0 TG3RxHardBounce()
-{/* Clear return ring + bounce WDMAC. Soft unstick left hw_ret stuck at 1
-	after our own Discover echo; this path restored continuous RX before. */
+{/* Sync cons to HW producer, then bounce WDMAC. Resetting cons to 0 while
+	HW producer stayed ~21 left the return ring desynced ΓÇö Mac ARP replies
+	never advanced status and we never saw "rx#N ARP". */
 	I64 i;
+	U16 prod;
 
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 8; i++)
 		TG3RxPoll;
+	prod = TG3StatusRxProducer();
+	tg3.rx_cons = prod;
+	TG3RcvRetKick(prod);
+
 	TG3WriteFlush(TG3_MAC_RX_MODE, 0);
 	Busy(20);
 	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
@@ -1814,13 +1820,10 @@ U0 TG3RxHardBounce()
 		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
 		TG3_WDMAC_MODE_STATUS_TAG_FIX);
 	Busy(20);
-	MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
-	tg3.rx_cons = 0;
-	tg3.status[0] = 0;
-	tg3.status[4] = 0;
-	tg3.last_hw_ret = 0;
+
+	/* Do not MemSet return ring / zero status producer ΓÇö that desyncs HW. */
 	tg3.rx_stall_ticks = 0;
-	TG3RcvRetKick(0);
+	TG3StdRingRefill;
 	TG3StdProdKick(tg3.rx_std_prod);
 	TG3WriteFlush(TG3_RCVBDI_MODE,
 		TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
@@ -1828,9 +1831,12 @@ U0 TG3RxHardBounce()
 	TG3WriteFlush(TG3_HOSTCC_MODE,
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	tg3.rx_unstick_count++;
-	"TG3: hard-bounce #%d seen=%d push=%d echo=%d\n",
-		tg3.rx_unstick_count, tg3.rx_seen_count, tg3.rx_push_count,
-		tg3.rx_echo_drop;
+	"TG3: hard-bounce #%d sync cons=%d seen=%d push=%d echo=%d "
+	"hostcc=%d st=%d\n",
+		tg3.rx_unstick_count, prod, tg3.rx_seen_count, tg3.rx_push_count,
+		tg3.rx_echo_drop,
+		TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
+		tg3.status[4] & 0xFFFF;
 }
 
 U0 TG3RxArmOffer()
@@ -1869,11 +1875,11 @@ U0 TG3RxRearm()
 }
 
 U0 TG3KeepRxAlive()
-{/* Always reclaim once RX is open. Never spam: !(seen&0x3F) is true
-	when seen==0 and flooded the screen every 5ms PollTask tick. */
-	U32 hw_std, hw_ret;
-	U16 prod, std_bd;
-	I64 push0;
+{/* Always reclaim once RX is open. Stall-bounce when producer never moves
+	(Mac ARP replies on wire but ZealOS saw rx_prod==rx_cons forever). */
+	U32 hw_std;
+	U16 prod, std_bd, hostcc;
+	I64 push0, seen0;
 
 	if (!tg3.init_ok)
 		return;
@@ -1882,6 +1888,7 @@ U0 TG3KeepRxAlive()
 		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 
 	push0 = tg3.rx_push_count;
+	seen0 = tg3.rx_seen_count;
 	TG3RxPoll;
 
 	if (!tg3.rx_started)
@@ -1894,24 +1901,39 @@ U0 TG3KeepRxAlive()
 	}
 
 	prod = TG3StatusRxProducer();
+	hostcc = TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF;
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
 	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
-	hw_ret = TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
 
 	if (tg3.offer_guard > 0)
 		tg3.offer_guard--;
-	tg3.last_hw_ret = hw_ret;
-	tg3.rx_stall_ticks = 0;
+
+	if (prod == (tg3.rx_cons & 0xFFFF) && tg3.rx_seen_count == seen0)
+	{
+		tg3.rx_stall_ticks++;
+		/* ~2s at PollTask ~5ms; bounce so ARP replies can land. */
+		if (tg3.rx_stall_ticks >= 400)
+		{
+			"TG3: RX stall prod=%d cons=%d hostcc=%d seen=%d ΓÇö bounce\n",
+				prod, tg3.rx_cons, hostcc, tg3.rx_seen_count;
+			TG3RxHardBounce;
+			tg3.rx_stall_ticks = 0;
+		}
+	}
+	else
+		tg3.rx_stall_ticks = 0;
+
+	tg3.last_hw_ret = prod;
 
 	if (tg3.rx_push_count != push0)
 		"TG3: alive push=%d echo=%d seen=%d prod=%d cons=%d "
-		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hw_ret=%d "
+		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hostcc=%d "
 		"tag=0x%X un=%d\n",
 			tg3.rx_push_count, tg3.rx_echo_drop, tg3.rx_seen_count,
 			prod, tg3.rx_cons, std_bd,
 			TG3Read(TG3_RCVBDI_STD_PROD_IDX) & 0xFFFF,
 			TG3Read(TG3_RCVCC_STD_PROD_IDX) & 0xFFFF,
-			tg3.rx_std_prod, hw_std, hw_ret, tg3.last_tag,
+			tg3.rx_std_prod, hw_std, hostcc, tg3.last_tag,
 			tg3.rx_unstick_count;
 }
 
@@ -2342,7 +2364,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build vlan-strip+StartShare; no KEEP_VLAN; soft-drop logs\n";
+	"TG3: build rx-sync-bounce+ARP-inject; stall recovery\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
