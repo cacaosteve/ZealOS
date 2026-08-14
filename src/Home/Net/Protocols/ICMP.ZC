@@ -38,7 +38,7 @@ U16 ICMPChecksum(U8 *buf, I64 size)
 		sum += *buf;
 
 	while (sum >> 16 != 0)
-		sum = sum & 0xFFFF + sum >> 16;
+		sum = (sum & 0xFFFF) + (sum >> 16);
 
 	return ~sum(U16);
 

@@ -58,7 +58,7 @@ U16 TCPChecksumFinal(U32 sum, U8 *header, I64 length)
 	}
 
 	// "add back carry outs from top 16 bits to low 16 bits"
-	sum = sum >> 16 + sum & 0xFFFF; // "add hi 16 to low 16"
+	sum = (sum >> 16) + (sum & 0xFFFF); // "add hi 16 to low 16"
 	sum += sum >> 16; // add carry
 	return ~sum & 0xFFFF;
 

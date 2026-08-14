@@ -1688,24 +1688,31 @@ U0 TG3RxProcess()
 				else
 				{
 					etype = (eth[12] << 8) | eth[13];
-					/* Drop LAN noise before NetQueue ΓÇö keeps WDMAC slots for ARP/ICMP. */
+					/* Soft-drop LAN noise but LOG it ΓÇö photos had seen=27
+					   push=0 with no idea what those frames were. */
 					if (etype == 0x86DD)
+					{
 						tg3.rx_hold_drop++;
+						if (tg3.rx_hold_drop <= 32)
+							"TG3: drop IPv6 len=%d\n", pkt_len;
+					}
 					else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
 					{
 						sport = (pkt[34] << 8) | pkt[35];
 						dport = (pkt[36] << 8) | pkt[37];
 						if (sport == 5353 || dport == 5353)
+						{
 							tg3.rx_hold_drop++;
+							if (tg3.rx_hold_drop <= 32)
+								"TG3: drop mDNS len=%d\n", pkt_len;
+						}
 						else
 						{
 							NetQueuePush(pkt, pkt_len);
 							tg3.rx_push_count++;
-							if (tg3.rx_push_count <= 48 || dport == 68 ||
-								sport == 67 || dport == 67)
-								"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
-									tg3.rx_push_count, sport, dport,
-									pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
+							"TG3: rx#%d UDP %d->%d dst=%d.%d.%d.%d len=%d\n",
+								tg3.rx_push_count, sport, dport,
+								pkt[30], pkt[31], pkt[32], pkt[33], pkt_len;
 						}
 					}
 					else if (etype == 0x0806)
@@ -1718,9 +1725,8 @@ U0 TG3RxProcess()
 					{
 						NetQueuePush(pkt, pkt_len);
 						tg3.rx_push_count++;
-						if (tg3.rx_push_count <= 48)
-							"TG3: rx#%d et=0x%04X len=%d\n",
-								tg3.rx_push_count, etype, pkt_len;
+						"TG3: rx#%d et=0x%04X len=%d\n",
+							tg3.rx_push_count, etype, pkt_len;
 					}
 				}
 			}
@@ -2329,7 +2335,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build fa9b31dd+ rearm; PROMISC+soft-drop; Internet Sharing\n";
+	"TG3: build 23ea423c+ IP checksum fix; log soft-drops\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
