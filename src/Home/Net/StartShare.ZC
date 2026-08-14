@@ -1,13 +1,14 @@
-/* Internet Sharing: static + inject gateway MAC from Mac tcpdump.
-   tcpdump showed: Reply 192.168.2.1 is-at f6:d4:88:56:fd:65
-   while ZealOS RX was jammed (no rx#N ARP). Inject unblocks ICMP TX;
-   new TG3 bounce should also let real ARP replies land.
+/* Internet Sharing: static + inject gateway MAC.
+   Do not leave NetLog popups / stall spam stealing the keyboard.
 */
 Cd(__DIR__);;
 #include "Load"
 
 U8 gmac[6];
 U32 gw;
+
+net_log_enabled = FALSE; /* kills NET HANDLER popup spam */
+FlushMessages; /* drop buffered keys so Ping is not stopped instantly */
 
 "==== StartShare: static + gateway ARP inject ====\n";
 NetStaticConfigure("192.168.2.50", "192.168.2.1", "255.255.255.0");
@@ -28,6 +29,6 @@ else
 }
 
 NetRep;
-"\nPinging 192.168.2.1 (any key to stop)...\n";
-"Watch for: Received reply  (and ideally TG3: rx#N ARP / ICMP)\n\n";
-Ping("192.168.2.1");
+"\nType:  Ping(\"192.168.2.1\");\n";
+"Leave keyboard alone until you see Sending Ping request #...\n";
+"Any key stops ping. Close NET HANDLER popups with Shift-Esc.\n";

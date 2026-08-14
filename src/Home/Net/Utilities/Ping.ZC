@@ -10,6 +10,7 @@ I64 Ping(U8 *hostname, I64 timeout=JIFFY_FREQ)
 	U8					*payload;
 	Bool				 have_addr = FALSE;
 
+	FlushMessages;
 	if (IPV4AddressParse(hostname, &addr))
 		have_addr = TRUE;
 	else
