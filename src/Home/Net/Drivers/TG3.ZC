@@ -473,6 +473,7 @@ class CTG3
 	U16 last_hw_ret;
 	I64 rx_stall_ticks;
 	I64 rx_unstick_count;
+	I64 offer_guard; /* KeepRxAlive calls to skip WDMAC bounce after Discover */
 	Bool rx_started;
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
 	I16 rx_slot_buf[TG3_RX_STD_RING_SIZE];
@@ -1731,12 +1732,14 @@ U0 TG3RxPoll()
 }
 
 U0 TG3RxArmOffer()
-{/* RX is continuous now ΓÇö do not bounce DMA (that dropped Offers).
-	Just ensure RX is open and reclaim once after Discover. */
+{/* Soft reclaim after Discover. Hold off WDMAC bounce ~2s so Offer can land;
+	hard bounce right after TX dropped Offers, soft-only re-jammed at ~28. */
 	if (!tg3.rx_started)
 		TG3RxStart;
+	tg3.offer_guard = 400; /* ~2s at 5ms poll */
+	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
-	"TG3: RxArmOffer soft (seen=%d push=%d hold=%d hw_ret=%d)\n",
+	"TG3: RxArmOffer soft+guard (seen=%d push=%d hold=%d hw_ret=%d)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_hold_drop,
 		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
 }
@@ -1796,12 +1799,17 @@ U0 TG3KeepRxAlive()
 	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
 	hw_ret = TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
 
+	if (tg3.offer_guard > 0)
+		tg3.offer_guard--;
 	if (hw_ret == tg3.last_hw_ret && tg3.rx_seen_count)
 		tg3.rx_stall_ticks++;
 	else
 		tg3.rx_stall_ticks = 0;
 	tg3.last_hw_ret = hw_ret;
-	if (tg3.rx_stall_ticks == 12 || tg3.rx_stall_ticks == 40)
+	/* Bounce only after Offer guard ΓÇö hard ArmOffer ate Offers; no-bounce
+	   jammed at push=28 with only mDNS in the window. */
+	if (!tg3.offer_guard &&
+		(tg3.rx_stall_ticks == 12 || tg3.rx_stall_ticks == 40))
 		TG3RxUnstick;
 
 	if (tg3.rx_push_count != push0 ||
@@ -2222,7 +2230,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: rx continuous ΓÇö soft arm after Discover\n";
+	"TG3: soft arm + delayed unstick after Discover\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",

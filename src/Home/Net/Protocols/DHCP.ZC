@@ -24,7 +24,7 @@
 #define DHCP_STATE_CLIENT_REQUEST		2
 #define DHCP_STATE_CLIENT_REQ_ACCEPTED	3
 
-#define DHCP_TIMEOUT		3000
+#define DHCP_TIMEOUT		6000
 #define DHCP_MAX_RETRIES	5	// shrine has 3, why not 5 :^)
 
 class CDHCPHeader
