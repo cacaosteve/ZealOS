@@ -1797,7 +1797,8 @@ U0 TG3RxUnstick()
 }
 
 U0 TG3KeepRxAlive()
-{/* Always reclaim. Quiet unless push moves or RX stalls. */
+{/* Always reclaim once RX is open. Never spam: !(seen&0x3F) is true
+	when seen==0 and flooded the screen every 5ms PollTask tick. */
 	U32 hw_std, hw_ret;
 	U16 prod, std_bd;
 	I64 push0;
@@ -1811,6 +1812,9 @@ U0 TG3KeepRxAlive()
 	push0 = tg3.rx_push_count;
 	TG3RxPoll;
 
+	if (!tg3.rx_started)
+		return;
+
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
 	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
@@ -1823,15 +1827,12 @@ U0 TG3KeepRxAlive()
 	else
 		tg3.rx_stall_ticks = 0;
 	tg3.last_hw_ret = hw_ret;
-	/* Bounce after Offer guard. Photos showed un=0 forever because
-	   PollTask skipped KeepRxAlive and guard never hit 0. */
 	if (!tg3.offer_guard && tg3.rx_stall_ticks >= 12 &&
 		!((tg3.rx_stall_ticks - 12) % 40))
 		TG3RxUnstick;
 
 	if (tg3.rx_push_count != push0 ||
-		(tg3.rx_stall_ticks && !(tg3.rx_stall_ticks & 0xF)) ||
-		!(tg3.rx_seen_count & 0x3F))
+		(tg3.rx_stall_ticks && !(tg3.rx_stall_ticks & 0x3F)))
 		"TG3: alive push=%d hold=%d seen=%d prod=%d cons=%d "
 		"std_bd=%d bdi=%d rcc=%d sw_prod=%d hw_std=%d hw_ret=%d "
 		"tag=0x%X un=%d\n",
