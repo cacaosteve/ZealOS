@@ -101,8 +101,10 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-/* PROMISC; let HW strip VLAN (KEEP_VLAN off) so ARP isn't ethertype 0x8100. */
-#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC)
+/* Unicast (perfect MAC) + broadcast hash only ΓÇö no PROMISC.
+	PROMISC filled the ~16 on-chip return BDs with mDNS/IPv6 before
+	ICMP replies could land (seenΓëê12 then dead). */
+#define  TG3_RX_MODE_RUN		TG3_RX_MODE_ENABLE
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -569,10 +571,14 @@ U0 TG3StdProdKick(U32 prod)
 }
 
 U0 TG3RcvRetKick(U32 cons)
-{/* PCIe 57766: Linux uses MMIO only. PCI+GRC triple-kick did not fix
-	the seenΓëê10 stall; keep MMIO (+ flush read). */
+{/* MMIO + PCI config (Linux ICH mailbox path). Return-ring cache ~16;
+	MMIO-only kicks left seen stuck while Mac ICMP replies were on wire. */
+	I64 bus = tg3.pci->bus, pdev = tg3.pci->dev, fun = tg3.pci->fun;
+
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	PCIWriteU32(bus, pdev, fun,
+		TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
 
 U0 TG3MiscHostCtrl(U32 extra=0)
@@ -2378,7 +2384,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build ack-on-work+no-rearm-bounce; Mac ICMP on wire\n";
+	"TG3: build no-promisc+pci-rcvret; filter unicast+bcast only\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
