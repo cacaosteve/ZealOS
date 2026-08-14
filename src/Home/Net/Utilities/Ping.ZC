@@ -1,15 +1,18 @@
 I64 Ping(U8 *hostname, I64 timeout=JIFFY_FREQ)
 {
-	U32					 addr;
-	CAddressInfo		*current;
+	U32					 addr = 0;
+	CAddressInfo		*current = NULL;
 	CAddressInfo		*result	= NULL;
 	I64					 error;
 	I64					 i = 0, t, delay, sent = 0, min_delay = I64_MAX, max_delay = I64_MIN, sum_delay = 0;
 	CSocketAddressIPV4	*ipv4_address;
 	U16					 sequence_number = 1, identifier = RandU16, count = 0;
 	U8					*payload;
+	Bool				 have_addr = FALSE;
 
-	if (!IPV4AddressParse(hostname, &addr))
+	if (IPV4AddressParse(hostname, &addr))
+		have_addr = TRUE;
+	else
 	{
 		error = DNSAddressInfoGet(hostname, NULL, &result);
 		if (error < 0)
@@ -23,14 +26,15 @@ I64 Ping(U8 *hostname, I64 timeout=JIFFY_FREQ)
 			if (current->family == AF_INET)
 			{
 				ipv4_address = current->address;
-				addr = EndianU32(ipv4_address->address); // why does it need EndianU32
+				addr = EndianU32(ipv4_address->address);
+				have_addr = TRUE;
 				break;
 			}
 			current = current->next;
 		}
 	}
 
-	if (!current)
+	if (!have_addr)
 	{
 		NetErr("Ping: Failed to resolve address.");
 		return -1;

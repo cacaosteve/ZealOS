@@ -580,6 +580,29 @@ U0 NetConfigure()
 	net_log_enabled = was_log;
 }
 
+U0 NetStaticConfigure(U8 *ip_str, U8 *router_str, U8 *mask_str)
+{/* Bypass DHCP ΓÇö prove TG3 RX/TX with a fixed LAN address.
+	Example: NetStaticConfigure("192.168.2.50", "192.168.2.1", "255.255.255.0"); */
+	U32 ip, router, mask;
+
+	if (!IPV4AddressParse(ip_str, &ip) ||
+		!IPV4AddressParse(router_str, &router) ||
+		!IPV4AddressParse(mask_str, &mask))
+	{
+		"NetStaticConfigure: bad address string\n";
+		return;
+	}
+	net_rx_deliver = TRUE;
+	if (net_nic_rx_start)
+		(*net_nic_rx_start)();
+	if (net_nic_poll)
+		(*net_nic_poll)();
+	IPV4AddressSet(ip);
+	IPV4SubnetSet(router, mask);
+	"==== Static configure %s router %s mask %s ====\n",
+		ip_str, router_str, mask_str;
+}
+
 U0 NetRep()
 {
 	"\n$$LTGREEN$$Network Report:$$FG$$\n\n";

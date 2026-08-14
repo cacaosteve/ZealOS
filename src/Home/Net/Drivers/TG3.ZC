@@ -481,6 +481,7 @@ class CTG3
 	I64 rx_echo_drop;
 	I64 offer_guard; /* KeepRxAlive calls to skip WDMAC bounce after Discover */
 	Bool rx_started;
+	Bool need_rx_bounce; /* set after own-TX echo ΓÇö bounce once so Offer can land */
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
 	I16 rx_slot_buf[TG3_RX_STD_RING_SIZE];
 } tg3;
@@ -1679,8 +1680,9 @@ U0 TG3RxProcess()
 				if (!MemCompare(pkt + 6, tg3.mac_address, 6))
 				{
 					tg3.rx_echo_drop++;
+					tg3.need_rx_bounce = TRUE;
 					if (tg3.rx_echo_drop <= 8)
-						"TG3: drop own-TX echo #%d len=%d\n",
+						"TG3: drop own-TX echo #%d len=%d (bounce armed)\n",
 							tg3.rx_echo_drop, pkt_len;
 				}
 				else
@@ -1812,15 +1814,18 @@ U0 TG3RxHardBounce()
 }
 
 U0 TG3RxArmOffer()
-{/* Open RX if needed, then always hard-bounce. Photos: first RX was our
-	own Discover echo (UDP 68->67) and hw_ret jammed at 1 ΓÇö Offer never
-	landed. Bounce after Discover so the return ring is live for 67->68. */
+{/* Open RX after Discover. Do NOT hard-bounce here ΓÇö that left seen=0.
+	Bounce once after we see our own Discover echo (need_rx_bounce). */
 	if (!tg3.rx_started)
 		TG3RxStart;
-	TG3RxHardBounce;
-	tg3.offer_guard = 80;
+	tg3.offer_guard = 40;
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
+	if (tg3.need_rx_bounce)
+	{
+		tg3.need_rx_bounce = FALSE;
+		TG3RxHardBounce;
+	}
 	"TG3: RxArmOffer after-Discover (seen=%d push=%d echo=%d hw_ret=%d "
 	"rx_mode=0x%X hash3=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
@@ -1852,6 +1857,12 @@ U0 TG3KeepRxAlive()
 	if (!tg3.rx_started)
 		return;
 
+	if (tg3.need_rx_bounce)
+	{
+		tg3.need_rx_bounce = FALSE;
+		TG3RxHardBounce;
+	}
+
 	prod = TG3StatusRxProducer();
 	std_bd = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
 	hw_std = TG3Read(TG3_MAILBOX_RCV_STD_PROD_IDX + TG3_64BIT_LOW) & 0xFFFF;
@@ -1859,8 +1870,6 @@ U0 TG3KeepRxAlive()
 
 	if (tg3.offer_guard > 0)
 		tg3.offer_guard--;
-	/* Idle with seen>0 is normal ΓÇö do not bounce (that looped unstick
-	   forever at hw_ret=1). ArmOffer hard-bounces after each Discover. */
 	tg3.last_hw_ret = hw_ret;
 	tg3.rx_stall_ticks = 0;
 
@@ -2302,7 +2311,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: drop own-TX echo; hard-bounce after Discover\n";
+	"TG3: bounce after own-TX echo; try StartStatic if DHCP fails\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
