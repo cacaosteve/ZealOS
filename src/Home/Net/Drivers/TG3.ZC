@@ -101,7 +101,8 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_PROMISC | TG3_RX_MODE_KEEP_VLAN | TG3_RX_MODE_IPV6_CSUM)
+/* No PROMISC ΓÇö mDNS/IPv6 flooded the ~25-frame WDMAC window before DHCP. */
+#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_KEEP_VLAN)
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -525,8 +526,18 @@ U32 TG3MacModeBits(U32 extra=0)
 	return mode;
 }
 
+U0 TG3RxFilterDhcp()
+{/* Unicast (perfect MAC filter) + broadcast only. Zero hash = drop all
+	multicast (mDNS/IPv6 ND burned every Offer window). */
+	TG3Write(TG3_MAC_HASH_REG_0, 0);
+	TG3Write(TG3_MAC_HASH_REG_1, 0);
+	TG3Write(TG3_MAC_HASH_REG_2, 0);
+	TG3Write(TG3_MAC_HASH_REG_3, 0);
+}
+
 U0 TG3RxModeRun()
-{/* Pulse RX reset then enable. KEEP_VLAN + IPV6_CSUM match Linux 5755+. */
+{/* Pulse RX reset then enable. No PROMISC ΓÇö see TG3RxFilterDhcp. */
+	TG3RxFilterDhcp;
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RESET);
 	Busy(10);
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RUN);
@@ -1406,10 +1417,10 @@ U0 TG3EnableBlocks()
 	TG3Write(TG3_MAC_LOW_WMARK_MAX_RX, 1); /* 57765_CLASS */
 	TG3Write(TG3_MAC_RX_MTU_SIZE, 1522);
 	TG3Write(TG3_MAC_TX_LENGTHS, (2 << 12) | (6 << 8) | 0x20);
-	TG3Write(TG3_MAC_HASH_REG_0, 0xFFFFFFFF);
-	TG3Write(TG3_MAC_HASH_REG_1, 0xFFFFFFFF);
-	TG3Write(TG3_MAC_HASH_REG_2, 0xFFFFFFFF);
-	TG3Write(TG3_MAC_HASH_REG_3, 0xFFFFFFFF);
+	TG3Write(TG3_MAC_HASH_REG_0, 0);
+	TG3Write(TG3_MAC_HASH_REG_1, 0);
+	TG3Write(TG3_MAC_HASH_REG_2, 0);
+	TG3Write(TG3_MAC_HASH_REG_3, 0);
 	TG3Write(TG3_MAC_RCV_RULE_0, 0xC2000000 & TG3_RCV_RULE_DISABLE_MASK);
 	TG3Write(TG3_MAC_RCV_VALUE_0, 0xFFFFFFFF & TG3_RCV_RULE_DISABLE_MASK);
 	TG3Write(TG3_MAC_RCV_RULE_0 + 8, 0x86000004 & TG3_RCV_RULE_DISABLE_MASK);
@@ -1748,17 +1759,48 @@ U0 TG3RxPoll()
 }
 
 U0 TG3RxArmOffer()
-{/* Open RX *after* Discover is on the wire so the ~25-frame window
-	is not already full of mDNS/ARP. Soft reclaim first; KeepRxAlive
-	bounces WDMAC after offer_guard if hw_ret stalls. */
+{/* After Discover: open RX with unicast+bcast filter, hard-bounce rings
+	so mcast cannot pre-fill the WDMAC window (census was all 5353/IPv6). */
+	I64 i;
+
 	if (!tg3.rx_started)
 		TG3RxStart;
-	tg3.offer_guard = 300; /* ~1.5s at 5ms PollTask */
+	else
+	{
+		for (i = 0; i < 8; i++)
+			TG3RxPoll;
+		TG3WriteFlush(TG3_MAC_RX_MODE, 0);
+		Busy(20);
+		TG3WriteFlush(TG3_RCVBDI_MODE, 0);
+		Busy(20);
+		TG3WriteFlush(TG3_WDMAC_MODE,
+			TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
+		Busy(20);
+		TG3WriteFlush(TG3_WDMAC_MODE,
+			TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
+			TG3_WDMAC_MODE_STATUS_TAG_FIX);
+		Busy(20);
+		MemSet(tg3.rx_ret, 0, sizeof(CTG3RxDesc) * TG3_RX_RET_RING_SIZE);
+		tg3.rx_cons = 0;
+		tg3.status[0] = 0;
+		tg3.status[4] = 0;
+		tg3.last_hw_ret = 0;
+		TG3RcvRetKick(0);
+		TG3StdProdKick(tg3.rx_std_prod);
+		TG3WriteFlush(TG3_RCVBDI_MODE,
+			TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+		TG3RxModeRun;
+		TG3WriteFlush(TG3_HOSTCC_MODE,
+			TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	}
+	tg3.offer_guard = 300;
 	tg3.rx_stall_ticks = 0;
 	TG3RxPoll;
-	"TG3: RxArmOffer after-Discover (seen=%d push=%d hold=%d hw_ret=%d)\n",
+	"TG3: RxArmOffer after-Discover (seen=%d push=%d hold=%d hw_ret=%d "
+	"rx_mode=0x%X hash0=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_hold_drop,
-		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF;
+		TG3Read(TG3_MAILBOX_RCVRET_CON_IDX_0 + TG3_64BIT_LOW) & 0xFFFF,
+		TG3Read(TG3_MAC_RX_MODE), TG3Read(TG3_MAC_HASH_REG_0);
 }
 
 U0 TG3RxUnstick()
@@ -2248,7 +2290,7 @@ U0 TG3Init()
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: RX opens after Discover; PollTask runs KeepRxAlive\n";
+	"TG3: no PROMISC / no mcast ΓÇö RX after Discover\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
