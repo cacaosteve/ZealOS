@@ -28,7 +28,15 @@ else
 		gmac[0], gmac[1], gmac[2], gmac[3], gmac[4], gmac[5];
 }
 
+/* Re-announce ourselves ΓÇö Mac ARP for .50 stays incomplete if our RX
+   never answers who-has; GARP lets replies flow for the RX test. */
+ARPLocalIPV4Set(IPV4AddressGet());
+Sleep(50);
+ARPLocalIPV4Set(IPV4AddressGet());
+
 NetRep;
 "\nType:  Ping(\"192.168.2.1\");\n";
 "Leave keyboard alone until you see Sending Ping request #...\n";
 "Any key stops ping. Close NET HANDLER popups with Shift-Esc.\n";
+"If Mac still has no replies: sudo arp -s 192.168.2.50 "
+"38:c9:86:4e:94:cb ifscope bridge101\n";

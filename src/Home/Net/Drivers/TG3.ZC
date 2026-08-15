@@ -104,7 +104,7 @@
 /* Unicast (perfect MAC) + broadcast hash only ΓÇö no PROMISC.
 	PROMISC filled the ~16 on-chip return BDs with mDNS/IPv6 before
 	ICMP replies could land (seenΓëê12 then dead). */
-#define  TG3_RX_MODE_RUN		TG3_RX_MODE_ENABLE
+#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_IPV6_CSUM)
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -545,10 +545,9 @@ U0 TG3RxFilterDhcp()
 }
 
 U0 TG3RxModeRun()
-{/* Pulse RX reset then enable. No PROMISC ΓÇö see TG3RxFilterDhcp. */
+{/* Enable MAC RX. No PROMISC ΓÇö see TG3RxFilterDhcp.
+	Linux only pulses RX_MODE_RESET for serdes; copper just ENABLE. */
 	TG3RxFilterDhcp;
-	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RESET);
-	Busy(10);
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RUN);
 }
 
@@ -785,12 +784,13 @@ U0 TG3PcieTxHangFix()
 	val = (val & ~TG3_CPMU_10MB_MACCLK_MASK) | TG3_CPMU_10MB_MACCLK_6_25;
 	TG3WriteFlush(TG3_CPMU_LSPD_10MB_CLK, val);
 
-	/* Bootcode may leave link-idle/aware/speed CPMU modes that gate MAC RX. */
+	/* Linux 57765_CLASS only clears GPHY_10MB_RXONLY here. Permanently
+	   clearing LINK_AWARE/IDLE/SPEED left MAC RX octets at 0 while TX
+	   still worked (ICMP replies on wire, rx_oct stuck). */
 	val = TG3Read(TG3_CPMU_CTRL);
 	"TG3: CPMU_CTRL=0x%X\n", val;
 	NetLog("TG3: CPMU_CTRL before=0x%X", val);
-	val &= ~(TG3_CPMU_CTRL_LINK_AWARE | TG3_CPMU_CTRL_LINK_IDLE |
-		TG3_CPMU_CTRL_LINK_SPEED | TG3_CPMU_CTRL_GPHY_10MB_RXONLY);
+	val &= ~TG3_CPMU_CTRL_GPHY_10MB_RXONLY;
 	TG3WriteFlush(TG3_CPMU_CTRL, val);
 	"TG3: CPMU_CTRL after=0x%X\n", TG3Read(TG3_CPMU_CTRL);
 
@@ -1089,10 +1089,10 @@ U0 TG3LinkApply()
 		}
 	}
 	if (!got_spd)
-	{/* Last resort: Mac mini is gigabit; default GMII full. */
-		use_gmii = TRUE;
+	{/* A/B advertises 10/100 only ΓÇö never default GMII here. */
+		use_gmii = FALSE;
 		full = TRUE;
-		spd_str = "default-1000F";
+		spd_str = "default-100F";
 	}
 
 	if (use_gmii)
@@ -1105,17 +1105,21 @@ U0 TG3LinkApply()
 	TG3Write(TG3_MAC_EVENT, 0);
 	TG3WriteFlush(TG3_MAC_STATUS, TG3_MAC_STATUS_CLEAR);
 	Busy(40);
-	TG3RxModeRun;
+	/* Do NOT enable MAC RX here ΓÇö RCVBDI is still deferred until
+	   TG3RxStart. Linux enables MAC RX only after RCVBDI is live. */
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 	TG3StdProdKick(tg3.rx_std_prod);
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	TG3WriteFlush(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_RUN);
 
 	NetLog("TG3: link %s AUX=0x%X STAT1000=0x%X LPA=0x%X MAC_MODE=0x%X gmii=%d",
 		spd_str, aux, st1000, lpa, mac_mode, use_gmii);
-	"TG3: speed %s AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X std_bd=%d\n",
-		spd_str, aux, st1000, mac_mode, TG3Read(TG3_RCVDBDI_STD_CON_IDX);
+	"TG3: speed %s AUX=0x%X STAT1000=0x%X MAC_MODE=0x%X "
+	"CPMU=0x%X EEE=0x%X rx_mode=0x%X std_bd=%d\n",
+		spd_str, aux, st1000, mac_mode,
+		TG3Read(TG3_CPMU_CTRL), TG3Read(TG3_CPMU_EEE_MODE),
+		TG3Read(TG3_MAC_RX_MODE),
+		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
 }
 
 U8 tg3_fw_57766[144] = {
@@ -1539,9 +1543,12 @@ U0 TG3RxStart()
 			break;
 		Busy(50);
 	}
-	"TG3: RxStart std_bd=%d RCVBDI=0x%X prod=%d\n",
+	"TG3: RxStart std_bd=%d RCVBDI=0x%X prod=%d "
+	"rx_mode=0x%X CPMU=0x%X EEE=0x%X\n",
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF,
-		TG3Read(TG3_RCVBDI_MODE), tg3.rx_std_prod;
+		TG3Read(TG3_RCVBDI_MODE), tg3.rx_std_prod,
+		TG3Read(TG3_MAC_RX_MODE),
+		TG3Read(TG3_CPMU_CTRL), TG3Read(TG3_CPMU_EEE_MODE);
 }
 
 U16 TG3StatusRxProducer()
@@ -1896,15 +1903,14 @@ U0 TG3RxRearm()
 
 U0 TG3KeepRxAlive()
 {/* Reclaim RX. Do NOT treat idle (prod==cons, no new frames) as a stall ΓÇö
-	that hard-bounced every ~2s, flooded the screen, and stole the keyboard. */
+	that hard-bounced every ~2s, flooded the screen, and stole the keyboard.
+	Do not poke HOSTCC_MODE_NOW every poll ΓÇö Linux only uses NOW from
+	IRQ/NAPI reclaim; the spam correlated with dead RX. */
 	U16 prod;
 	I64 push0;
 
 	if (!tg3.init_ok)
 		return;
-
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 
 	push0 = tg3.rx_push_count;
 	TG3RxPoll;
@@ -2358,7 +2364,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build no-idle-bounce+quiet-log; close popups Shift-Esc\n";
+	"TG3: build cpmu-linux+rx-after-rcvbdi; close popups Shift-Esc\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
