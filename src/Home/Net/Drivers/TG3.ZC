@@ -160,7 +160,17 @@
 #define  TG3_LPA_1000FULL		0x0800
 #define  TG3_LPA_1000HALF		0x0400
 #define TG3_MII_AUX_CTRL		0x18
+#define  TG3_AUXCTL_SHDWSEL_AUXCTL	0x0000
 #define  TG3_AUXCTL_SHDWSEL_PWRCTL	0x0002
+#define  TG3_AUXCTL_SHDWSEL_MISC	0x0007
+#define  TG3_AUXCTL_ACTL_TX_6DB		0x0400
+#define  TG3_AUXCTL_ACTL_SMDSP_ENA	0x0800
+#define  TG3_AUXCTL_MISC_WIRESPD	0x0010
+#define  TG3_AUXCTL_MISC_WREN		0x8000
+#define  TG3_AUXCTL_MISC_RDSEL_SHIFT	12
+#define TG3_MII_DSP_RW_PORT		0x15
+#define TG3_MII_DSP_ADDRESS		0x17
+#define  TG3_DSP_TAP26			0x001A
 #define TG3_MII_AUX_STAT		0x19
 #define TG3_MII_MMD_CTRL		0x0D
 #define  TG3_MMD_CTRL_DATA_NOINC	0x4000
@@ -935,6 +945,80 @@ U0 TG3PhyEeeAdvOff()
 	"TG3: EEE advertise cleared (CL45)\n";
 }
 
+Bool TG3PhyAuxCtlRead(U32 shdw, U32 *val_out)
+{
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_AUX_CTRL,
+		(shdw << TG3_AUXCTL_MISC_RDSEL_SHIFT) | TG3_AUXCTL_SHDWSEL_MISC);
+	return TG3PhyRead(tg3.phy_addr, TG3_MII_AUX_CTRL, val_out);
+}
+
+U0 TG3PhyAuxCtlWrite(U32 shdw, U32 val)
+{
+	if (shdw == TG3_AUXCTL_SHDWSEL_MISC)
+		val |= TG3_AUXCTL_MISC_WREN;
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_AUX_CTRL, val | shdw);
+}
+
+U0 TG3PhyDspWrite(U32 reg, U32 val)
+{
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_DSP_ADDRESS, reg);
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_DSP_RW_PORT, val);
+}
+
+U0 TG3PhySmdsp(Bool on)
+{/* Linux tg3_phy_toggle_auxctl_smdsp ΓÇö needed for DSP TAP26. */
+	U32 val = 0;
+
+	if (tg3.phy_addr < 0)
+		return;
+	if (!TG3PhyAuxCtlRead(TG3_AUXCTL_SHDWSEL_AUXCTL, &val))
+		val = 0x4C20;
+	if (on)
+		val |= TG3_AUXCTL_ACTL_SMDSP_ENA;
+	else
+		val &= ~TG3_AUXCTL_ACTL_SMDSP_ENA;
+	val |= TG3_AUXCTL_ACTL_TX_6DB;
+	TG3PhyAuxCtlWrite(TG3_AUXCTL_SHDWSEL_AUXCTL, val);
+}
+
+U0 TG3PhyWirespeed()
+{/* Linux tg3_phy_set_wirespeed + AUXCTL 0x4C20 (ext pkt / 6dB / SMDSP). */
+	U32 val = 0;
+
+	if (tg3.phy_addr < 0)
+		return;
+	if (!TG3PhyAuxCtlRead(TG3_AUXCTL_SHDWSEL_MISC, &val))
+		val = 0;
+	TG3PhyAuxCtlWrite(TG3_AUXCTL_SHDWSEL_MISC, val | TG3_AUXCTL_MISC_WIRESPD);
+	TG3PhyAuxCtlWrite(TG3_AUXCTL_SHDWSEL_AUXCTL, 0x4C20);
+	"TG3: PHY wirespeed+0x4C20 misc=0x%X\n", val;
+}
+
+U0 TG3EeeKill()
+{/* Linux path when EEE is not active: TAP26=0 and CPMU LPI off.
+	Bootcode left EEE_MODE=0x100308; we used to clear it only at
+	chip-reset, then skip the 57766 EEE patch ΓÇö LPI came back at
+	link-up and MAC rx_oct stayed 0. */
+	U32 val;
+
+	if (tg3.phy_addr >= 0)
+	{
+		TG3PhyEeeAdvOff;
+		TG3PhySmdsp(TRUE);
+		TG3PhyDspWrite(TG3_DSP_TAP26, 0);
+		TG3PhySmdsp(FALSE);
+	}
+	TG3WriteFlush(TG3_CPMU_EEE_MODE, 0);
+	val = TG3Read(TG3_CPMU_CTRL);
+	if (val & TG3_CPMU_CTRL_GPHY_10MB_RXONLY)
+	{
+		val &= ~TG3_CPMU_CTRL_GPHY_10MB_RXONLY;
+		TG3WriteFlush(TG3_CPMU_CTRL, val);
+	}
+	"TG3: EEE-off MODE=0x%X CPMU=0x%X\n",
+		TG3Read(TG3_CPMU_EEE_MODE), TG3Read(TG3_CPMU_CTRL);
+}
+
 Bool TG3PhyInit()
 {/* Always BMCR-reset after killing EEE/APD. Bootcode leaves link-up with
 	EEE LPI; skipping reset left MAC RX octets at 0. */
@@ -984,6 +1068,7 @@ Bool TG3PhyInit()
 	/* Re-clear EEE ADV after reset ΓÇö PHY may restore from NVRAM. */
 	TG3PhyEeeAdvOff;
 	TG3PhyApdOff;
+	TG3PhyWirespeed;
 
 	/* A/B: force 10/100 only. If RX works at 100F, GMII/1G path is broken. */
 	adv = TG3_ADVERTISE_CSMA | TG3_ADVERTISE_10_HALF | TG3_ADVERTISE_10_FULL |
@@ -1105,8 +1190,7 @@ U0 TG3LinkApply()
 	TG3Write(TG3_MAC_EVENT, 0);
 	TG3WriteFlush(TG3_MAC_STATUS, TG3_MAC_STATUS_CLEAR);
 	Busy(40);
-	/* Do NOT enable MAC RX here ΓÇö RCVBDI is still deferred until
-	   TG3RxStart. Linux enables MAC RX only after RCVBDI is live. */
+	/* MAC RX stays off until TG3RxStart. RCVBDI is already live (Linux). */
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 	TG3StdProdKick(tg3.rx_std_prod);
@@ -1120,6 +1204,7 @@ U0 TG3LinkApply()
 		TG3Read(TG3_CPMU_CTRL), TG3Read(TG3_CPMU_EEE_MODE),
 		TG3Read(TG3_MAC_RX_MODE),
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
+	TG3EeeKill;
 }
 
 U8 tg3_fw_57766[144] = {
@@ -1490,8 +1575,11 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
 
 	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE | TG3_RCVDCC_MODE_ATTN);
-	/* RCVBDI/RCVDBDI stay off until TG3RxStart ΓÇö LWM=128 prefetched a
-	   full on-chip cache during PHY wait, then WDMAC jammed at ~17. */
+	/* Linux enables RCVBDI here, before MAC RX. LWM is 32 (not 128)
+	   so the on-chip cache should not fill during PHY wait. */
+	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
+	TG3WriteFlush(TG3_RCVDBDI_MODE,
+		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
 
 	TG3Write(TG3_SNDDATAI_MODE, TG3_MODE_ENABLE);
 	TG3Write(TG3_SNDBDI_MODE, TG3_MODE_ENABLE | TG3_SNDBDI_MODE_ATTN);
@@ -1504,7 +1592,7 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
-	"TG3: post-enable (RCVBDI deferred) rbd=0x%X bfm=0x%X "
+	"TG3: post-enable rbd=0x%X bfm=0x%X "
 	"RCVBDI=0x%X RCVDBDI=0x%X sram0=0x%X\n",
 		TG3Read(TG3_RCVDBDI_STATUS), TG3Read(TG3_BUFMGR_STATUS),
 		TG3Read(TG3_RCVBDI_MODE), TG3Read(TG3_RCVDBDI_MODE),
@@ -1536,6 +1624,7 @@ U0 TG3RxStart()
 	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
 		TG3_NIC_SRAM_RX_BUFFER_DESC);
 	TG3StdProdKick(tg3.rx_std_prod);
+	TG3EeeKill;
 	TG3RxModeRun;
 	for (i = 0; i < 20; i++)
 	{
@@ -2065,7 +2154,7 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			pkt[26], pkt[27], pkt[28], pkt[29],
 			pkt[30], pkt[31], pkt[32], pkt[33], pkt[23];
 		"TG3: MAC tx_b=%d tx_u=%d tx_m=%d rx_b=%d rx_u=%d rx_m=%d "
-		"tx_oct=0x%X rx_oct=0x%X\n",
+		"tx_oct=0x%X rx_oct=0x%X rx_mode=0x%X eee=0x%X rcvbdi=0x%X\n",
 			TG3Read(TG3_MAC_TX_STATS_BCAST),
 			TG3Read(TG3_MAC_TX_STATS_UCAST),
 			TG3Read(TG3_MAC_TX_STATS_MCAST),
@@ -2073,7 +2162,10 @@ U0 TG3TransmitPacketFinish(I64 de_index)
 			TG3Read(TG3_MAC_RX_STATS_UCAST),
 			TG3Read(TG3_MAC_RX_STATS_MCAST),
 			TG3Read(TG3_MAC_TX_STATS_OCTETS),
-			TG3Read(TG3_MAC_RX_STATS_OCTETS);
+			TG3Read(TG3_MAC_RX_STATS_OCTETS),
+			TG3Read(TG3_MAC_RX_MODE),
+			TG3Read(TG3_CPMU_EEE_MODE),
+			TG3Read(TG3_RCVBDI_MODE);
 		prd = &tg3.rx_ret[tg3.rx_cons & (TG3_RX_RET_RING_SIZE - 1)];
 		mbox = TG3Read(TG3_MAILBOX_SNDHOST_PROD_IDX_0 + TG3_64BIT_LOW);
 		"TG3: TX dbg next=%d mbox=%d tx_cons=%d "
@@ -2364,7 +2456,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build cpmu-linux+rx-after-rcvbdi; close popups Shift-Esc\n";
+	"TG3: build eee-off+wirespeed; close popups Shift-Esc\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
