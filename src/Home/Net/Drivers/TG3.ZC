@@ -1688,8 +1688,6 @@ U0 TG3StdRingRefill()
 		return;
 
 	want = (cons + TG3_RX_PENDING) & (TG3_RX_STD_RING_SIZE - 1);
-	"TG3: std ring LOW avail=%d cons=%d prod=%d ΓÇö refill to %d\n",
-		avail, cons, tg3.rx_std_prod, want;
 	for (i = 0; i < TG3_RX_PENDING; i++)
 	{
 		ring = (cons + i) & (TG3_RX_STD_RING_SIZE - 1);
@@ -2067,11 +2065,9 @@ U0 TG3InterruptsSetup()
 }
 
 U0 TG3PollTask()
-{/* KeepRxAlive (not bare RxPoll) so offer_guard/unstick run. DHCP
-	alone only polls ~24\times/6s ΓÇö guard=300 never expired (un=0). */
+{/* KeepRxAlive. Do not Touch PHY/LinkApply here ΓÇö it hung USB HID. */
 	I64 ticks = 0;
-	U32 mac_stat, bmsr = 0;
-	Bool was;
+	U32 bmsr = 0;
 
 	while (tg3.init_ok)
 	{
@@ -2083,21 +2079,7 @@ U0 TG3PollTask()
 			Busy(40);
 			if (TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr) &&
 				TG3PhyRead(tg3.phy_addr, TG3_MII_BMSR, &bmsr))
-			{
-				was = tg3.link_up;
 				tg3.link_up = ToBool(bmsr & TG3_BMSR_LSTATUS);
-				if (was != tg3.link_up)
-				{
-					mac_stat = TG3Read(TG3_MAC_STATUS);
-					if (tg3.link_up)
-					{
-						NetLog("TG3: link UP BMSR=0x%X MAC_STATUS=0x%X", bmsr, mac_stat);
-						TG3LinkApply;
-					}
-					else
-						NetLog("TG3: link DOWN BMSR=0x%X MAC_STATUS=0x%X", bmsr, mac_stat);
-				}
-			}
 			TG3WriteFlush(TG3_MAC_MI_MODE, TG3_MI_MODE_BASE | TG3_MI_MODE_AUTO_POLL);
 		}
 		Sleep(5);
@@ -2443,9 +2425,9 @@ U0 TG3Init()
 		ToBool(mac_stat & TG3_MAC_STATUS_PCS_SYNCED),
 		ToBool(mac_stat & TG3_MAC_STATUS_SIGNAL_DET));
 
-	TG3InterruptsSetup;
-	/* Skip PHY loopback: CPMU never reports TX_STATUS LINK_UP, and it
-	   clobbers the live 1G link before DHCP. Trust real traffic. */
+	/* Poll-only. Remapping IOAPIC 0ΓÇô3 onto TG3 kills USB HID on this mini. */
+	TG3MiscHostCtrl(TG3_MHC_MASK_PCI_INT);
+
 	if (tg3.link_up)
 		TG3LinkApply;
 
@@ -2456,7 +2438,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build eee-off+wirespeed; close popups Shift-Esc\n";
+	"TG3: build poll-only+no-irq-steal; Shift-Esc dump windows\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
