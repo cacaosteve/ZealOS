@@ -959,9 +959,9 @@ U0 TG3PhyAuxCtlWrite(U32 shdw, U32 val)
 	TG3PhyWrite(tg3.phy_addr, TG3_MII_AUX_CTRL, val | shdw);
 }
 
-U0 TG3PhyDspWrite(U32 reg, U32 val)
+U0 TG3PhyDspWrite(U32 dsp_addr, U32 val)
 {
-	TG3PhyWrite(tg3.phy_addr, TG3_MII_DSP_ADDRESS, reg);
+	TG3PhyWrite(tg3.phy_addr, TG3_MII_DSP_ADDRESS, dsp_addr);
 	TG3PhyWrite(tg3.phy_addr, TG3_MII_DSP_RW_PORT, val);
 }
 
