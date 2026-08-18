@@ -1,10 +1,10 @@
 /* Internet Sharing: static + inject gateway MAC.
-   Load.ZC is guarded so this is safe after Start.ZC: do not reset TG3 or
-   spawn a second poll task when the network stack is already running.
+   Run Start.ZC first.  Deliberately do not include Load.ZC here: ZealC's
+   preprocessor guard is local to a separately compiled #include, so doing
+   that would reset TG3 and spawn another poll task on the live RX rings.
    Do not leave NetLog popups / stall spam stealing the keyboard.
 */
 Cd(__DIR__);;
-#include "Load"
 
 U8 gmac[6];
 U32 gw;

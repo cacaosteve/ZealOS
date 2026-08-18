@@ -2,9 +2,9 @@
    Adjust the three addresses to match your network, then:
 	Cd("Net");
 	#include "StartStatic";
+   Run Start.ZC first.  This script must not reload the live NIC driver.
    Stop Ping with a keypress. */
 Cd(__DIR__);;
-#include "Load"
 NetStaticConfigure("192.168.2.50", "192.168.2.1", "255.255.255.0");
 NetRep;
 "\nPinging gateway 192.168.2.1 (any key to stop)...\n";
