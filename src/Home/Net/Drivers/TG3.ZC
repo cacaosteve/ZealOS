@@ -103,9 +103,12 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-/* Linux __tg3_set_rx_mode: ENABLE + IPV6_CSUM + KEEP_VLAN (no 8021q module).
-	The perfect MAC slots and broadcast hash provide the normal RX filter. */
-#define  TG3_RX_MODE_RUN		0x01000402 /* ENABLE|IPV6_CSUM|KEEP_VLAN */
+/* The BCM57766 perfect-address filter is dropping every frame on this mini
+	(MAC RX octets and all class counters stay zero even while ICMP replies are
+	on the wire).  Accept everything in hardware and let TG3RxProcess discard
+	our own TX echoes, IPv6 and mDNS.  The continuously-owned 200-buffer ring
+	now recycles that background traffic instead of exhausting the old window. */
+#define  TG3_RX_MODE_RUN		0x01000502 /* ENABLE|PROMISC|IPV6_CSUM|KEEP_VLAN */
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -557,7 +560,7 @@ U0 TG3RxFilterDhcp()
 }
 
 U0 TG3RxModeRun()
-{/* Perfect MAC filter + broadcast hash. No PROMISC (idle / no BDs). */
+{/* BCM57766 workaround: PROMISC in hardware, selective delivery in software. */
 	TG3RxFilterDhcp;
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RUN);
 }
@@ -2383,7 +2386,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build filtered-rx+serialized-poll; Shift-Esc dump windows\n";
+	"TG3: build promisc-rx+serialized-poll; Shift-Esc dump windows\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
