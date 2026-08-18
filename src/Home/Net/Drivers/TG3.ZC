@@ -60,7 +60,9 @@
 #define  TG3_MAC_MODE_PORT_GMII		0x00000008
 #define  TG3_MAC_MODE_PORT_INT_LPBACK	0x00000010
 #define  TG3_MAC_MODE_RXSTAT_ENABLE	0x00000800
+#define  TG3_MAC_MODE_RXSTAT_CLEAR	0x00001000
 #define  TG3_MAC_MODE_TXSTAT_ENABLE	0x00004000
+#define  TG3_MAC_MODE_TXSTAT_CLEAR	0x00008000
 #define  TG3_MAC_MODE_TDE_ENABLE	0x00200000
 #define  TG3_MAC_MODE_RDE_ENABLE	0x00400000
 #define  TG3_MAC_MODE_FHDE_ENABLE	0x00800000
@@ -101,10 +103,9 @@
 #define  TG3_RX_MODE_PROMISC		0x00000100
 #define  TG3_RX_MODE_KEEP_VLAN		0x00000400
 #define  TG3_RX_MODE_IPV6_CSUM		0x01000000
-/* Unicast (perfect MAC) + broadcast hash only ΓÇö no PROMISC.
-	PROMISC filled the ~16 on-chip return BDs with mDNS/IPv6 before
-	ICMP replies could land (seenΓëê12 then dead). */
-#define  TG3_RX_MODE_RUN		(TG3_RX_MODE_ENABLE | TG3_RX_MODE_IPV6_CSUM)
+/* Linux __tg3_set_rx_mode: ENABLE + IPV6_CSUM + KEEP_VLAN (no 8021q module).
+	The perfect MAC slots and broadcast hash provide the normal RX filter. */
+#define  TG3_RX_MODE_RUN		0x01000402 /* ENABLE|IPV6_CSUM|KEEP_VLAN */
 #define TG3_MAC_RX_STATUS		0x0000046C
 #define TG3_MAC_RX_MTU_SIZE		0x0000043C
 #define TG3_MAC_TX_BACKOFF_SEED		0x00000438
@@ -236,8 +237,10 @@
 #define TG3_RCVCC_STD_PROD_IDX		0x0000300C
 
 #define TG3_RX_STD_BDCACHE_SIZE		128
-#define TG3_RX_LWM			32
-#define TG3_RX_THRESH			8
+/* Linux 57765_PLUS: STD_REPLENISH_LWM = bdcache_maxcnt (128). */
+#define TG3_RX_LWM			TG3_RX_STD_BDCACHE_SIZE
+/* Linux: min(cache/2, pending/8) = min(64, 25) = 25. */
+#define TG3_RX_THRESH			25
 
 #define TG3_HOSTCC_MODE			0x00003C00
 #define  TG3_HOSTCC_MODE_ENABLE		0x00000002
@@ -491,9 +494,8 @@ class CTG3
 	I64 rx_stall_ticks;
 	I64 rx_unstick_count;
 	I64 rx_echo_drop;
-	I64 offer_guard; /* KeepRxAlive calls to skip WDMAC bounce after Discover */
+	I64 rx_poll_lock;
 	Bool rx_started;
-	Bool need_rx_bounce; /* set after own-TX echo ΓÇö bounce once so Offer can land */
 	/* Producer-ring slot -> buffer index (Linux rx_std_buffers). -1 = empty. */
 	I16 rx_slot_buf[TG3_RX_STD_RING_SIZE];
 } tg3;
@@ -555,8 +557,7 @@ U0 TG3RxFilterDhcp()
 }
 
 U0 TG3RxModeRun()
-{/* Enable MAC RX. No PROMISC ΓÇö see TG3RxFilterDhcp.
-	Linux only pulses RX_MODE_RESET for serdes; copper just ENABLE. */
+{/* Perfect MAC filter + broadcast hash. No PROMISC (idle / no BDs). */
 	TG3RxFilterDhcp;
 	TG3WriteFlush(TG3_MAC_RX_MODE, TG3_RX_MODE_RUN);
 }
@@ -586,6 +587,7 @@ U0 TG3RcvRetKick(U32 cons)
 
 	cons &= 0xFFFF;
 	TG3MboxWriteFlush(TG3_MAILBOX_RCVRET_CON_IDX_0, cons);
+	TG3MboxWriteFlush(TG3_GRCMBOX_RCVRET_CON_IDX_0, cons);
 	PCIWriteU32(bus, pdev, fun,
 		TG3PCI_RCV_RET_RING_CON_IDX + TG3_64BIT_LOW, cons);
 }
@@ -1019,6 +1021,14 @@ U0 TG3EeeKill()
 		TG3Read(TG3_CPMU_EEE_MODE), TG3Read(TG3_CPMU_CTRL);
 }
 
+U0 TG3RxEnableThenKick()
+{/* Enable normal filtered RX, then advertise every currently owned BD. */
+	TG3EeeKill;
+	TG3RxModeRun;
+	Busy(40);
+	TG3StdProdKick(tg3.rx_std_prod);
+}
+
 Bool TG3PhyInit()
 {/* Always BMCR-reset after killing EEE/APD. Bootcode leaves link-up with
 	EEE LPI; skipping reset left MAC RX octets at 0. */
@@ -1186,14 +1196,19 @@ U0 TG3LinkApply()
 		mac_mode = TG3MacModeBits(TG3_MAC_MODE_PORT_MII);
 	if (!full)
 		mac_mode |= TG3_MAC_MODE_HALF_DUPLEX;
+	TG3WriteFlush(TG3_MAC_MODE,
+		mac_mode | TG3_MAC_MODE_RXSTAT_CLEAR | TG3_MAC_MODE_TXSTAT_CLEAR);
+	Busy(40);
 	TG3WriteFlush(TG3_MAC_MODE, mac_mode);
 	TG3Write(TG3_MAC_EVENT, 0);
 	TG3WriteFlush(TG3_MAC_STATUS, TG3_MAC_STATUS_CLEAR);
 	Busy(40);
-	/* MAC RX stays off until TG3RxStart. RCVBDI is already live (Linux). */
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
-	TG3StdProdKick(tg3.rx_std_prod);
+	/* During init, leave RX closed until UDP/68 or static setup is ready.
+	   If a later link re-apply occurs, preserve an already-running RX path. */
+	if (tg3.rx_started)
+		TG3RxEnableThenKick;
 	TG3WriteFlush(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_RUN);
 
 	NetLog("TG3: link %s AUX=0x%X STAT1000=0x%X LPA=0x%X MAC_MODE=0x%X gmii=%d",
@@ -1204,7 +1219,6 @@ U0 TG3LinkApply()
 		TG3Read(TG3_CPMU_CTRL), TG3Read(TG3_CPMU_EEE_MODE),
 		TG3Read(TG3_MAC_RX_MODE),
 		TG3Read(TG3_RCVDBDI_STD_CON_IDX);
-	TG3EeeKill;
 }
 
 U8 tg3_fw_57766[144] = {
@@ -1450,8 +1464,7 @@ U0 TG3EnableBlocks()
 	if (i >= 200)
 		NetErr("TG3: BUFMGR enable failed");
 
-	/* LWM=128 filled cache (bdi=127) then WDMAC stopped at ~20.
-	   LWM=8 fetched exactly 8 then died empty. Keep 32 in cache. */
+	/* Linux 57765_PLUS: LWM = 128 (bdcache max), THRESH ~25. */
 	TG3Write(TG3_RCVBDI_STD_THRESH, TG3_RX_THRESH);
 	TG3Write(TG3_STD_REPLENISH_LWM, TG3_RX_LWM);
 
@@ -1505,12 +1518,14 @@ U0 TG3EnableBlocks()
 	TG3RcvRetKick(0);
 	TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, 1);
 
+	/* Poll-only: Linux defaults ticks=0x48 / maxf=8 with IRQs. One frame
+	   must update the status block or we never see the return producer. */
 	TG3Write(TG3_HOSTCC_RXCOL_TICKS, 0x48);
 	TG3Write(TG3_HOSTCC_TXCOL_TICKS, 0x48);
-	TG3Write(TG3_HOSTCC_RXMAX_FRAMES, 4);
-	TG3Write(TG3_HOSTCC_TXMAX_FRAMES, 4);
-	TG3Write(TG3_HOSTCC_RXCOAL_MAXF_INT, 4);
-	TG3Write(TG3_HOSTCC_TXCOAL_MAXF_INT, 4);
+	TG3Write(TG3_HOSTCC_RXMAX_FRAMES, 1);
+	TG3Write(TG3_HOSTCC_TXMAX_FRAMES, 1);
+	TG3Write(TG3_HOSTCC_RXCOAL_MAXF_INT, 1);
+	TG3Write(TG3_HOSTCC_TXCOAL_MAXF_INT, 1);
 
 	/* Program RX path config before enabling RCVLPC (Linux order). */
 	TG3Write(TG3_MAC_RCV_RULE_CFG, TG3_RCV_RULE_CFG_DEFAULT);
@@ -1555,6 +1570,9 @@ U0 TG3EnableBlocks()
 
 	/* RDE/TDE must be live before RCVBDI (Linux tg3_reset_hw). */
 	val = TG3MacModeBits(TG3_MAC_MODE_PORT_GMII);
+	TG3WriteFlush(TG3_MAC_MODE,
+		val | TG3_MAC_MODE_RXSTAT_CLEAR | TG3_MAC_MODE_TXSTAT_CLEAR);
+	Busy(40);
 	TG3WriteFlush(TG3_MAC_MODE, val);
 	TG3Write(TG3_MAC_MI_STAT, TG3_MAC_MI_STAT_LNKSTAT_ATTN);
 	Busy(40);
@@ -1575,8 +1593,7 @@ U0 TG3EnableBlocks()
 	TG3WriteFlush(TG3_RDMA_RSRVCTRL, val | TG3_RDMA_RSRVCTRL_FIFO_OFLW_FIX);
 
 	TG3Write(TG3_RCVDCC_MODE, TG3_MODE_ENABLE | TG3_RCVDCC_MODE_ATTN);
-	/* Linux enables RCVBDI here, before MAC RX. LWM is 32 (not 128)
-	   so the on-chip cache should not fill during PHY wait. */
+	/* Linux enables RCVBDI here, before MAC RX. Do not StdProdKick yet. */
 	TG3Write(TG3_RCVBDI_MODE, TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
 	TG3WriteFlush(TG3_RCVDBDI_MODE,
 		TG3_MODE_ENABLE | TG3_RCVDBDI_MODE_INV_RING_SZ);
@@ -1587,8 +1604,7 @@ U0 TG3EnableBlocks()
 
 	TG3MACWriteHW;
 
-	/* MAC RX stays off until poll is live after PHY/link. LWM=128 + RX
-	   during BMCR reset filled the on-chip cache and WDMAC jammed at 3. */
+	/* MAC RX + std kick wait for TG3LinkApply / TG3RxStart (PHY speed). */
 	TG3WriteFlush(TG3_MAC_TX_MODE,
 		TG3_TX_MODE_ENABLE | TG3_TX_MODE_MBUF_LOCKUP_FIX);
 
@@ -1623,9 +1639,7 @@ U0 TG3RxStart()
 		(TG3_RX_STD_DMA_SZ << 2);
 	TG3BDInfoWriteMMIO(TG3_RCVDBDI_STD_BD, tg3.rx_std_phys, val,
 		TG3_NIC_SRAM_RX_BUFFER_DESC);
-	TG3StdProdKick(tg3.rx_std_prod);
-	TG3EeeKill;
-	TG3RxModeRun;
+	TG3RxEnableThenKick;
 	for (i = 0; i < 20; i++)
 	{
 		if (TG3Read(TG3_RCVDBDI_STD_CON_IDX))
@@ -1641,17 +1655,26 @@ U0 TG3RxStart()
 }
 
 U16 TG3StatusRxProducer()
-{/* Return-ring producer: max(status.idx[0].rx_producer, HOSTCC_RET_PROD_0).
-	Status DMA can stall while HOSTCC still advances. */
-	I64 st = tg3.status[4] & 0xFFFF;
-	I64 hw = TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF;
-	I64 cons = tg3.rx_cons & 0xFFFF;
-	I64 a = (st - cons) & 0xFFFF;
-	I64 b = (hw - cons) & 0xFFFF;
+{/* Prefer the furthest sane return producer. A producer can lag across a
+	wrap, so compare in ring space and reject impossible (>posted) backlogs. */
+	I64 mask = TG3_RX_RET_RING_SIZE - 1;
+	I64 st = tg3.status[4] & mask;
+	I64 hw = TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & mask;
+	I64 cons = tg3.rx_cons & mask;
+	I64 st_work = (st - cons) & mask;
+	I64 hw_work = (hw - cons) & mask;
 
-	if (b > a)
+	if (st_work <= TG3_RX_PENDING && hw_work <= TG3_RX_PENDING)
+	{
+		if (hw_work > st_work)
+			return hw;
+		return st;
+	}
+	if (st_work <= TG3_RX_PENDING)
+		return st;
+	if (hw_work <= TG3_RX_PENDING)
 		return hw;
-	return st;
+	return cons;
 }
 
 U16 TG3StatusTxConsumer()
@@ -1669,32 +1692,6 @@ U0 TG3StdRingRepost(I64 buf_idx, I64 ring_idx)
 	rd->addr_hi = 0;
 	rd->addr_lo = tg3.rx_bufs_phys + buf_idx * ETHERNET_FRAME_SIZE;
 	tg3.rx_slot_buf[slot] = buf_idx;
-}
-
-I64 TG3StdAvail()
-{
-	I64 cons = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
-	return (tg3.rx_std_prod - cons) & (TG3_RX_STD_RING_SIZE - 1);
-}
-
-U0 TG3StdRingRefill()
-{/* If soft producer collapsed onto HW consumer (avail==0), RX is dead.
-	Rebuild PENDING descriptors ahead of cons. Photos showed std_prod==std_bd. */
-	I64 cons = TG3Read(TG3_RCVDBDI_STD_CON_IDX) & 0xFFFF;
-	I64 avail = TG3StdAvail;
-	I64 i, ring, want;
-
-	if (avail >= (TG3_RX_PENDING / 4))
-		return;
-
-	want = (cons + TG3_RX_PENDING) & (TG3_RX_STD_RING_SIZE - 1);
-	for (i = 0; i < TG3_RX_PENDING; i++)
-	{
-		ring = (cons + i) & (TG3_RX_STD_RING_SIZE - 1);
-		TG3StdRingRepost(i, ring);
-	}
-	tg3.rx_std_prod = want;
-	TG3StdProdKick(want);
 }
 
 U0 TG3TxProdKick(U32 prod)
@@ -1756,6 +1753,9 @@ U0 TG3RxProcess()
 	{
 		rd = &tg3.rx_ret[cons];
 		pkt_len = rd->idx_len & TG3_RXD_LEN_MASK;
+		/* A stale producer must never make us consume an unowned return BD. */
+		if (!(rd->opaque & TG3_RXD_OPAQUE_RING_STD))
+			break;
 		opaque = rd->opaque & TG3_RXD_OPAQUE_INDEX_MASK;
 		slot = opaque & (TG3_RX_STD_RING_SIZE - 1);
 		buf_idx = tg3.rx_slot_buf[slot];
@@ -1763,6 +1763,7 @@ U0 TG3RxProcess()
 
 		if (!(rd->type_flags & TG3_RXD_FLAG_ERROR) &&
 			!(rd->err_vlan & 0x01FF0000) &&
+			(rd->opaque & TG3_RXD_OPAQUE_RING_STD) &&
 			pkt_len >= 14 &&
 			buf_idx >= 0 && buf_idx < TG3_RX_PENDING)
 		{
@@ -1786,9 +1787,8 @@ U0 TG3RxProcess()
 				if (!MemCompare(pkt + 6, tg3.mac_address, 6))
 				{
 					tg3.rx_echo_drop++;
-					tg3.need_rx_bounce = TRUE;
 					if (tg3.rx_echo_drop <= 8)
-						"TG3: drop own-TX echo #%d len=%d (bounce armed)\n",
+						"TG3: drop own-TX echo #%d len=%d\n",
 							tg3.rx_echo_drop, pkt_len;
 				}
 				else
@@ -1800,7 +1800,9 @@ U0 TG3RxProcess()
 					{
 						tg3.rx_hold_drop++;
 						if (tg3.rx_hold_drop <= 32)
-							"TG3: drop IPv6 len=%d\n", pkt_len;
+							"TG3: drop IPv6 dst=%02X:%02X:%02X:%02X:%02X:%02X len=%d\n",
+								eth[0], eth[1], eth[2], eth[3], eth[4], eth[5],
+								pkt_len;
 					}
 					else if (etype == 0x0800 && pkt_len >= 38 && pkt[23] == 17)
 					{
@@ -1885,13 +1887,16 @@ U0 TG3RxProcess()
 }
 
 U0 TG3RxPoll()
-{/* Process return ring. Tagged ACK only when work/tag moved ΓÇö Linux
-	writes last_tag<<24 once after napi work. Spamming it every
-	PollTask tick (~5ms) aborts in-flight HOSTCC/WDMAC and matches
-	our seenΓëê10 hang with Mac ICMP replies still on the wire. */
+{/* Serialize the poll task, DHCP/Ping waiters and TX-side opportunistic poll.
+	Tagged ACK is written only when work or the tag moved. */
 	U32 tag;
-	I64 cons0 = tg3.rx_cons;
-	I64 seen0 = tg3.rx_seen_count;
+	I64 cons0;
+	I64 seen0;
+
+	if (!tg3.init_ok || LBts(&tg3.rx_poll_lock, 0))
+		return;
+	cons0 = tg3.rx_cons;
+	seen0 = tg3.rx_seen_count;
 
 	TG3RxProcess;
 	tag = tg3.status[1];
@@ -1900,67 +1905,20 @@ U0 TG3RxPoll()
 	{
 		tg3.last_tag = tag;
 		TG3MboxWriteFlush(TG3_MAILBOX_INTERRUPT_0, tag << 24);
+		TG3WriteFlush(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	}
-}
-
-U0 TG3RxHardBounce()
-{/* Sync cons, bounce WDMAC+RDMAC. Used sparingly ΓÇö StartShare no longer
-	bounces on every static configure (that left RX dead after ~10). */
-	I64 i;
-	U16 prod;
-
-	for (i = 0; i < 8; i++)
-		TG3RxPoll;
-	prod = TG3StatusRxProducer();
-	tg3.rx_cons = prod;
-	TG3RcvRetKick(prod);
-
-	TG3WriteFlush(TG3_MAC_RX_MODE, 0);
-	Busy(20);
-	TG3WriteFlush(TG3_RCVBDI_MODE, 0);
-	Busy(20);
-	TG3WriteFlush(TG3_WDMAC_MODE,
-		TG3_DMA_MODE_ERRS | TG3_WDMAC_MODE_STATUS_TAG_FIX);
-	TG3WriteFlush(TG3_RDMAC_MODE, TG3_DMA_MODE_ERRS);
-	Busy(20);
-	TG3WriteFlush(TG3_WDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
-		TG3_WDMAC_MODE_STATUS_TAG_FIX);
-	TG3WriteFlush(TG3_RDMAC_MODE,
-		TG3_DMA_MODE_ENABLE | TG3_DMA_MODE_ERRS |
-		TG3_RDMAC_MODE_FIFO_LONG_BURST | TG3_RDMAC_MODE_JMB_2K_MMRR);
-	Busy(20);
-
-	tg3.rx_stall_ticks = 0;
-	TG3StdRingRefill;
-	TG3StdProdKick(tg3.rx_std_prod);
-	TG3WriteFlush(TG3_RCVBDI_MODE,
-		TG3_MODE_ENABLE | TG3_RCVBDI_MODE_RCB_ATTN);
-	TG3RxModeRun;
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
-	tg3.rx_unstick_count++;
-	"TG3: hard-bounce #%d sync cons=%d seen=%d push=%d "
-	"flow=0x%X bufmgr=0x%X wd=0x%X rd=0x%X\n",
-		tg3.rx_unstick_count, prod, tg3.rx_seen_count, tg3.rx_push_count,
-		TG3Read(TG3_HOSTCC_FLOW_ATTN), TG3Read(TG3_BUFMGR_STATUS),
-		TG3Read(TG3_WDMAC_STATUS), TG3Read(TG3_RDMAC_STATUS);
+	LBtr(&tg3.rx_poll_lock, 0);
 }
 
 U0 TG3RxArmOffer()
-{/* Soft open after Discover. Bounce only if we already saw our TX echo. */
+{/* Open after Discover, when UDP/68 is bound and can accept the Offer. */
 	if (!tg3.rx_started)
 		TG3RxStart;
-	tg3.offer_guard = 40;
-	tg3.rx_stall_ticks = 0;
-	TG3RxPoll;
-	if (tg3.need_rx_bounce && tg3.rx_echo_drop)
-	{
-		tg3.need_rx_bounce = FALSE;
-		TG3RxHardBounce;
-	}
 	else
-		tg3.need_rx_bounce = FALSE;
+		TG3StdProdKick(tg3.rx_std_prod);
+	tg3.rx_stall_ticks = 0;
+	TG3WriteFlush(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	TG3RxPoll;
 	"TG3: RxArmOffer after-Discover (seen=%d push=%d echo=%d hw_ret=%d "
 	"rx_mode=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count, tg3.rx_echo_drop,
@@ -1969,20 +1927,16 @@ U0 TG3RxArmOffer()
 }
 
 U0 TG3RxRearm()
-{/* Static IP: open RX without hard-bounce. Bounce was killing continuous
-	RX after ~10 mDNS frames ΓÇö Mac ICMP replies never landed. */
+{/* Static IP: enable normal filtered RX and keep the owned ring posted. */
 	net_rx_deliver = TRUE;
 	if (!tg3.rx_started)
 		TG3RxStart;
-	tg3.need_rx_bounce = FALSE;
+	else
+		TG3RxEnableThenKick;
 	tg3.rx_stall_ticks = 0;
-	TG3StdRingRefill;
-	TG3StdProdKick(tg3.rx_std_prod);
-	TG3RxModeRun;
-	TG3WriteFlush(TG3_HOSTCC_MODE,
-		TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
+	TG3WriteFlush(TG3_HOSTCC_MODE, TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
 	TG3RxPoll;
-	"TG3: RxRearm no-bounce (seen=%d push=%d hostcc=%d rx_mode=0x%X)\n",
+	"TG3: RxRearm (seen=%d push=%d hostcc=%d rx_mode=0x%X)\n",
 		tg3.rx_seen_count, tg3.rx_push_count,
 		TG3Read(TG3_HOSTCC_RET_PROD_IDX_0) & 0xFFFF,
 		TG3Read(TG3_MAC_RX_MODE);
@@ -2004,15 +1958,6 @@ U0 TG3KeepRxAlive()
 
 	if (!tg3.rx_started)
 		return;
-
-	if (tg3.need_rx_bounce)
-	{
-		tg3.need_rx_bounce = FALSE;
-		TG3RxHardBounce;
-	}
-
-	if (tg3.offer_guard > 0)
-		tg3.offer_guard--;
 
 	prod = TG3StatusRxProducer();
 	tg3.last_hw_ret = prod;
@@ -2253,7 +2198,7 @@ Bool TG3LoopbackTest()
 	{
 		TG3WriteFlush(TG3_HOSTCC_MODE,
 			TG3_HOSTCC_MODE_RUN | TG3_HOSTCC_MODE_NOW);
-		TG3RxProcess;
+		TG3RxPoll;
 		rx1 = TG3StatusRxProducer;
 		tx1 = TG3StatusTxConsumer;
 		if (rx1 != rx0 || tx1 != tx0)
@@ -2431,14 +2376,14 @@ U0 TG3Init()
 	if (tg3.link_up)
 		TG3LinkApply;
 
-	/* Poll live, MAC RX off until DHCP bind ΓÇö first ~20 frames must be Offers. */
+	/* Poll-only. RX stays closed until DHCP/static setup can consume it. */
 	tg3.init_ok = TRUE;
 	net_nic_poll = &TG3KeepRxAlive;
 	net_nic_rx_start = &TG3RxStart;
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build poll-only+no-irq-steal; Shift-Esc dump windows\n";
+	"TG3: build filtered-rx+serialized-poll; Shift-Esc dump windows\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
