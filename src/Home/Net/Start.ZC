@@ -1,31 +1,6 @@
-
 Cd(__DIR__);;
 #include "Load"
-I64 retries = 3;
-NetConfigure;
-while (ipv4_globals.local_ip == 0 && retries--)
-{
-	"\nNetConfigure unsuccessful. Retrying...\n";
-	NetConfigure;
-}
-if (ipv4_globals.local_ip == 0)
-{
-	"\nDHCP failed ΓÇö trying static 192.168.2.50 (edit StartStatic if needed)\n";
-	NetStaticConfigure("192.168.2.50", "192.168.2.1", "255.255.255.0");
-	NetRep;
-	if (ipv4_globals.local_ip)
-	{
-		"\nPinging gateway 192.168.2.1 (press any key to stop)...\n";
-		Ping("192.168.2.1");
-	}
-}
-else
-{
-	"\nNetConfigure successful!\n\n";
-	NetRep;
-}
-if (ipv4_globals.local_ip != 0 && Fs != sys_task)
-{
-	"\nNow run one of the $MA,"Programs",LM="Cd(\"C:/Home/Net/Programs\");Dir;\n"$.\n";
-	"\nIf anything crashes to Debug, try typing $FG,0$G2;$FG$\n\n";
-}
+/* This branch is testing the Mac mini through macOS Internet Sharing.
+   Skip the generic DHCP retry loop: it can occupy the terminal for two
+   minutes and adds unrelated RX state before the fixed-address test. */
+#include "StartShare"

@@ -9,6 +9,8 @@ U0 NetLogSave()
 
 U0 NetLogInit()
 {
+	CTask *old_focus = sys_focus_task;
+
     if (!net_log_enabled) return;
 	net_log_task = Spawn(&ServerCmdLine, NULL, "Network Log");
 	TaskWait(net_log_task);
@@ -20,13 +22,15 @@ U0 NetLogInit()
 
 	WinHorz(TEXT_COLS / 3, 2 * TEXT_COLS / 3, net_log_task);
 	WinVert(2 * TEXT_ROWS / 3, 5 * TEXT_ROWS / 6, net_log_task);
-	WinFocus(net_log_task);
 
 	DocPrint(net_log_task->put_doc, "$$WW+H,1$$");
 
 //	net_log_task->put_doc->max_entries = I64_MAX;
 
 	Bts(&net_log_task->win_inhibit, WIf_SELF_FOCUS);
+	/* Logging is diagnostic output, never an interactive popup.  Spawn may
+	   focus a new task, so explicitly return keyboard/mouse focus. */
+	WinFocus(old_focus);
 }
 
 U0 NetLogToggle() {

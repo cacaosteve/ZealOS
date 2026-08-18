@@ -1,5 +1,6 @@
 /* Internet Sharing: static + inject gateway MAC.
-   Run Start.ZC first.  Deliberately do not include Load.ZC here: ZealC's
+   Normally included by Start.ZC.  If run separately, Start.ZC must already
+   have loaded the stack.  Deliberately do not include Load.ZC here: ZealC's
    preprocessor guard is local to a separately compiled #include, so doing
    that would reset TG3 and spawn another poll task on the live RX rings.
    Do not leave NetLog popups / stall spam stealing the keyboard.
