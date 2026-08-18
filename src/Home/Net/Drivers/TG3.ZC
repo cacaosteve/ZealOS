@@ -338,6 +338,7 @@
 #define  TG3_GRC_MODE_PCIE_DL_SEL	0x20000000
 #define TG3_GRC_MISC_CFG		0x00006804
 #define  TG3_GRC_MISC_CFG_CORECLK_RESET	0x00000001
+#define  TG3_GRC_MISC_CFG_PCIE_BIT29	0x20000000
 #define  TG3_GRC_MISC_CFG_KEEP_GPHY_POWER 0x04000000
 #define TG3_GRC_LOCAL_CTRL		0x00006808
 #define TG3_GRC_RX_CPU_EVENT		0x00006810
@@ -1334,12 +1335,18 @@ U0 TG3ChipReset()
 
 	cmd = PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
 
+/* Linux sets bit 29 before CORECLK_RESET on PCIe, and keeps GPHY power
+	 only on chips without CPMU.  BCM57766 has CPMU: preserving GPHY power
+	 here leaves its RX side in firmware state while TX still works. */
+	"TG3: PCIe core reset; cycling CPMU GPHY\n";
+	TG3Write(TG3_GRC_MISC_CFG, TG3_GRC_MISC_CFG_PCIE_BIT29);
 //CORECLK_RESET makes MMIO inaccessible. Do NOT TG3WriteFlush / MMIO-read here
 //or the CPU can hang on PCI master abort (Linux flushes via config space).
-//KEEP_GPHY_POWER so copper PHY is not powered off across the reset.
 	TG3Write(TG3_GRC_MISC_CFG,
-		TG3_GRC_MISC_CFG_CORECLK_RESET | TG3_GRC_MISC_CFG_KEEP_GPHY_POWER);
+		TG3_GRC_MISC_CFG_CORECLK_RESET | TG3_GRC_MISC_CFG_PCIE_BIT29);
+	Busy(120);
 	PCIReadU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND);
+	Busy(120);
 	Sleep(120);
 
 	PCIWriteU16(tg3.pci->bus, tg3.pci->dev, tg3.pci->fun, PCIR_COMMAND,
