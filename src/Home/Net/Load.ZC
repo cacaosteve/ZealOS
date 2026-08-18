@@ -1,3 +1,6 @@
+#ifndef NET_STACK_LOADED
+#define NET_STACK_LOADED 1
+
 Cd(__DIR__);;
 #include "Utilities/Net.HH"
 
@@ -25,3 +28,5 @@ Cd(__DIR__);;
 #include "Protocols/DHCP"
 
 #include "Utilities/NetHandler" // needs IPV4, UDP, ICMP
+
+#endif

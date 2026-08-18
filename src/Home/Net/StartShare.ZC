@@ -1,4 +1,6 @@
 /* Internet Sharing: static + inject gateway MAC.
+   Load.ZC is guarded so this is safe after Start.ZC: do not reset TG3 or
+   spawn a second poll task when the network stack is already running.
    Do not leave NetLog popups / stall spam stealing the keyboard.
 */
 Cd(__DIR__);;
