@@ -467,15 +467,28 @@ Bool MouseHardEnable(Bool val=TRUE)
 {
 	Bool old_val = mouse_hard.enabled;
 
-	if (val)
+	if (sys_usb_hid_mouse)
 	{
-		KbdCmdSend(KBD_CTRL, KBDC_ENABLE_MS);
-		mouse_hard.enabled = TRUE;
+		mouse_hard.enabled = val;
+		return old_val;
 	}
-	else
+	try
 	{
-		KbdCmdSend(KBD_CTRL,  KBDC_DISABLE_MS);
-		mouse_hard.enabled = FALSE;
+		if (val)
+		{
+			KbdCmdSend(KBD_CTRL, KBDC_ENABLE_MS);
+			mouse_hard.enabled = TRUE;
+		}
+		else
+		{
+			KbdCmdSend(KBD_CTRL, KBDC_DISABLE_MS);
+			mouse_hard.enabled = FALSE;
+		}
+	}
+	catch
+	{
+		KbdCmdFlush;
+		Fs->catch_except = TRUE;
 	}
 	return old_val;
 }
@@ -484,6 +497,15 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 {
 	no_warn dummy;
 	I64 i;
+
+	if (sys_usb_hid_mouse)
+	{
+		mouse_hard.installed = TRUE;
+		mouse_hard.irqs_working = TRUE;
+		mouse_hard.enabled = TRUE;
+		mouse_hard.install_attempts = 1;
+		return TRUE;
+	}
 
 	mouse_hard.install_in_progress = TRUE;
 	OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);

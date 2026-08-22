@@ -12,6 +12,13 @@ U0 UsbDrvBind(CUsbDev *dev)
 			goto next_if;
 		if (uif->if_class == USB_CLASS_HID)
 		{
+			if (dev->vendor_id == USB_VID_APPLE &&
+				(dev->product_id == USB_PID_APPLE_MAGICTRACKPAD2 ||
+				 dev->product_id == 0x0324))
+			{
+				UsbTrackpadAttach(dev, uif);
+				goto next_if;
+			}
 			//A tablet reports protocol None, so a non-boot HID interface is
 			//probed rather than skipped: UsbHidAttach reads its report
 			//descriptor and keeps it only if it carries an absolute pointer.

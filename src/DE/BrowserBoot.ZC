@@ -3,10 +3,14 @@
 
 I64 y4m_net_retries = 3;
 
-Cd("~/Net");;
-#include "Load"
+if (!IsFun("NetConfigure"))
+{
+	Cd("~/Net");;
+	ExeFile("Load");
+}
 
-NetConfigure;
+if (ipv4_globals.local_ip == 0)
+	NetConfigure;
 while (ipv4_globals.local_ip == 0 && y4m_net_retries--)
 {
 	"\nNetConfigure unsuccessful. Retrying...\n";

@@ -47,8 +47,18 @@
 #define USB_HID_PROTO_KBD		1
 #define USB_HID_PROTO_MOUSE		2
 #define USB_HID_RQ_GET_REPORT	1
+#define USB_HID_RQ_SET_REPORT	9
 #define USB_HID_RQ_SET_IDLE		10
 #define USB_HID_RQ_SET_PROTOCOL	11
+#define USB_HID_REPORT_INPUT	1
+#define USB_HID_REPORT_OUTPUT	2
+#define USB_HID_REPORT_FEATURE	3
+#define USB_HID_PROTOCOL_BOOT	0
+#define USB_HID_PROTOCOL_REPORT	1
+
+//Apple Magic Trackpad 2 (2015 Lightning USB). USB-C 2024 is 0x0324.
+#define USB_VID_APPLE					0x05AC
+#define USB_PID_APPLE_MAGICTRACKPAD2	0x0265
 
 #define USB_MSD_SUBCLASS_SCSI	6
 #define USB_MSD_PROTO_BOT		0x50
@@ -252,11 +262,13 @@ class CUsbEPDesc
 #define USB_AUTO_ECM			3	//CDC-ECM bulk-IN: receive ethernet frame
 #define USB_AUTO_AUDIO			4	//UAC isoc-OUT: refill and requeue one frame
 #define USB_AUTO_TABLET			5	//HID absolute pointer: position, not delta
+#define USB_AUTO_TRACKPAD		6	//Apple Magic Trackpad 2 multitouch
 
 //XhciEventPoll dispatches to handlers compiled after it.
 extern U0 UsbKbdCB(U8 *dev, U8 *ep);
 extern U0 UsbMouseCB(U8 *dev, U8 *ep);
 extern U0 UsbTabletCB(U8 *dev, U8 *ep);
+extern U0 UsbTrackpadCB(U8 *dev, U8 *ep);
 extern U0 UsbEcmRxCB(U8 *dev, U8 *ep);
 
 class CXhciTRB
@@ -367,6 +379,8 @@ extern U0 UsbDrvBind(CUsbDev *dev);
 extern U0 UsbDrvUnbind(CUsbDev *dev);
 extern U0 UsbHubAttach(CUsbDev *dev, CUsbIf *uif);
 extern U0 UsbHubPortScan(CUsbDev *hub);
+extern U0 UsbHidAttach(CUsbDev *dev, CUsbIf *uif);
+extern U0 UsbTrackpadAttach(CUsbDev *dev, CUsbIf *uif);
 
 //Globals defined in $LK,"KXhci.ZC",A="FF:::/Kernel/Usb/KXhci.ZC,usb_xhci"$.
 extern CXhciGlobals	 usb_hcs[USB_HCS_MAX];
@@ -377,6 +391,8 @@ extern CTask		*usb_task;
 extern U8			 usb_boot_iso_drv_let; //Drive letter of mounted USB install media, else 0
 
 public extern U0  UsbRep();
+public extern U0  UsbTrackpadEnable();
+public extern Bool UsbTrackpadReady();
 public extern I64 UsbBootInit();
 public extern U0  UsbBootDriveFallback();
 extern U0 UsbAudioTxCB(CUsbDev *dev, CUsbEP *ep);

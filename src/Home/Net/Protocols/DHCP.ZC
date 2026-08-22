@@ -385,6 +385,28 @@ I64 DHCPAckParse(U32 xid, U8 *data, I64 length)
 	return -1;
 }
 
+I64 DHCPReceivePoll(CUDPSocket *udp_socket, U8 *buffer, I64 buffer_size,
+					CSocketAddressIPV4 *address, I64 timeout)
+{
+	I64 count = -1, i;
+
+	/* A BCM57766 build currently reclaims completions from a poll hook.  Keep
+	   the socket wait short enough to service it while DHCP is blocked. */
+	udp_socket->receive_timeout_ms = 250;
+	for (i = 0; i < timeout / 250; i++)
+	{
+		if (net_nic_poll)
+			(*net_nic_poll)();
+		if (net_rx_drain)
+			(*net_rx_drain)();
+		count = UDPSocketReceiveFrom(udp_socket, buffer, buffer_size, address);
+		if (count > 0)
+			break;
+	}
+	udp_socket->receive_timeout_ms = timeout;
+	return count;
+}
+
 I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					   U32 *your_ip_out,
 					   U32 *dns_ip_out,
@@ -416,6 +438,12 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 		return -1;
 	}
 
+	/* The receive socket must exist before the NIC is allowed to deliver an
+	   immediate Offer into the UDP tree. */
+	net_rx_deliver = TRUE;
+	if (net_nic_poll)
+		(*net_nic_poll)();
+
 	xid = DHCPTransactionBegin;
 
 	while (state != DHCP_STATE_CLIENT_REQ_ACCEPTED)
@@ -436,8 +464,12 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					NetErr("DHCP CONFIGURE INNER: Failed, DHCP Send Discover error.");
 					return error;
 				}
+				if (net_nic_rx_arm)
+					(*net_nic_rx_arm)();
+				else if (net_nic_rx_start)
+					(*net_nic_rx_start)();
 
-				count = UDPSocketReceiveFrom(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in);
+				count = DHCPReceivePoll(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in, timeout);
 
 				if (count > 0)
 				{ // 'Try a parse offer'
@@ -472,7 +504,7 @@ I64 DHCPInnerConfigure(CUDPSocket *udp_socket,
 					return error;
 				}
 
-				count = UDPSocketReceiveFrom(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in);
+				count = DHCPReceivePoll(udp_socket, buffer, sizeof(buffer), &ipv4_addr_in, timeout);
 
 				if (count > 0)
 				{ // 'Try parse Ack'
@@ -509,6 +541,8 @@ I64 DHCPConfigure()
 	U32				 router_ip;
 	U32				 subnet_mask;
 	I64				 state = DHCPInnerConfigure(udp_socket, &your_ip, &dns_ip, &router_ip, &subnet_mask);
+	if (state != DHCP_STATE_CLIENT_REQ_ACCEPTED)
+		net_rx_deliver = FALSE;
 
 	UDPSocketClose(udp_socket);
 

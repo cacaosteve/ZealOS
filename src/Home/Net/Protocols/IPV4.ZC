@@ -82,7 +82,7 @@ U16 IPV4Checksum(U8 *header, I64 length)
 	}
 
 	// "add back carry outs from top 16 bits to low 16 bits"
-	sum = sum >> 16 + sum & 0xFFFF; // "add hi 16 to low 16"
+	sum = (sum >> 16) + (sum & 0xFFFF); // "add hi 16 to low 16"
 	sum += sum >> 16; // add carry
 	return ~sum & 0xFFFF;
 
@@ -153,6 +153,10 @@ I64 IPV4AddressMACGet(U32 ip_address, U8 **mac_out)
 			attempt = 0;
 			for (attempt = 0; attempt < 50; attempt++)
 			{
+				if (net_nic_poll)
+					(*net_nic_poll)();
+				if (net_rx_drain)
+					(*net_rx_drain)();
 				Sleep(10);
 				entry = ARPCacheFind(ip_address);
 				if (entry)

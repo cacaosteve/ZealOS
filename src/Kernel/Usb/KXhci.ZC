@@ -302,6 +302,9 @@ U0 XhciEventPoll(CXhciGlobals *hc=NULL)
 									case USB_AUTO_TABLET:
 										UsbTabletCB(dev, ep);
 										break;
+									case USB_AUTO_TRACKPAD:
+										UsbTrackpadCB(dev, ep);
+										break;
 									case USB_AUTO_ECM:
 										UsbEcmRxCB(dev, ep);
 										break;
@@ -922,4 +925,3 @@ public I64 XhciInitAll()
 
 	return usb_hc_count;
 }
-

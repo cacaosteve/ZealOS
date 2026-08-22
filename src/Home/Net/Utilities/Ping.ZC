@@ -49,6 +49,10 @@ I64 Ping(U8 *hostname, I64 timeout=JIFFY_FREQ)
 		t = counts.jiffies;
 		while (counts.jiffies < t + timeout)
 		{
+			if (net_nic_poll)
+				(*net_nic_poll)();
+			if (net_rx_drain)
+				(*net_rx_drain)();
 			if (icmp_reply.identifier == identifier && icmp_reply.sequence_number == EndianU16(sequence_number))
 			{
 				delay = counts.jiffies - t;
@@ -62,7 +66,13 @@ I64 Ping(U8 *hostname, I64 timeout=JIFFY_FREQ)
 			Sleep(1);
 		}
 		while (counts.jiffies < t + JIFFY_FREQ)
+		{
+			if (net_nic_poll)
+				(*net_nic_poll)();
+			if (net_rx_drain)
+				(*net_rx_drain)();
 			Sleep(1);
+		}
 
 		sequence_number++;
 		Free(payload);

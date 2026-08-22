@@ -31,6 +31,14 @@ U0 StartUpTasks()
 
 	"Boot Time:%7.3fs\n", tS;
 	XTalk(user, "Cd; #include \"Once\";\n");
+	/* StartOS must finish before the Trackpad 2 SET_REPORT transaction and the
+	   network compiler load.  Queue both in the user terminal so HomeSys can
+	   return and YDE can raise SYSTEM_SERVER/yde_boot_done normally. */
+	XTalk(user,
+		"while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER)) Sleep(10);"
+		"I64 tp_deadline=counts.jiffies+10*JIFFY_FREQ;"
+		"while (!UsbTrackpadReady && counts.jiffies<tp_deadline) Sleep(10);"
+		"if (!IsFun(\"NetConfigure\")) ExeFile(\"::/Home/Net/Start\");\n");
 	Silent; //no output to screen
 
 	// ACInit("/*;!*/Bible.TXT;!*/Clementine.TXT;!*/PCIDevices.DD;!*/HTML/*;!*/ChangeLog.DD"

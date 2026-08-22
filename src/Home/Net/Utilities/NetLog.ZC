@@ -1,5 +1,5 @@
 CTask *net_log_task = NULL;
-Bool net_log_enabled = TRUE;
+Bool net_log_enabled = FALSE;
 
 // Verbosity filter for NetLog/NetDebug. 1 = application only (HTTP/DNS/TLS/ZINC/
 // JS), 2 = + transport (TCP/UDP/IP/ICMP), 3 = everything (ethernet/ARP/PCNet/

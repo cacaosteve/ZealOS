@@ -937,7 +937,7 @@ I64 HDAInit()
 			fp_audio_vol_set = &HDAVolumeSet;
 			AudioMasterVolumeSet(audio_volume);
 
-			Spawn(&HDAMixTask, , "HDA Mixer", 1);
+			Spawn(&HDAMixTask, , "HDA Mixer", mp_count > 1);
 
 			return 0;
 		}

@@ -1,3 +1,5 @@
+I64 net_queue_drain_lock = 0;
+
 U0 IPV4Handler(CEthernetFrame *ethernet_frame)
 {
 	CIPV4Packet packet;
@@ -59,17 +61,34 @@ U0 NetQueueEntryHandle(CNetQueueEntry *entry)
 	}
 }
 
-interrupt U0 NetHandler()
+U0 NetQueueDrain()
 {
 	CNetQueueEntry *entry;
 
-	// no per-packet NetLog: DocPrint from this IRQ faults under a flood
-
-	while (entry = NetQueuePull)
+	/* The TG3 poller and the software interrupt can arrive together.  Keep
+	   protocol handlers serialized, not merely the individual queue pulls. */
+	if (LBts(&net_queue_drain_lock, 0))
+		return;
+	PUSHFD
+	CLI
+	entry = NetQueuePull;
+	POPFD
+	while (entry != NULL)
 	{
 		NetQueueEntryHandle(entry);
 		Free(entry);
+		PUSHFD
+		CLI
+		entry = NetQueuePull;
+		POPFD
 	}
+	LBtr(&net_queue_drain_lock, 0);
+}
+
+interrupt U0 NetHandler()
+{
+	// no per-packet NetLog: DocPrint from this IRQ faults under a flood
+	NetQueueDrain;
 
 	*(dev.uncached_alias + LAPIC_EOI)(U32*) = 0;
 }
@@ -77,6 +96,7 @@ interrupt U0 NetHandler()
 U0 NetHandlerInit()
 {
 	IntEntrySet(I_NETHANDLER, &NetHandler);
+	net_rx_drain = &NetQueueDrain;
 }
 
 NetHandlerInit;

@@ -30,3 +30,14 @@
 DefinePrint("I_NETHANDLER", "%d", IntEntryAlloc);
 
 #define INT_DEST_CPU	0
+
+/* Drivers load before NetHandler.ZC installs I_NETHANDLER.  Delay delivery
+   until DHCP has bound UDP/68 so a fast Offer cannot hit an empty socket tree. */
+Bool net_rx_deliver = FALSE;
+
+/* Optional hooks used by poll-only NICs such as the BCM57766. */
+U0 (*net_nic_poll)() = NULL;
+U0 (*net_nic_rx_start)() = NULL;
+U0 (*net_nic_rx_arm)() = NULL;
+U0 (*net_nic_rx_rearm)() = NULL;
+U0 (*net_rx_drain)() = NULL;
