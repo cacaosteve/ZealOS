@@ -1,6 +1,4 @@
-//Nothing here draws. ::/StartOS.ZC animates the splash into the framebuffer
-//and hangs YDEWireOverlay on gr.fp_final_screen_update ahead of the WinMgr's
-//first frame. This file holds only the takedown decision.
+//StartOS draws the splash; this task decides when to release its overlay.
 
 //Splash exits on input. A positive value adds a timeout in seconds for
 //unattended boots; 0 waits forever.
@@ -9,7 +7,8 @@
 #define YDE_SPLASH_SETTLE	2.0		//settle after boot, see YDESplashDismissTask
 #define YDE_SPLASH_NUDGE	8		//pixels of cursor travel counted as input
 
-extern Bool yde_boot_done; //StartOS.ZC sets this once boot has finished.
+extern Bool yde_boot_done; //set upon StartOS finish
+extern I64 yde_boot_kbd_snap;
 
 U0 YDESplashDismissTask()
 {
@@ -17,6 +16,7 @@ U0 YDESplashDismissTask()
 	I64	 snap = kbd.count, hits = 0;
 	I64	 mx0  = mouse.pos.x, my0 = mouse.pos.y;
 	Bool lb0  = mouse.lb, rb0 = mouse.rb, go = FALSE;
+	Bool key_queued = snap != yde_boot_kbd_snap;
 
 	while (yde_wire_up && !go)
 	{
@@ -26,6 +26,8 @@ U0 YDESplashDismissTask()
 		//reports garbage buttons until its own init.
 			if (yde_boot_done && settled <= 0.0)
 				settled = tS;
+			if (kbd.count != snap)
+				key_queued = TRUE;
 			snap = kbd.count;
 			lb0  = mouse.lb;
 			rb0  = mouse.rb;
@@ -36,8 +38,10 @@ U0 YDESplashDismissTask()
 		else
 		{//Past the settle: boot is finished and the desktop behind the splash is
 		//built, so input counts from here. lb0/rb0 mean the button was already
-		//down at the baseline; they are cleared on release, never set on press.
+			//down at the baseline; they are cleared on release, never set on press.
 			yde_wire_ready = TRUE;
+			if (key_queued)
+				go = TRUE;
 			if (!mouse.lb)
 				lb0 = FALSE;
 			if (!mouse.rb)

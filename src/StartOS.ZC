@@ -104,6 +104,7 @@ HashPublic("FONT_HEIGHT_SHIFT", HTT_DEFINE_STR);;
 #define YW_CFG			"::/Home/Config/YDE.CFG"
 
 public F64	 yde_wire_t0	= 0.0;				//tS of frame zero
+public I64	 yde_boot_kbd_snap = 0;			//keys after this belong to the splash
 public I64	 yde_wire_hue	= YW_HUE_DEFAULT;
 public Bool	 yde_wire_stop	= FALSE;			//YDEWireInstall raises this to retire the pre-Gr task
 public Bool	 yde_wire_ready	= FALSE;			//DE/Splash.ZC raises this when the desktop is up
@@ -653,14 +654,14 @@ U0 YDEEarlySplashTask(U8 *)
 
 if (yde_boot_splash_enabled)
 {
+	yde_boot_kbd_snap = kbd.count;
 	yde_wire_t0 = tS;
 	YDEWireInit;
 	Spawn(&YDEEarlySplashTask, NULL, "YDE Boot Splash");
 }
 
-//Silent() drops this task's StdOut, which is what the compiler prints through; the
-//Options alone are not enough, because System/Math/MakeMath.ZC switches them back on
-//mid-compile. A fault still drops to the debugger. Set YDE_BOOT_VERBOSE to see the build. Even on Mac mini hardware.
+//Silent suppresses compiler output; faults still enter Debug.  Math/MakeMath can re-enable
+//compiler options, so StdOut itself is muted.  YDE_BOOT_VERBOSE traces the full build.
 if (YDE_BOOT_VERBOSE < 2)
 	Silent(ON);
 YDEBootMark("System compile");
