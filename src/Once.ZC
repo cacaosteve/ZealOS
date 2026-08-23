@@ -51,14 +51,12 @@ U0 Tmp()
 			break;
 	}
 
-	/* Run post-boot work after the live-install and tour prompts finish.  The System Server bit makes
-	   single-CPU task spawning safe, so audio workers cannot take CPU0 from boot compilation. */
+	/* Run post-boot work after the live-install and tour prompts finish.  Audio remains disabled on
+	   single-CPU systems: its worker Spawn sends an unsafe self-wake IPI to CPU0. */
 	if (!FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS))
 	{
 		while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER))
 			Sleep(10);
-		if (mp_count == 1)
-			AudioDevInit;
 		tp_deadline = counts.jiffies + 10 * JIFFY_FREQ;
 		while (!UsbTrackpadReady && counts.jiffies < tp_deadline)
 			Sleep(10);
