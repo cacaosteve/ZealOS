@@ -9,6 +9,8 @@
 
 U0 Tmp()
 {
+	I64 tp_deadline;
+
 	OnceExe;
 	switch (sys_boot_src.u16[0])
 	{
@@ -47,6 +49,20 @@ U0 Tmp()
 			TipOfDay;
 			Type("::/Doc/Customize.DD");
 			break;
+	}
+
+	/* Run post-boot work here, after the live-install questions and any tour
+	   prompt have finished.  Injecting this as terminal input from HomeSys can
+	   make it become an OSInstall answer while the user is still in boot phase. */
+	if (!FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS))
+	{
+		while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+			Sleep(10);
+		tp_deadline = counts.jiffies + 10 * JIFFY_FREQ;
+		while (!UsbTrackpadReady && counts.jiffies < tp_deadline)
+			Sleep(10);
+		if (FileFind("::/Home/Net/Start.ZC"))
+			ExeFile("::/Home/Net/Start");
 	}
 }
 Tmp;
