@@ -27,6 +27,11 @@ U0 MakeMyISO()
 	DirMake("/Distro");
 	//Feed KConfig before the synchronous call. The former two-XTalk scheme
 	//raced the first interactive prompt and compiled its answers as commands.
+	//Also discard the key that dismissed YDE's splash; otherwise that Return
+	//precedes the scripted 'T' boot-drive answer and shifts every later field.
+	FifoU8Flush(kbd.fifo);
+	FifoU8Flush(kbd.fifo2);
+	FifoI64Flush(kbd.scan_code_fifo);
 	In(STD_DISTRO_DVD_CONFIG);
 	BootDVDIns;
 	progress1++;
