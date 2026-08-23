@@ -1175,7 +1175,13 @@ Bool AHCIBootDVDProbeAll(CBlkDev *bd)
 		}
 	}
 
-	Panic("Could not find ATAPI boot drive");
+	Free(buf);
+	//The Mac mini boots this DVD-configured kernel from USB and has no ATAPI
+	//drive. Let BlkDevsInitAll's catch reach UsbBootDriveFallback instead of
+	//recursively entering the debugger through Panic during early boot.
+	"AHCI: Could not find ATAPI boot drive (USB install media may still work).\n";
+	"______________________\n";
+	throw('NoATAPI');
 
 	return FALSE;
 }

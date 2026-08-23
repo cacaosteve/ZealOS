@@ -2775,7 +2775,7 @@ U0 TG3Init()
 	net_nic_rx_arm = &TG3RxArmOffer;
 	net_nic_rx_rearm = &TG3RxRearm;
 	tg3.poll_task = Spawn(&TG3PollTask,, "TG3-poll");
-	"TG3: build yde-bcm57766-integration1\n";
+	"TG3: build yde-bcm57766-integration2\n";
 
 	"\n$$GREEN$$TG3 BCM57766 ready  MAC "
 	"%02X:%02X:%02X:%02X:%02X:%02X$$FG$$\n",
