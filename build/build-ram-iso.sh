@@ -48,7 +48,9 @@ cp "$IMG"                    "$TMPISODIR/Boot/RAMDistro.BIN"
 # Derived from zealbooter/limine.conf rather than duplicated: resolution and
 # protocol stay in one place. RAMDistro.BIN is appended as module 1 (the base
 # config's last line is the Kernel.ZXE module, which must stay module 0).
-sed 's|^/ZealOS.*|/ZealOS (RAM)|' ../zealbooter/limine.conf > "$TMPISODIR/Boot/Limine.CONF"
+sed -e 's|^/ZealOS.*|/ZealOS (RAM)|' \
+    -e 's|^[[:space:]]*cmdline:.*|    cmdline: ram|' \
+    ../zealbooter/limine.conf > "$TMPISODIR/Boot/Limine.CONF"
 printf '    module_path: boot():/Boot/RAMDistro.BIN\n' >> "$TMPISODIR/Boot/Limine.CONF"
 
 truncate -s 32K bios_boot.img

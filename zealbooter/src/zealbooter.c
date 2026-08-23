@@ -26,6 +26,12 @@ static volatile struct limine_module_request module_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
+static volatile struct limine_executable_cmdline_request cmdline_request = {
+    .id = LIMINE_EXECUTABLE_CMDLINE_REQUEST_ID,
+    .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_hhdm_request hhdm_request = {
     .id = LIMINE_HHDM_REQUEST_ID,
     .revision = 0
@@ -202,8 +208,13 @@ static struct E801 get_E801(void) {
 }
 
 void kmain(void) {
+    bool live_boot = false;
+
     printf("ZealBooter prekernel\n");
     printf("____________________\n\n");
+
+    if (cmdline_request.response != NULL && cmdline_request.response->cmdline != NULL)
+        live_boot = strcmp(cmdline_request.response->cmdline, "livecd") == 0;
 
     struct limine_file *module_kernel = module_request.response->modules[0];
     struct CKernel *kernel = module_kernel->address;
@@ -288,7 +299,9 @@ void kmain(void) {
 
     printf("entry_point: 0x%X\n", entry_point);
 
-    if (module_kernel->media_type == LIMINE_MEDIA_TYPE_OPTICAL)
+    if (module_request.response->module_count >= 2)
+        kernel->boot_src = BOOT_SRC_RAM;
+    else if (live_boot || module_kernel->media_type == LIMINE_MEDIA_TYPE_OPTICAL)
         kernel->boot_src = BOOT_SRC_DVD;
     else if (module_kernel->media_type == LIMINE_MEDIA_TYPE_GENERIC)
         kernel->boot_src = BOOT_SRC_HDD;
