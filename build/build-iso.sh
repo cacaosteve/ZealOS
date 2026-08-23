@@ -82,7 +82,7 @@ rm -f ../src/Home/MakeHome.ZC
 rm -f ../src/Boot/Kernel.ZXE
 # --ignore-failed-read: files deleted in the working tree are still in the index
 # until the deletion is committed, and ls-files reports them.
-( cd .. && git ls-files -co --exclude-standard -z -- src | \
+( cd .. && git -c safe.directory="$(pwd -P)" ls-files -co --exclude-standard -z -- src | \
 	tar --null -T - --ignore-failed-read -cf - ) | tar -xf - -C "$TMPSRC"
 
 echo "Copying all src/ code into vdisk Tmp/OSBuild/ ..."
