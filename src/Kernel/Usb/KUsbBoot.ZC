@@ -43,7 +43,16 @@ U0 UsbDrvBind(CUsbDev *dev)
 			UsbEcmAttach(dev, uif);
 		else if (uif->if_class == USB_CLASS_AUDIO &&
 				 uif->if_subclass == UAC_SUBCLASS_CONTROL)
-			UsbAudioAttach(dev, uif);
+		{
+			/* USB-booted machines still need the controller for Compiler/StartOS
+			   reads.  UsbAudioAttach queues a permanent bank of isochronous TDs;
+			   on the Macmini7,1 that can starve/corrupt USB mass-storage traffic.
+			   The USB task binds audio once SYSTEM_SERVER says boot is complete. */
+			if (Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+				UsbAudioAttach(dev, uif);
+			else
+				SysLog("USB: audio attach deferred until boot completes.\n");
+		}
 		else if (uif->if_class == USB_CLASS_HUB)
 			UsbHubAttach(dev, uif);
 next_if:;
@@ -105,6 +114,34 @@ U0 UsbHubScanAll()
 	for (i = 0; i < USB_DEVS_MAX; i++)
 		if (usb_devs[i].present && usb_devs[i].is_hub)
 			UsbHubPortScan(&usb_devs[i]);
+}
+
+U0 UsbAudioAttachAll()
+{//Bind the first suitable audio device after boot-time USB disk reads finish.
+	CUsbDev	*dev;
+	CUsbIf	*uif;
+	I64		 i, j;
+
+	if (UsbAudioPresent)
+		return;
+	for (i = 0; i < USB_DEVS_MAX; i++)
+	{
+		dev = &usb_devs[i];
+		if (!dev->present)
+			goto next_dev;
+		for (j = 0; j < dev->if_count; j++)
+		{
+			uif = &dev->ifs[j];
+			if (uif->if_class == USB_CLASS_AUDIO &&
+				uif->if_subclass == UAC_SUBCLASS_CONTROL)
+			{
+				UsbAudioAttach(dev, uif);
+				if (UsbAudioPresent)
+					return;
+			}
+		}
+next_dev:;
+	}
 }
 
 U0 UsbPortScanAll()
@@ -207,6 +244,7 @@ next_hub:;
 U0 UsbTaskMain(I64 dummy=0)
 {//Spawned from $LK,"KMain",A="FF:::/Kernel/KMain.ZC,UsbTaskMain"$.
 	I64 tick = 0, n;
+	Bool post_boot_started = FALSE;
 
 	no_warn dummy;
 	usb_task = Fs;
@@ -218,7 +256,15 @@ U0 UsbTaskMain(I64 dummy=0)
 			XhciEventPoll(&usb_hcs[n]);
 		UsbHidTick;
 		UsbEcmTick;
-		UsbAudioFeed;
+		if (Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+		{
+			if (!post_boot_started)
+			{
+				post_boot_started = TRUE;
+				UsbAudioAttachAll;
+			}
+			UsbAudioFeed;
+		}
 		tick++;
 		for (n = 0; n < usb_hc_count; n++)
 			if (usb_hcs[n].port_change || tick & 0x7F == 0)
@@ -226,8 +272,8 @@ U0 UsbTaskMain(I64 dummy=0)
 				usb_hcs[n].port_change = FALSE;
 				UsbPortScan(&usb_hcs[n]);
 			}
-//Hub status-change endpoints are unclaimed; poll instead.
-		if (tick & 0x7F == 0)
+//Hub status-change endpoints are unclaimed; poll after boot-time USB reads.
+		if (post_boot_started && tick & 0x7F == 0)
 			UsbHubScanAll;
 		Sleep(2);
 	}
