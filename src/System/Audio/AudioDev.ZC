@@ -2,7 +2,7 @@
 //Probe order is most-capable first; a driver that finds its class code but fails
 //to initialise returns non-zero.
 
-//Resolved once in AudioDevInit; AudioUsbRecheck reuses them.
+//Resolve USB audio hooks in AudioDevInit.
 I64 audio_usb_fill = 0;
 I64 audio_usb_pres = 0;
 
@@ -97,4 +97,5 @@ U0 AudioDevInit()
 	"[Audio] No supported device found; audio disabled.\n";
 }
 
-AudioDevInit;
+if (mp_count > 1)
+	AudioDevInit;

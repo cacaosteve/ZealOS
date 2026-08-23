@@ -51,13 +51,14 @@ U0 Tmp()
 			break;
 	}
 
-	/* Run post-boot work here, after the live-install questions and any tour
-	   prompt have finished.  Injecting this as terminal input from HomeSys can
-	   make it become an OSInstall answer while the user is still in boot phase. */
+	/* Run post-boot work after the live-install and tour prompts finish.  The System Server bit makes
+	   single-CPU task spawning safe, so audio workers cannot take CPU0 from boot compilation. */
 	if (!FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS))
 	{
 		while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER))
 			Sleep(10);
+		if (mp_count == 1)
+			AudioDevInit;
 		tp_deadline = counts.jiffies + 10 * JIFFY_FREQ;
 		while (!UsbTrackpadReady && counts.jiffies < tp_deadline)
 			Sleep(10);
