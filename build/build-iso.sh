@@ -18,7 +18,13 @@ fi
 [ "$1" = "--headless" ] && QEMU_HEADLESS='-display none'
 
 KVM=''
-(lsmod | grep -q kvm) && KVM=' -accel kvm'
+if test -r /dev/kvm
+then
+	KVM=' -accel kvm'
+elif command -v lsmod >/dev/null 2>&1 && lsmod | grep -q kvm
+then
+	KVM=' -accel kvm'
+fi
 
 # Set this true if you want to test ISOs in QEMU after building.
 TESTING=false
