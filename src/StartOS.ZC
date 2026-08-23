@@ -18,11 +18,9 @@ Option(0,0); //(0,0)=EchoOff	 (0,1)=EchoOn
 //  2  everything: no splash, no Silent -- the full compile-warning flood
 #define YDE_BOOT_VERBOSE	0
 
-//The Macmini7,1 must remain single-core while its xHCI/AHCI paths are active.
-//Rendering and copying a full-screen animated splash at 30-40 FPS on that one
-//core can hold the USB task and System compiler behind an apparently dead
-//screen for minutes. Keep the normal YDE splash everywhere else; on this
-//machine show lightweight boot-stage output until the desktop is ready.
+//Mac mini7,1 stays single-core for stable xHCI/AHCI, so avoid the animated
+//splash while its USB task and System compiler run; show boot progress instead.
+//The YDE boot logo stays enabled on other machines.
 Bool yde_boot_macmini = MacMini2014BCM57766Present;
 Bool yde_boot_is_build = FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS);
 Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE &&
@@ -81,14 +79,6 @@ HashPublic("FONT_WIDTH_SHIFT", HTT_DEFINE_STR);;
 DefinePrint("FONT_HEIGHT_SHIFT", "%d", Bsf(FontH));;
 HashPublic("FONT_HEIGHT_SHIFT", HTT_DEFINE_STR);;
 
-
-//Boot logo: an extruded wireframe Z that morphs into the YDE logotype, looping
-//while the splash is up. Chromatic aberration as in ::/DE/Demo.ZC: the model is
-//drawn once per channel at three focal lengths. The accumulation buffer decays
-//3/4 per step instead of clearing, leaving the trails.
-//Compiled here, before the System compile, because the pre-Gr animator and the
-//WinMgr overlay call the same functions.
-//Render target is always a raw U32 buffer: the LFB in one case, a CDC body in the other.
 
 #define YW_SEGS			16
 #define YW_LW			640		//logo layer, model px
