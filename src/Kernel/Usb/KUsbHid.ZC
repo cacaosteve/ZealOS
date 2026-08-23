@@ -75,6 +75,7 @@ CUsbHid usb_hids[USB_HIDS_MAX];
 //Absolute cursor position maintained by the USB mouse (pixels).
 I64 usb_mouse_x = 0, usb_mouse_y = 0;
 F64 usb_tp2_last_tS = 0;	//suppress another mouse while pad is driving
+Bool usb_macmini2014 = FALSE;	//Macmini7,1 uses the lean, direct HID path.
 
 I64 UsbTP2Sign13(I64 v)
 {//Force 13-bit signed; ZealC right shift can otherwise retain a huge value.
@@ -463,7 +464,7 @@ U0 UsbTrackpadMove(I64 clicks, I64 dx, I64 dy)
 {//Feed Trackpad 2 relative motion into either YDE raw input or the desktop cursor.
 	Bool is_raw = FALSE;
 
-	if (mouse_hard.raw_queue && mouse_hard.raw_queue->next != mouse_hard.raw_queue)
+	if (!usb_macmini2014 && mouse_hard.raw_queue && mouse_hard.raw_queue->next != mouse_hard.raw_queue)
 		is_raw = ToBool(MouseRawQueueFind(sys_focus_task) != NULL);
 	if (is_raw)
 	{

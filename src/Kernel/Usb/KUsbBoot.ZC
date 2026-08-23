@@ -241,6 +241,18 @@ next_hub:;
 
 }
 
+Bool UsbMacMini2014Present()
+{//The Macmini7,1 carries Broadcom's BCM57766 at PCI 14e4:1686.
+	I64 bdf, n = 0;
+
+	while ((bdf = PCIClassFind(PCIC_NETWORK << 16 | PCISC_ETHERNET << 8, n++)) >= 0)
+		if (PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_VENDOR_ID) == 0x14E4 &&
+			PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_DEVICE_ID) == 0x1686)
+			return TRUE;
+
+	return FALSE;
+}
+
 U0 UsbTaskMain(I64 dummy=0)
 {//Spawned from $LK,"KMain",A="FF:::/Kernel/KMain.ZC,UsbTaskMain"$.
 	I64 tick = 0, n;
@@ -256,7 +268,7 @@ U0 UsbTaskMain(I64 dummy=0)
 			XhciEventPoll(&usb_hcs[n]);
 		UsbHidTick;
 		UsbEcmTick;
-		if (Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+		if (!usb_macmini2014 && Bt(&sys_run_level, RLf_SYSTEM_SERVER))
 		{
 			if (!post_boot_started)
 			{
@@ -273,7 +285,7 @@ U0 UsbTaskMain(I64 dummy=0)
 				UsbPortScan(&usb_hcs[n]);
 			}
 //Hub status-change endpoints are unclaimed; poll after boot-time USB reads.
-		if (post_boot_started && tick & 0x7F == 0)
+		if (!usb_macmini2014 && post_boot_started && tick & 0x7F == 0)
 			UsbHubScanAll;
 		Sleep(2);
 	}
@@ -283,6 +295,7 @@ I64 UsbBootInit()
 {//Called from $LK,"BlkDevsInitAll",A="FF:::/Kernel/BlkDev/DiskAddDev.ZC,UsbBootInit"$ before the kernel config's mount code.
 	I64 i, count = 0;
 
+	usb_macmini2014 = UsbMacMini2014Present;
 	if (!XhciInitAll)
 		return 0;
 	Sleep(100);	//let root port connect status settle
