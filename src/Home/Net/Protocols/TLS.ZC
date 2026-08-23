@@ -51,6 +51,54 @@ Bool net_abort = FALSE;
 #define TLS_HOST_MAX				64
 #define TLS_TICKET_LIFETIME_MAX		604800	// RFC 8446 4.6.1 ceiling, seconds
 
+class CTLS
+{
+	CTCPSocket	*sock;
+
+	CSHA256		 transcript;	// running handshake transcript hash
+
+	U8			 client_hs_secret[32];
+	U8			 server_hs_secret[32];
+	U8			 handshake_secret[32];
+
+	U8			 client_key[32], client_iv[12];	// current write keys
+	U8			 server_key[32], server_iv[12];	// current read keys
+	U8			 client_fin_key[32];			// handshake-phase Finished keys
+	U8			 server_fin_key[32];
+
+	U8			 client_ap_secret[32];			// current application traffic secrets;
+	U8			 server_ap_secret[32];			// input to the next "traffic upd"
+
+	U8			 host[TLS_HOST_MAX];	// key into the ticket cache
+	U8			 psk[32];				// offered PSK, valid while psk_offered
+	U8			 master_secret[32];
+	U8			 res_master[32];		// resumption master secret
+	Bool		 psk_offered;
+	Bool		 resumed;				// server echoed pre_shared_key
+	Bool		 res_master_ok;
+
+	U64			 send_seq;	// per-direction AEAD record counters, reset on rekey
+	U64			 recv_seq;
+
+	U8			*rbuf;		// decrypted application data awaiting the caller
+	I64			 rbuf_len;
+	I64			 rbuf_pos;
+
+	U8			*ph_buf;	// post-handshake message reassembly
+	I64			 ph_len;
+	I64			 ph_skip;	// bytes of an oversized message left to discard
+
+	I64			 recv_records;	// diagnostics, quoted in every failure line
+	I64			 recv_bytes;
+
+	U8			 cert_sha[32];	// SHA-256 of the leaf certificate, for pinning
+	Bool		 cert_seen;
+
+	Bool		 established;
+	Bool		 failed;		// record stream desynced; all further reads fail
+	Bool		 peer_closed;	// close_notify seen
+};
+
 class CTLSTicket
 {
 	U8	 host[TLS_HOST_MAX];	// empty = free slot
@@ -414,54 +462,6 @@ U0 TLSTicketStore(U8 *host, U8 *res_master, U8 *nonce, I64 nonce_len,
 	NetLog("TLS: ticket stored for %s, slot %d, %d byte identity, lifetime %d s.",
 		   host, slot, ticket_len, lifetime_s);
 }
-
-class CTLS
-{
-	CTCPSocket	*sock;
-
-	CSHA256		 transcript;	// running handshake transcript hash
-
-	U8			 client_hs_secret[32];
-	U8			 server_hs_secret[32];
-	U8			 handshake_secret[32];
-
-	U8			 client_key[32], client_iv[12];	// current write keys
-	U8			 server_key[32], server_iv[12];	// current read keys
-	U8			 client_fin_key[32];			// handshake-phase Finished keys
-	U8			 server_fin_key[32];
-
-	U8			 client_ap_secret[32];			// current application traffic secrets;
-	U8			 server_ap_secret[32];			// input to the next "traffic upd"
-
-	U8			 host[TLS_HOST_MAX];	// key into the ticket cache
-	U8			 psk[32];				// offered PSK, valid while psk_offered
-	U8			 master_secret[32];
-	U8			 res_master[32];		// resumption master secret
-	Bool		 psk_offered;
-	Bool		 resumed;				// server echoed pre_shared_key
-	Bool		 res_master_ok;
-
-	U64			 send_seq;	// per-direction AEAD record counters, reset on rekey
-	U64			 recv_seq;
-
-	U8			*rbuf;		// decrypted application data awaiting the caller
-	I64			 rbuf_len;
-	I64			 rbuf_pos;
-
-	U8			*ph_buf;	// post-handshake message reassembly
-	I64			 ph_len;
-	I64			 ph_skip;	// bytes of an oversized message left to discard
-
-	I64			 recv_records;	// diagnostics, quoted in every failure line
-	I64			 recv_bytes;
-
-	U8			 cert_sha[32];	// SHA-256 of the leaf certificate, for pinning
-	Bool		 cert_seen;
-
-	Bool		 established;
-	Bool		 failed;		// record stream desynced; all further reads fail
-	Bool		 peer_closed;	// close_notify seen
-};
 
 U0 TLSBuildNonce(U8 *iv, U64 seq, U8 *nonce_out)
 { // nonce = iv with the sequence number XOR'd into the low 8 bytes (big-endian)
