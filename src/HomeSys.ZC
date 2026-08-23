@@ -38,7 +38,7 @@ U0 StartUpTasks()
 		"while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER)) Sleep(10);"
 		"I64 tp_deadline=counts.jiffies+10*JIFFY_FREQ;"
 		"while (!UsbTrackpadReady && counts.jiffies<tp_deadline) Sleep(10);"
-		"if (!IsFun(\"NetConfigure\")) ExeFile(\"::/Home/Net/Start\");\n");
+		"ExeFile(\"::/Home/Net/Start\");\n");
 	Silent; //no output to screen
 
 	// ACInit("/*;!*/Bible.TXT;!*/Clementine.TXT;!*/PCIDevices.DD;!*/HTML/*;!*/ChangeLog.DD"

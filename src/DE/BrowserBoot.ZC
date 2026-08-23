@@ -3,7 +3,7 @@
 
 I64 y4m_net_retries = 3;
 
-if (!IsFun("NetConfigure"))
+if (!HashFind("NetConfigure", Fs->hash_table, HTT_FUN | HTT_EXPORT_SYS_SYM))
 {
 	Cd("~/Net");;
 	ExeFile("Load");
