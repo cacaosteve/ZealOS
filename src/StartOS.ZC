@@ -18,11 +18,19 @@ Option(0,0); //(0,0)=EchoOff	 (0,1)=EchoOn
 //  2  everything: no splash, no Silent -- the full compile-warning flood
 #define YDE_BOOT_VERBOSE	0
 
+//The Macmini7,1 must remain single-core while its xHCI/AHCI paths are active.
+//Rendering and copying a full-screen animated splash at 30-40 FPS on that one
+//core can hold the USB task and System compiler behind an apparently dead
+//screen for minutes. Keep the normal YDE splash everywhere else; on this
+//machine show lightweight boot-stage output until the desktop is ready.
+Bool yde_boot_macmini = MacMini2014BCM57766Present;
+Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE && !yde_boot_macmini);
+
 U0 YDEBootMark(U8 *msg)
 {//Prints even while the boot compiles are Silent(ON).
 	Bool old;
 
-	if (!YDE_BOOT_VERBOSE)
+	if (!YDE_BOOT_VERBOSE && yde_boot_splash_enabled)
 		return;
 	old = Silent(OFF);
 	"[boot] %s\n", msg;
@@ -652,7 +660,7 @@ U0 YDEEarlySplashTask(U8 *)
 	Free(buf);
 }
 
-if (!YDE_BOOT_VERBOSE)
+if (yde_boot_splash_enabled)
 {
 	yde_wire_t0 = tS;
 	YDEWireInit;
@@ -662,7 +670,7 @@ if (!YDE_BOOT_VERBOSE)
 //Silent() drops this task's StdOut, which is what the compiler prints through; the
 //Options alone are not enough, because System/Math/MakeMath.ZC switches them back on
 //mid-compile. A fault still drops to the debugger. Set YDE_BOOT_VERBOSE to see the build.
-if (YDE_BOOT_VERBOSE < 2)
+if (YDE_BOOT_VERBOSE < 2 && yde_boot_splash_enabled)
 	Silent(ON);
 YDEBootMark("System compile");
 Option(OPTf_WARN_PAREN, OFF);
@@ -746,7 +754,7 @@ public U0 YDEWireRelease()
 	}
 }
 
-if (!YDE_BOOT_VERBOSE)
+if (yde_boot_splash_enabled)
 	YDEWireInstall; //Before the WinMgr, so its first frame is already the splash.
 sys_winmgr_task = Spawn(&WinMgrTask, NULL, "Window Manager");
 Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WIF_SELF_CTRLS;
