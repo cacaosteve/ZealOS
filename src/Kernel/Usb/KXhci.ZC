@@ -380,8 +380,12 @@ I64 XhciXferWait(CUsbEP *ep, F64 timeout_s, CXhciGlobals *hc=NULL)
 
 	while (!ep->xfer_done && tS < timeout)
 	{
-		if (Fs == usb_task || !usb_task)
-			XhciEventPoll(hc);
+		/* Any task waiting on a USB transfer must help drain the controller.
+		   On the Macmini7,1 the USB task can be delayed by boot-time logging and
+		   mass-storage work; leaving it as the sole consumer also strands HID
+		   completions, so the physical keyboard appears dead at YDE's splash.
+		   poll_lock serializes this with UsbTaskMain safely. */
+		XhciEventPoll(hc);
 		Yield;
 	}
 	if (!ep->xfer_done)
