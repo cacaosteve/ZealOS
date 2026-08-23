@@ -238,8 +238,21 @@ U0 KMain()
 	MouseInit;
 	"KbdInit;\n";
 	KbdInit;
-	"Spawn(&MouseHardDriverInstall);\n\n";
-	Spawn(&MouseHardDriverInstall);
+	if (sys_usb_hid_mouse)
+	{
+		mouse_hard.installed = TRUE;
+		mouse_hard.irqs_working = TRUE;
+		mouse_hard.enabled = TRUE;
+//WinMgr only drains kbd.fifo2 after a mouse install attempt. USB HID is
+//already active, so publish that state synchronously and never probe the
+//Macmini7,1's absent PS/2 mouse controller.
+		mouse_hard.install_attempts = 1;
+	}
+	else
+	{
+		"Spawn(&MouseHardDriverInstall);\n\n";
+		Spawn(&MouseHardDriverInstall);
+	}
 	"Spawn(&MouseRawWatcher,, \"MouseRawWatcher\");\n";
 	Spawn(&MouseRawWatcher,, "MouseRawWatcher");
 	"Spawn(&UsbTaskMain,, \"USB\");\n";
