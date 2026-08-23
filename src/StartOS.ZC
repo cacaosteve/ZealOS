@@ -24,7 +24,9 @@ Option(0,0); //(0,0)=EchoOff	 (0,1)=EchoOn
 //screen for minutes. Keep the normal YDE splash everywhere else; on this
 //machine show lightweight boot-stage output until the desktop is ready.
 Bool yde_boot_macmini = MacMini2014BCM57766Present;
-Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE && !yde_boot_macmini);
+Bool yde_boot_is_build = FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS);
+Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE &&
+										 !yde_boot_macmini && !yde_boot_is_build);
 
 U0 YDEBootMark(U8 *msg)
 {//Prints even while the boot compiles are Silent(ON).
