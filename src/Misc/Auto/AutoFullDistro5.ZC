@@ -1,10 +1,30 @@
 #define STD_DISTRO_DVD_CONFIG 	"TB\nScale2Mem(2048,0x40000)\nT\n\n\n\n"
 
+class CDistroConfigFeed
+{
+	CTask *target;
+	U8    *text;
+};
+
+U0 DistroConfigFeedTask(CDistroConfigFeed *feed)
+{
+	I64 ch;
+	U8 *ptr = feed->text;
+
+	//Let BootDVDIns enter KConfig, then post characters directly to the task
+	//that is blocked in CharGet/StrGet. In() only queues a future command and
+	//cannot run until BootDVDIns has already returned.
+	Sleep(100);
+	while (ch = *ptr++)
+		MessagePost(feed->target, MESSAGE_KEY_DOWN, ch, 0);
+}
+
 U0 MakeMyISO()
 {
 	U8 *_out_iso_filename = "/Tmp/MyDistro.ISO.C";
 	U8 *out_iso_filename = FileNameAbs(_out_iso_filename);
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
+	CDistroConfigFeed feed;
 
 	if (!DriveIsWritable)
 	{
@@ -25,9 +45,9 @@ U0 MakeMyISO()
 	StrCopy(progress1_desc, "Copying files to /Distro");
 
 	DirMake("/Distro");
-	//AutoFullDistro4 runs this script in an ordinary User task so In() feeds
-	//KConfig exactly as it does in ZealOS's standard distro builder.
-	In(STD_DISTRO_DVD_CONFIG);
+	feed.target = Fs;
+	feed.text = STD_DISTRO_DVD_CONFIG;
+	Spawn(&DistroConfigFeedTask, &feed, "Distro Config",, Fs);
 	BootDVDIns;
 	progress1++;
 
