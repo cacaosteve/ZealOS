@@ -10,7 +10,9 @@ U0 DistroConfigFeedTask(U8 *)
 	//Let BootDVDIns enter KConfig, then post characters directly to the task
 	//that is blocked in CharGet/StrGet. In() only queues a future command and
 	//cannot run until BootDVDIns has already returned.
-	Sleep(100);
+	//Comp() flushes pending task messages during startup. Wait until its first
+	//KConfig prompt is established before queuing the complete answer stream.
+	Sleep(10 * 1000);
 	while (ch = *ptr++)
 		MessagePost(distro_config_target, MESSAGE_KEY_DOWN, ch, 0);
 }
