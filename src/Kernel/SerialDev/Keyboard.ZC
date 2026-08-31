@@ -58,6 +58,9 @@ U0 KbdLEDsSet(I64 sc)
 {
 	U8 v = 0;
 
+	if (UsbKbdOwnsInput)
+		return;
+
 	BEqual(&v, 0, Bt(&sc, SCf_SCROLL));
 	BEqual(&v, 1, Bt(&sc, SCf_NUM));
 	BEqual(&v, 2, Bt(&sc, SCf_CAPS));
@@ -101,7 +104,7 @@ U0 KbdMouseCmdAck(...)
 
 U0 KbdTypeMatic(U8 delay)
 {//Set speed of repeated keys.
-	if (sys_boot_src.u16[0] == BOOT_SRC_DVD || sys_usb_hid_kbd)
+	if (sys_boot_src.u16[0] == BOOT_SRC_DVD || UsbKbdOwnsInput)
 		return;
 
 	try
@@ -488,7 +491,7 @@ interrupt U0 IRQKbd()
 
 U0 KbdInit()
 {
-	if (sys_usb_hid_kbd)
+	if (UsbKbdOwnsInput)
 		return;
 	try
 	{

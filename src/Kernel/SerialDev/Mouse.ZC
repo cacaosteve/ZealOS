@@ -467,7 +467,7 @@ Bool MouseHardEnable(Bool val=TRUE)
 {
 	Bool old_val = mouse_hard.enabled;
 
-	if (sys_usb_hid_mouse)
+	if (UsbMouseOwnsInput)
 	{
 		mouse_hard.enabled = val;
 		return old_val;
@@ -498,7 +498,7 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 	no_warn dummy;
 	I64 i;
 
-	if (sys_usb_hid_mouse)
+	if (UsbMouseOwnsInput)
 	{
 		mouse_hard.installed = TRUE;
 		mouse_hard.irqs_working = TRUE;

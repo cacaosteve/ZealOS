@@ -1154,14 +1154,9 @@ U0 EhciFinalizeInput()
 
 	if (sys_usb_input_active & LEGACY_USB_INPUT_KBD)
 	{
+		//USB is authoritative. Mask the unused PS/2 IRQ without issuing an
+		//i8042 command: UTM with Force PS/2 off and Macmini7,1 have no i8042.
 		OutU8(PIC_1_DATA, InU8(PIC_1_DATA) | 2);
-		try
-		{
-			KbdCmdSend(KBD_CTRL, 0xAD);
-			KbdCmdFlush;
-		}
-		catch
-			Fs->catch_except = TRUE;
 		while (FifoI64Count(kbd.scan_code_fifo))
 			FifoI64Remove(kbd.scan_code_fifo, &sc);
 		while (FifoU8Count(kbd.fifo2))
@@ -1176,13 +1171,6 @@ U0 EhciFinalizeInput()
 		mouse_hard.irqs_working = FALSE;
 		mouse_hard.install_attempts = 1;
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
-		try
-		{
-			KbdCmdSend(KBD_CTRL, KBDC_DISABLE_MS);
-			KbdCmdFlush;
-		}
-		catch
-			Fs->catch_except = TRUE;
 		while (FifoU8Count(mouse_hard.fifo2))
 			FifoU8Remove(mouse_hard.fifo2, &b);
 		legacy_usb.ms_use_tab = legacy_usb.ehci_tab_addr != 0;

@@ -6,7 +6,6 @@
    devices. */
 
 CLegacyUSBStateGlobals legacy_usb;
-public I64 sys_usb_input_active;
 public I64 usb_debug_stage;
 public I64 usb_debug_cfg_len;
 public I64 usb_debug_poll_count;

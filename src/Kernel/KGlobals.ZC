@@ -36,9 +36,24 @@ CTextGlobals			 text;
 Bool	 (*fp_usb_msd_blks_read )(CBlkDev *bd, U8 *buf, I64 blk, I64 count);
 Bool	 (*fp_usb_msd_blks_write)(CBlkDev *bd, U8 *buf, I64 blk, I64 count);
 
-//Set by Kernel USB HID attach. Avoid PS/2 access on machines without an 8042.
+//USB input ownership is published before the standard PS/2 drivers start.
+//KUsb owns xHCI HID while the compatibility backend owns UHCI/EHCI HID.
+#define USB_INPUT_KBD		1
+#define USB_INPUT_MOUSE	2
+
 Bool	 sys_usb_hid_kbd;
 Bool	 sys_usb_hid_mouse;
+public I64 sys_usb_input_active;
+
+Bool UsbKbdOwnsInput()
+{
+	return sys_usb_hid_kbd || (sys_usb_input_active & USB_INPUT_KBD);
+}
+
+Bool UsbMouseOwnsInput()
+{
+	return sys_usb_hid_mouse || (sys_usb_input_active & USB_INPUT_MOUSE);
+}
 
 U8		*(*fp_getstr2)(I64 flags=0);
 U0		 (*fp_update_ctrls)(CTask *task);
