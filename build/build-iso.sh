@@ -15,7 +15,27 @@ then
 	exit
 fi
 
-[ "$1" = "--headless" ] && QEMU_HEADLESS='-display none'
+QEMU_HEADLESS=''
+RESUME_DISK=''
+
+while [ $# -gt 0 ]
+do
+	case "$1" in
+		--headless)
+			QEMU_HEADLESS='-display none'
+			shift
+			;;
+		--resume-disk)
+			[ $# -ge 2 ] || { echo "ERROR: --resume-disk requires a path."; exit 1; }
+			RESUME_DISK="$2"
+			shift 2
+			;;
+		*)
+			echo "ERROR: unknown option: $1"
+			exit 1
+			;;
+	esac
+done
 
 QEMU_BUILD_MONITOR=''
 if [ -n "$YDE_BUILD_CAPTURE" ]
@@ -47,7 +67,13 @@ done
 TMPDIR="$(mktemp -d)"
 TMPISODIR="$TMPDIR/iso"
 TMPSRC="$TMPDIR/src"
-TMPDISK="$TMPDIR/ZealOS.raw"
+if [ -n "$RESUME_DISK" ]
+then
+	TMPDISK="$(realpath "$RESUME_DISK")"
+	[ -f "$TMPDISK" ] || { echo "ERROR: resume disk not found: $TMPDISK"; exit 1; }
+else
+	TMPDISK="$TMPDIR/ZealOS.raw"
+fi
 
 # Change this if your default QEMU version does not work and you have installed a different version elsewhere.
 QEMU_BIN_PATH="$(dirname "$(which qemu-system-x86_64)")"
@@ -76,10 +102,15 @@ mkdir -p "$TMPISODIR" "$TMPSRC"
 echo "Building ZealBooter..."
 make -C ../zealbooter distclean all || ( echo "ERROR: ZealBooter build failed !" && false )
 
-echo "Making temp vdisk, running auto-install ..."
-"$QEMU_BIN_PATH/qemu-img" create -f raw "$TMPDISK" 1024M
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
-set_img
+if [ -n "$RESUME_DISK" ]
+then
+	echo "Resuming ISO finalization from completed vdisk: $TMPDISK"
+	set_img
+else
+	echo "Making temp vdisk, running auto-install ..."
+	"$QEMU_BIN_PATH/qemu-img" create -f raw "$TMPDISK" 1024M
+	"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
+	set_img
 
 #The bootstrap installer creates personalized copies that override the root
 #startup files selected by "~/...".  They belong to AUTO.ISO's older System
@@ -127,6 +158,7 @@ mcopy -Q -n -o -i "$IMG" ../src/Misc/Auto/AutoFullDistro*.ZC ::/Misc/Auto/ < /de
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
 "$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -device isa-debug-exit $QEMU_BUILD_MONITOR $QEMU_HEADLESS || true
+fi
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 
@@ -159,13 +191,14 @@ sed -i "s/\[\]/\[$(grep -o "0x" ./limine/limine-bios-hdd.h | wc -l)\]/g" limine/
 echo "Extracting MyDistro ISO from vdisk ..."
 rm -f ./ZealOS-MyDistro.iso
 mcopy -n -o -i "$IMG" ::/Tmp/MyDistro.ISO.C ./ZealOS-MyDistro.iso < /dev/null
-mdel -i "$IMG" ::/Tmp/MyDistro.ISO.C
+[ -n "$RESUME_DISK" ] || mdel -i "$IMG" ::/Tmp/MyDistro.ISO.C
 echo "Setting up temp ISO directory contents for use with limine xorriso command ..."
 # The staged source is not part of the distro, and ZealOS leaves it behind: its
 # FAT32 Del throws partway through a tree. Remove it here, where the FAT writer
 # is correct, or the recursive read below hits the broken cluster chains.
 mdeltree -i "$IMG" ::/Tmp/OSBuild >/dev/null 2>&1 || true
 mcopy -s -Q -n -o -i "$IMG" "::/*" "$TMPISODIR/" < /dev/null
+rm -f "$TMPISODIR/Tmp/MyDistro.ISO.C"
 rm -f "$TMPISODIR/Boot/OldMBR.BIN"
 rm -f "$TMPISODIR/Boot/BootMHD2.BIN"
 mkdir -p "$TMPISODIR/EFI/BOOT"
