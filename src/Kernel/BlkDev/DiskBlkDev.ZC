@@ -109,7 +109,10 @@ Bool BlkDevInit(CBlkDev *bd)
 
 			case BDT_ATA:
 				bd->max_reads = 128;
-				bd->max_writes = 1;
+				//The inherited one-sector write cap turns a 26 MiB file into
+				//more than 51,000 AHCI commands. A 64 KiB window is conservative
+				//for real SATA hardware and matches the proven read window.
+				bd->max_writes = 128;
 				res = AHCIAtaInit(bd);
 				break;
 
@@ -123,8 +126,9 @@ Bool BlkDevInit(CBlkDev *bd)
 
 			case BDT_USB:
 //USB mass storage driver fills in max_blk before BlkDevAdd().
-				bd->max_reads = 64;
-				bd->max_writes = 64;
+				//Keep these in sync with KUsbMsd's 64 KiB transport window.
+				bd->max_reads = 128;
+				bd->max_writes = 128;
 				res = TRUE;
 				break;
 
