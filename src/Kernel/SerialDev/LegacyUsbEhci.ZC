@@ -1053,7 +1053,7 @@ Bool EhciControllerInitBdf(I64 bdf)
 		EhciDebugSave;
 		return FALSE;
 	}
-	bar = PciMmioBarUse32(bdf, PCIR_BASE0);
+	bar = LegacyPciMmioBarUse32(bdf, PCIR_BASE0);
 	if (!bar)
 	{
 		legacy_usb.ehci_debug_code = 0xE102;

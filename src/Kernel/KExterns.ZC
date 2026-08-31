@@ -115,6 +115,7 @@ extern I64 PCIClassFind(I64 class_code, I64 n);
 extern U16 PCIReadU16(I64 bus, I64 dev, I64 fun, I64 rg);
 extern U32 PCIReadU32(I64 bus, I64 dev, I64 fun, I64 rg);
 extern U0  PCIWriteU16(I64 bus, I64 dev, I64 fun, I64 rg, I64 val);
+extern U0  PCIWriteU32(I64 bus, I64 dev, I64 fun, I64 rg, I64 val);
 
 extern I64 PopUp(U8 *buf, CTask *parent=NULL, CTask **_pu_task=NULL);
 

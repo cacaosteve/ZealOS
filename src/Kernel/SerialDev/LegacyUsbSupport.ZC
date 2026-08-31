@@ -31,6 +31,81 @@ U64 UcSetupPack(U8 req_type, U8 request, U16 value, U16 index, U16 len)
 	return res;
 }
 
+I64 LegacyPciMmioBarSize(I64 bdf, I64 rg)
+{
+	I64 bus, devn, fun, cmd, bar0, bar1, size_mask, size;
+
+	bus = bdf.u8[2];
+	devn = bdf.u8[1];
+	fun = bdf.u8[0];
+	cmd = PCIReadU16(bus, devn, fun, PCIR_COMMAND);
+	bar0 = PCIReadU32(bus, devn, fun, rg);
+	bar1 = 0;
+	if ((bar0 & 6) == 4)
+		bar1 = PCIReadU32(bus, devn, fun, rg + 4);
+	PCIWriteU16(bus, devn, fun, PCIR_COMMAND, cmd & ~6);
+	PCIWriteU32(bus, devn, fun, rg, 0xFFFFFFFF);
+	if ((bar0 & 6) == 4)
+		PCIWriteU32(bus, devn, fun, rg + 4, 0xFFFFFFFF);
+	size_mask = PCIReadU32(bus, devn, fun, rg) & ~0xF;
+	PCIWriteU32(bus, devn, fun, rg, bar0);
+	if ((bar0 & 6) == 4)
+		PCIWriteU32(bus, devn, fun, rg + 4, bar1);
+	PCIWriteU16(bus, devn, fun, PCIR_COMMAND, cmd);
+	if (!size_mask || size_mask == 0xFFFFFFFF)
+		return 0;
+	size = (-size_mask) & 0xFFFFFFFF;
+	return size;
+}
+
+I64 LegacyPciMmioBarUse32(I64 bdf, I64 rg)
+{
+	I64 bus, devn, fun, cmd, bar0, bar1, bar, bar_flags, bar_type, size;
+	U8 *base;
+
+	bus = bdf.u8[2];
+	devn = bdf.u8[1];
+	fun = bdf.u8[0];
+	bar0 = PCIReadU32(bus, devn, fun, rg);
+	if (bar0 & 1)
+		return 0;
+	bar1 = 0;
+	bar_flags = bar0 & 0xF;
+	bar_type = bar0 & 6;
+	if (bar_type == 4)
+		bar1 = PCIReadU32(bus, devn, fun, rg + 4);
+	bar = bar0 & ~0xF;
+	if (!bar1 && bar >= 0x100000)
+		return bar;
+
+	size = LegacyPciMmioBarSize(bdf, rg);
+	if (!size)
+		return 0;
+	base = Mem32DevAlloc(size, size);
+	if (!base)
+		return 0;
+
+	bar = base;
+	cmd = PCIReadU16(bus, devn, fun, PCIR_COMMAND);
+	PCIWriteU16(bus, devn, fun, PCIR_COMMAND, cmd & ~6);
+	PCIWriteU32(bus, devn, fun, rg, bar | bar_flags);
+	if (bar_type == 4)
+		PCIWriteU32(bus, devn, fun, rg + 4, 0);
+	PCIWriteU16(bus, devn, fun, PCIR_COMMAND, cmd | 6);
+
+	bar0 = PCIReadU32(bus, devn, fun, rg);
+	bar1 = 0;
+	if (bar_type == 4)
+		bar1 = PCIReadU32(bus, devn, fun, rg + 4);
+	bar = bar0 & ~0xF;
+	if (bar1 || bar < 0x100000)
+	{
+		Mem32DevFree(base);
+		return 0;
+	}
+	return bar;
+}
+
 Bool XhcXferOk(I64 code)
 {
 	return code == LEGACY_XHCI_CC_SUCCESS || code == LEGACY_XHCI_CC_SHORT_PACKET;
