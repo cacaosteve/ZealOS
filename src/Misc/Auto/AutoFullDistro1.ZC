@@ -22,6 +22,13 @@ U0 Auto()
 	in_str = MStrPrint("CC\n%d\n\n\n\n", ata_port);
 	Sleep(700);
 	In(in_str);
+	//BootHDIns catches compiler exceptions internally and would otherwise
+	//reboot the AUTO disk with its old kernel, hiding the first incompatible
+	//source location.  Compile once outside that catch so the host build stops
+	//at the real bootstrap boundary instead of failing later in StartOS.
+	"Bootstrap compile preflight...\n";
+	MakeAll;
+	"Bootstrap compile preflight complete.\n";
 	BootHDIns;
 	OnceFlush;
 	Free(in_str);
