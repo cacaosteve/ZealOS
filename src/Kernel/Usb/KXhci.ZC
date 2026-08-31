@@ -756,23 +756,43 @@ U0 XhciBiosHandoff(CXhciGlobals *hc=NULL)
 }
 
 Bool XhciPortReset(I64 port, CXhciGlobals *hc=NULL)
-{//Reset root port, wait for enabled. Returns TRUE if port enabled.
-	I64	sc;
+{//Reset root port. NEC/QEMU can expose CCS before PED settles.
+	I64	sc, retry;
 	F64	timeout;
 
-	XhciPortSCWrite(port, XHCI_PORTSC_PP | XHCI_PORTSC_PR, hc);
-	timeout = tS + 0.5;
-	while (tS < timeout)
+	for (retry = 0; retry < 3; retry++)
 	{
 		sc = XhciPortSC(port, hc);
+		if (!(sc & XHCI_PORTSC_CCS))
+			return FALSE;
 		if (sc & XHCI_PORTSC_PED)
-			break;
-		Sleep(10);
-	}
-	XhciPortSCWrite(port, XHCI_PORTSC_PP | XHCI_PORTSC_CHANGE_BITS, hc);
-	sc = XhciPortSC(port, hc);
+			return TRUE;
 
-	return ToBool(sc & XHCI_PORTSC_PED);
+		/* Preserve the controller's current PORTSC state when requesting reset.
+		   UTM's NEC xHCI model does not reliably enable a port when given only
+		   PP|PR, while QEMU xHCI happens to tolerate that shorter write. */
+		XhciPortSCWrite(port, sc | XHCI_PORTSC_PP | XHCI_PORTSC_PR, hc);
+		timeout = tS + 3.0;
+		while (tS < timeout)
+		{
+			sc = XhciPortSC(port, hc);
+			if (!(sc & XHCI_PORTSC_PR))
+				break;
+			Sleep(2);
+		}
+		Sleep(150);
+		sc = XhciPortSC(port, hc);
+		if (!(sc & XHCI_PORTSC_CCS))
+			return FALSE;
+		if (sc & XHCI_PORTSC_PED)
+			return TRUE;
+	}
+
+	/* The older UTM input driver successfully addressed NEC-attached HID
+	   devices while CCS remained set even when PED lagged. Let Address Device
+	   make the final decision after the bounded reset attempts. */
+	sc = XhciPortSC(port, hc);
+	return ToBool(sc & XHCI_PORTSC_CCS);
 }
 
 U8 *XhciMmioMap(I64 phys)

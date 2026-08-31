@@ -391,5 +391,10 @@ CUsbDev *UsbDevEnumEx(I64 root_port, I64 speed, I64 route, I64 depth,
 
 CUsbDev *UsbDevEnum(I64 port, CXhciGlobals *hc=NULL)
 {//Root port device, already reset + enabled. USB task only.
-	return UsbDevEnumEx(port, (XhciPortSC(port, hc) >> 10) & 0xF, 0, 0, 0, 0, hc);
+	I64 speed = (XhciPortSC(port, hc) >> 10) & 0xF;
+
+	//UTM's NEC model can briefly leave the speed field zero after reset.
+	if (!speed)
+		speed = USB_SPEED_FULL;
+	return UsbDevEnumEx(port, speed, 0, 0, 0, 0, hc);
 }
