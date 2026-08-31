@@ -81,6 +81,20 @@ echo "Making temp vdisk, running auto-install ..."
 "$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
 set_img
 
+# AUTO.ISO is intentionally tiny and changes infrequently.  Newer source trees
+# can add bootloader-provided system symbols before that bootstrap is rebuilt;
+# in that case, replace only the installed bootstrap kernel with a compatible
+# known-good one before compiling this tree.  This leaves AUTO.ISO untouched.
+if [ -n "$YDE_BUILD_BOOTSTRAP_KERNEL" ]
+then
+	[ -f "$YDE_BUILD_BOOTSTRAP_KERNEL" ] || {
+		echo "ERROR: bootstrap kernel not found: $YDE_BUILD_BOOTSTRAP_KERNEL"
+		exit 1
+	}
+	echo "Updating installed bootstrap Kernel.ZXE ..."
+	mcopy -Q -n -o -i "$IMG" "$YDE_BUILD_BOOTSTRAP_KERNEL" ::/Boot/Kernel.ZXE < /dev/null
+fi
+
 # Game data and other ignored blobs live under src/ but are not part of the OS,
 # and the bootstrap vdisk is 1 GiB. Take tracked and untracked-but-not-ignored
 # files only.
