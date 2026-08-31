@@ -1,5 +1,20 @@
 #define STD_DISTRO_DVD_CONFIG 	"TB\nScale2Mem(2048,0x40000)\nT\n\n\n\n"
 
+U0 BootDVDInsAuto()
+{
+	CTask *task = User;
+
+	TaskWait(task);
+	//This file runs in a build popup, which is an input-filter task. In() on
+	//that task compiles the answer stream as source. Queue the answers and
+	//start BootDVDIns in one job on an ordinary User task instead; splitting
+	//the two operations into separate XTalk jobs races BootDVDIns's first read.
+	XTalkWait(task,
+		"In(\"TB\\nScale2Mem(2048,0x40000)\\nT\\n\\n\\n\\n\");"
+		"BootDVDIns('%C');\n", Drive2Letter(Fs->cur_dv));
+	Kill(task);
+}
+
 U0 MakeMyISO()
 {
 	U8 *_out_iso_filename = "/Tmp/MyDistro.ISO.C";
@@ -25,14 +40,7 @@ U0 MakeMyISO()
 	StrCopy(progress1_desc, "Copying files to /Distro");
 
 	DirMake("/Distro");
-	//Configure the DVD kernel synchronously in this build task.  Sending the
-	//call and its answers as two XTalk jobs can race: the answers then reach an
-	//idle command line and are compiled as source instead of KConfig input.
-	FifoU8Flush(kbd.fifo);
-	FifoU8Flush(kbd.fifo2);
-	FifoI64Flush(kbd.scan_code_fifo);
-	In(STD_DISTRO_DVD_CONFIG);
-	BootDVDIns;
+	BootDVDInsAuto;
 	progress1++;
 
 	Copy("/*", "/Distro");
