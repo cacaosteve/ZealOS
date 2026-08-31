@@ -92,7 +92,7 @@ then
 		exit 1
 	}
 	echo "Updating installed bootstrap Kernel.ZXE ..."
-	mcopy -Q -n -o -i "$IMG" "$YDE_BUILD_BOOTSTRAP_KERNEL" ::/Boot/Kernel.ZXE < /dev/null
+	mcopy -Q -D o -i "$IMG" "$YDE_BUILD_BOOTSTRAP_KERNEL" ::/Boot/Kernel.ZXE < /dev/null
 fi
 
 # Game data and other ignored blobs live under src/ but are not part of the OS,
