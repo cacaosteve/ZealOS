@@ -25,7 +25,7 @@ Bool CopySingleZ(U8 *f1, U8 *f2) //Just one file
 	return FALSE;
 }
 
-#define COPY_BUF_BLKS 	0x80
+#define COPY_BUF_BLKS 	0x2000 //4 MiB: one native AHCI PRD; USB MSD splits to 64 KiB
 Bool CopySingleBuf(U8 *f1, U8 *f2, U8 *copy_buf=NULL) //Just one file
 {
 	U8		*absf1 = FileNameAbs(f1), *absf2 = FileNameAbs(f2), *buf;
