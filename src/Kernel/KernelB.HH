@@ -259,7 +259,11 @@ public _extern SYS_SMBIOS_ENTRY U8	*sys_smbios_entry;
 public _extern SYS_DISK_UUID  U64	sys_disk_uuid[2];
 public _extern SYS_IS_UEFI_BOOTED	Bool	sys_is_uefi_booted;
 public _extern SYS_BOOTLOADER_ID	U8		sys_bootloader_id;
-_extern SYS_RAM_DISTRO_BASE		U64	sys_ram_distro_base;
-_extern SYS_RAM_DISTRO_SIZE		U64	sys_ram_distro_size;
+
+//The optional RAM-distro fields follow SYS_FRAMEBUFFER_LIST in CKernel.  Do
+//not declare them as _extern system symbols here: an older BIOS bootstrap can
+//compile this kernel before those labels exist in its running symbol table.
+//BlkDevsInitAll reads the fields by this stable CKernel layout only for the
+//Limine/ZealBooter path, which is the only loader that populates them.
 
 #help_index ""

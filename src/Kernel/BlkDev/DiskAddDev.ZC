@@ -257,18 +257,31 @@ U0 BlkDevsInitAll()
 {
 	CBlkDev	*bd;
 	I64		 i;
+	U64		*ram_distro_fields,
+			 ram_distro_base = 0,
+			 ram_distro_size = 0;
 
 	blkdev.blkdevs	= CAlloc(sizeof(CBlkDev) * BLKDEVS_NUM);
 	blkdev.drvs		= CAlloc(sizeof(CDrive)  * DRIVES_NUM);
 	for (i = 0; i < DRIVES_NUM; i++)
 		blkdev.let_to_drive[i] = &blkdev.drvs[i];
 
+	//These two fields immediately follow sys_framebuffer_list in CKernel.  An
+	//older BIOS bootstrap has no corresponding system symbols, so only inspect
+	//them when ZealBooter/Limine (which populates both fields) loaded the kernel.
+	if (sys_bootloader_id == BL_LIMINE)
+	{
+		ram_distro_fields = (U64 *)&sys_framebuffer_list[VBE_MODES_NUM];
+		ram_distro_base = ram_distro_fields[0];
+		ram_distro_size = ram_distro_fields[1];
+	}
+
 // self-contained (RAM-distro) boot: ZealBooter loaded the OS image as a limine module and passed its physical address. Mounted as RAM drive B:, already a RedSea filesystem
-	if (sys_ram_distro_base)
+	if (ram_distro_base)
 	{
 		bd = BlkDevNextFreeSlot('B', BDT_RAM);
-		bd->RAM_disk = sys_ram_distro_base;
-		bd->max_blk  = (sys_ram_distro_size >> BLK_SIZE_BITS) - 1;
+		bd->RAM_disk = ram_distro_base;
+		bd->max_blk  = (ram_distro_size >> BLK_SIZE_BITS) - 1;
 		if (BlkDevAdd(bd, , TRUE, TRUE))
 		{
 			blkdev.boot_drive_let = 'B';
@@ -286,7 +299,7 @@ U0 BlkDevsInitAll()
 	i = UsbBootInit;
 
 // a RAM-distro already has its boot drive (B: above), and the kernel_config mount code targets install hardware, so skip it; otherwise run it wrapped so a failed mount falls through to UsbBootDriveFallback(). The #exe compiler directives stay OUTSIDE the runtime try
-	if (!sys_ram_distro_base)
+	if (!ram_distro_base)
 	{
 		#exe {
 			StreamPrint("#exe {Option(OPTf_WARN_PAREN, OFF);}");
