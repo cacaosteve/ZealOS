@@ -17,6 +17,14 @@ fi
 
 [ "$1" = "--headless" ] && QEMU_HEADLESS='-display none'
 
+QEMU_BUILD_MONITOR=''
+if [ -n "$YDE_BUILD_CAPTURE" ]
+then
+	QEMU_BUILD_MONITOR='-monitor unix:/tmp/yde-build-monitor,server=on,wait=off'
+	rm -f /tmp/yde-build-monitor
+	echo "Second-stage QEMU monitor: /tmp/yde-build-monitor"
+fi
+
 KVM=''
 if test -r /dev/kvm
 then
@@ -94,7 +102,7 @@ mcopy -s -Q -n -o -i "$IMG" "$TMPSRC"/src/* ::/Tmp/OSBuild/ < /dev/null
 mcopy -Q -n -o -i "$IMG" ../src/Misc/Auto/AutoFullDistro*.ZC ::/Misc/Auto/ < /dev/null
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
-"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -device isa-debug-exit $QEMU_HEADLESS || true
+"$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -device isa-debug-exit $QEMU_BUILD_MONITOR $QEMU_HEADLESS || true
 
 LIMINE_BINARY_BRANCH="v10.x-binary"
 
