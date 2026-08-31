@@ -81,6 +81,16 @@ echo "Making temp vdisk, running auto-install ..."
 "$QEMU_BIN_PATH/qemu-system-x86_64" -machine q35 $KVM -drive format=raw,file="$TMPDISK" -m 1G -rtc base=localtime -smp 4 -cdrom AUTO.ISO -device isa-debug-exit $QEMU_HEADLESS || true
 set_img
 
+#The bootstrap installer creates personalized copies that override the root
+#startup files selected by "~/...".  They belong to AUTO.ISO's older System
+#and can call functions before the staged tree defines them.  Remove only these
+#generated copies from the disposable build disk so the current root versions
+#become the fallback after OSBuild is overlaid.
+for bootstrap_home_file in MakeHome.ZC HomeLocalize.ZC HomeWrappers.ZC HomeKeyPlugIns.ZC HomeSys.ZC
+do
+	mdel -i "$IMG" "::/Home/$bootstrap_home_file" >/dev/null 2>&1 || true
+done
+
 # AUTO.ISO is intentionally tiny and changes infrequently.  Newer source trees
 # can add bootloader-provided system symbols before that bootstrap is rebuilt;
 # in that case, replace only the installed bootstrap kernel with a compatible
