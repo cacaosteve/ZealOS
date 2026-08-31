@@ -18,10 +18,23 @@ Option(0,0); //(0,0)=EchoOff	 (0,1)=EchoOn
 //  2  everything: no splash, no Silent -- the full compile-warning flood
 #define YDE_BOOT_VERBOSE	0
 
+Bool YDEMacMini2014BCM57766Present()
+{//StartOS also runs under the older AUTO.ISO bootstrap while building a distro,
+ //so it cannot call the same helper until the newly compiled kernel has booted.
+	I64 bdf, n = 0;
+
+	while ((bdf = PCIClassFind(PCIC_NETWORK << 16 | PCISC_ETHERNET << 8, n++)) >= 0)
+		if (PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_VENDOR_ID) == 0x14E4 &&
+			PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_DEVICE_ID) == 0x1686)
+			return TRUE;
+
+	return FALSE;
+}
+
 //Mac mini7,1 stays single-core because starting its APs is not yet stable.
 //Audio probing is deferred, so the normal splash can yield to boot and USB.
 //Do not retry Core0StartMP here: it reintroduces the Mac mini timer/AP protection fault
-Bool yde_boot_macmini = MacMini2014BCM57766Present;
+Bool yde_boot_macmini = YDEMacMini2014BCM57766Present;
 Bool yde_boot_is_build = FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS);
 Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE && !yde_boot_is_build);
 
