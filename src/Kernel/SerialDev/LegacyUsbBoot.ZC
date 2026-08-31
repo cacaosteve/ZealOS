@@ -44,8 +44,12 @@ public U0 LegacyUsbInputInit()
 		EhciCoreInit;
 
 	if (sys_usb_input_active)
-		"USB legacy HID: backend=%s active=0x%X (UTM UHCI/EHCI compatibility).\n",
-			best_backend == 0 ? "UHCI" : "EHCI", sys_usb_input_active;
+	{
+		if (best_backend == 0)
+			"USB legacy HID: backend=UHCI active=0x%X (UTM compatibility).\n", sys_usb_input_active;
+		else
+			"USB legacy HID: backend=EHCI active=0x%X (UTM compatibility).\n", sys_usb_input_active;
+	}
 }
 
 public U0 LegacyUsbInputPoll()
