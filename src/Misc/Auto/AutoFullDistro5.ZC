@@ -1,22 +1,18 @@
 #define STD_DISTRO_DVD_CONFIG 	"TB\nScale2Mem(2048,0x40000)\nT\n\n\n\n"
 
-class CDistroConfigFeed
-{
-	CTask *target;
-	U8    *text;
-};
+CTask *distro_config_target;
 
-U0 DistroConfigFeedTask(CDistroConfigFeed *feed)
+U0 DistroConfigFeedTask(U8 *)
 {
 	I64 ch;
-	U8 *ptr = feed->text;
+	U8 *ptr = STD_DISTRO_DVD_CONFIG;
 
 	//Let BootDVDIns enter KConfig, then post characters directly to the task
 	//that is blocked in CharGet/StrGet. In() only queues a future command and
 	//cannot run until BootDVDIns has already returned.
 	Sleep(100);
 	while (ch = *ptr++)
-		MessagePost(feed->target, MESSAGE_KEY_DOWN, ch, 0);
+		MessagePost(distro_config_target, MESSAGE_KEY_DOWN, ch, 0);
 }
 
 U0 MakeMyISO()
@@ -24,7 +20,6 @@ U0 MakeMyISO()
 	U8 *_out_iso_filename = "/Tmp/MyDistro.ISO.C";
 	U8 *out_iso_filename = FileNameAbs(_out_iso_filename);
 	I64 line_count = LineRep("/*", "-r") + LineRep("/System/*") + LineRep("/Compiler/*", "-S+$$") + LineRep("/Kernel/*");
-	CDistroConfigFeed feed;
 
 	if (!DriveIsWritable)
 	{
@@ -45,9 +40,8 @@ U0 MakeMyISO()
 	StrCopy(progress1_desc, "Copying files to /Distro");
 
 	DirMake("/Distro");
-	feed.target = Fs;
-	feed.text = STD_DISTRO_DVD_CONFIG;
-	Spawn(&DistroConfigFeedTask, &feed, "Distro Config",, Fs);
+	distro_config_target = Fs;
+	Spawn(&DistroConfigFeedTask,, "Distro Config",, Fs);
 	BootDVDIns;
 	progress1++;
 
