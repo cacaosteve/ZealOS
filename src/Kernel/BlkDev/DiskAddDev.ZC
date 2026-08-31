@@ -271,7 +271,7 @@ U0 BlkDevsInitAll()
 	//them when ZealBooter/Limine (which populates both fields) loaded the kernel.
 	if (sys_bootloader_id == BL_LIMINE)
 	{
-		ram_distro_fields = (U64 *)&sys_framebuffer_list[VBE_MODES_NUM];
+		ram_distro_fields = &sys_framebuffer_list[VBE_MODES_NUM](U64 *);
 		ram_distro_base = ram_distro_fields[0];
 		ram_distro_size = ram_distro_fields[1];
 	}
