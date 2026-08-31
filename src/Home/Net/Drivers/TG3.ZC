@@ -2402,7 +2402,10 @@ U0 TG3PollTask()
 	while (tg3.init_ok)
 	{
 		TG3KeepRxAlive;
-		Sleep(5);
+		/* Poll-only avoids the Macmini7,1 IOAPIC/HID conflict.  Ten ms keeps
+		   DHCP and interactive traffic responsive without consuming a fifth
+		   of the only active core when the link is idle. */
+		Sleep(10);
 	}
 }
 

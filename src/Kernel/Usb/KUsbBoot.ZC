@@ -260,14 +260,18 @@ U0 UsbTaskMain(I64 dummy=0)
 
 	no_warn dummy;
 	usb_task = Fs;
-	if (!usb_hc_count)
+	if (!usb_hc_count && !LegacyUsbInputPresent)
 		return;
 	while (TRUE)
 	{
+		LegacyUsbInputPoll;
 		for (n = 0; n < usb_hc_count; n++)
 			XhciEventPoll(&usb_hcs[n]);
-		UsbHidTick;
-		UsbEcmTick;
+		if (usb_hc_count)
+		{
+			UsbHidTick;
+			UsbEcmTick;
+		}
 		if (!usb_macmini2014 && Bt(&sys_run_level, RLf_SYSTEM_SERVER))
 		{
 			if (!post_boot_started)
@@ -287,7 +291,10 @@ U0 UsbTaskMain(I64 dummy=0)
 //Hub status-change endpoints are unclaimed; poll after boot-time USB reads.
 		if (!usb_macmini2014 && post_boot_started && tick & 0x7F == 0)
 			UsbHubScanAll;
-		Sleep(2);
+		/* The Mac mini is deliberately single-core until its AP/timer path is
+		   safe.  A 250Hz HID poll is still smoother than USB's traditional
+		   125Hz rate while leaving the desktop and compiler CPU time. */
+		Sleep(usb_macmini2014 ? 4 : 2);
 	}
 }
 
@@ -296,10 +303,15 @@ I64 UsbBootInit()
 	I64 i, count = 0;
 
 	usb_macmini2014 = UsbMacMini2014Present;
-	if (!XhciInitAll)
-		return 0;
-	Sleep(100);	//let root port connect status settle
-	UsbPortScanAll;
+	/* UTM's default USB UI devices live on QEMU's UHCI/EHCI companion bus.
+	   This compatibility probe never touches xHCI; KUsb remains the sole
+	   xHCI owner for the Mac mini, storage, hubs, audio, and ECM. */
+	LegacyUsbInputInit;
+	if (XhciInitAll)
+	{
+		Sleep(100);	//let root port connect status settle
+		UsbPortScanAll;
+	}
 	for (i = 0; i < USB_MSDS_MAX; i++)
 		if (usb_msds[i].valid && usb_msds[i].ready && usb_msds[i].bd)
 			count++;

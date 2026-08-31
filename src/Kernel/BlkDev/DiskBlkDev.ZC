@@ -114,13 +114,8 @@ Bool BlkDevInit(CBlkDev *bd)
 				break;
 
 			case BDT_ATAPI:
-//0xFFFF*4 is too big for Terry's taste
-				bd->max_reads = 0x800 * 4;
-//max of maybe a quarter of disk cache
-				if (bd->max_reads > blkdev.cache_size / BLK_SIZE / 4)
-					bd->max_reads = blkdev.cache_size / BLK_SIZE / 4 & ~3;
-				if (bd->max_reads < 128)
-					bd->max_reads = 128;
+				/* Conservative 64KB ATAPI windows avoid QEMU/UTM AHCI stalls. */
+				bd->max_reads = 128;
 				bd->max_writes = 0xFFFF * 4;
 				if (res = AHCIAtaInit(bd))
 					drive->size = bd->max_blk + 1;

@@ -2,4 +2,11 @@
 #include "Keyboard"
 #include "Mouse"
 #include "Message"
+#include "LegacyUsb.HH"
+#include "LegacyUsbSupport"
+#include "LegacyUsbKbd"
+#include "LegacyUsbMouse"
+#include "LegacyUsbUhci"
+#include "LegacyUsbEhci"
+#include "LegacyUsbBoot"
 #exe {Cd("..");};

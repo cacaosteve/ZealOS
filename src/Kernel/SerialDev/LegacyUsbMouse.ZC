@@ -1,0 +1,459 @@
+U0 XhmPktIns(I64 dx, I64 dy, I64 b, I64 dz)
+{
+	I64 ps2[4];
+
+	ps2[0] = 0;
+	if (b & 1)
+		ps2[0] |= 1;
+	if (b & 2)
+		ps2[0] |= 2;
+	if (b & 4)
+		ps2[0] |= 4;
+	if (dx < 0)
+	{
+		ps2[0] |= 0x10;
+		ps2[1] = 256 + dx;
+	}
+	else
+		ps2[1] = dx;
+	if (dy > 0)
+	{
+		ps2[0] |= 0x20;
+		ps2[2] = 256 - dy;
+	}
+	else
+		ps2[2] = -dy;
+	ps2[3] = 0;
+	if (dz < 0)
+	{
+		ps2[3] = (-dz) & 7;
+		ps2[3] |= 0x08;
+	}
+	else if (dz > 0)
+		ps2[3] = dz & 7;
+
+	mouse_hard.timestamp = TSCGet;
+	FifoU8Insert(mouse_hard.fifo2, ps2[0]);
+	FifoU8Insert(mouse_hard.fifo2, ps2[1]);
+	FifoU8Insert(mouse_hard.fifo2, ps2[2]);
+	FifoU8Insert(mouse_hard.fifo2, ps2[3]);
+	mouse_hard.pkt_size = 4;
+}
+
+U0 XhmRptDbg(U8 *rpt, I64 len)
+{
+	I64 i;
+
+	legacy_usb.ms_last_len = len;
+	MemSet(legacy_usb.ms_last_bytes, 0, 16);
+	i = 0;
+	while (i < len)
+	{
+		if (i >= 16)
+			break;
+		legacy_usb.ms_last_bytes[i] = rpt[i];
+		i++;
+	}
+}
+
+Bool XhmAbsRptOk(U8 *rpt, I64 len, I64 *off)
+{
+	I64 o = 0;
+
+	// Absolute: [buttons][x_lo][x_hi][y_lo][y_hi] or leading report ID + 5 bytes.
+	if (len >= 6)
+	{
+		if (rpt[0] >= 1)
+		{
+			if (rpt[0] <= 15)
+				o = 1;
+		}
+	}
+	if (len < o + 5)
+		return FALSE;
+	*off = o;
+	return TRUE;
+}
+
+Bool XhmBootMsBound()
+{
+	if (legacy_usb.ehci_active)
+	{
+		if (legacy_usb.ehci_ms_addr)
+			return TRUE;
+		return FALSE;
+	}
+	if (legacy_usb.uhci_active)
+	{
+		if (legacy_usb.uhci_ms_addr)
+			return TRUE;
+		return FALSE;
+	}
+	if (legacy_usb.ms_slot)
+		return TRUE;
+	return FALSE;
+}
+
+U0 XhmAbsWarp(I64 px, I64 py, I64 b)
+{
+	I64 x, y, l, r, last_b;
+
+	if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE))
+		return;
+	last_b = legacy_usb.ms_last_btn & 7;
+	if (px == mouse.pos.x && py == mouse.pos.y && (b & 7) == last_b)
+		return;
+
+	l = b & 1;
+	r = (b & 2) >> 1;
+	mouse.offset.x = 0;
+	mouse.offset.y = 0;
+	x = px / mouse.scale.x;
+	y = py / mouse.scale.y;
+
+	mouse.presnap.x = ToI64(mouse.scale.x * x);
+	mouse.presnap.y = ToI64(mouse.scale.y * y);
+	if (mouse_grid.snap)
+	{
+		mouse.pos.x = Trunc(mouse.presnap.x / mouse_grid.x) * mouse_grid.x + mouse_grid.x_offset;
+		mouse.pos.y = Trunc(mouse.presnap.y / mouse_grid.y) * mouse_grid.y + mouse_grid.y_offset;
+	}
+	else
+	{
+		mouse.pos.x = mouse.presnap.x;
+		mouse.pos.y = mouse.presnap.y;
+	}
+	mouse.pos.x = ClampI64(mouse.pos.x, 0, sys_framebuffer_width - 1);
+	mouse.pos.y = ClampI64(mouse.pos.y, 0, sys_framebuffer_height - 1);
+	mouse.pos_text.x = mouse.pos.x / FONT_WIDTH;
+	if (mouse.pos_text.x >= text.cols)
+	{
+		mouse.pos_text.x = text.cols - 1;
+		mouse.pos.x = text.cols * FONT_WIDTH - 1;
+	}
+	mouse.pos_text.y = mouse.pos.y / FONT_HEIGHT;
+	if (mouse.pos_text.y >= text.rows)
+	{
+		mouse.pos_text.y = text.rows - 1;
+		mouse.pos.y = text.rows * FONT_HEIGHT - 1;
+	}
+	mouse.lb = l;
+	mouse.rb = r;
+	mouse.show = TRUE;
+	LBEqual(&kbd.scan_code, SCf_MS_L_DOWN, l);
+	LBEqual(&kbd.scan_code, SCf_MS_R_DOWN, r);
+
+	mouse_hard.timestamp = TSCGet;
+	mouse_hard.bttns[0] = l;
+	mouse_hard.bttns[1] = r;
+	mouse_hard.bttns[2] = (b & 4) != 0;
+	mouse_hard.prescale.x = x / mouse_hard.scale.x / mouse_grid.x_speed;
+	mouse_hard.prescale.y = y / mouse_hard.scale.y / mouse_grid.y_speed;
+	mouse_hard.pos.x = mouse.pos.x;
+	mouse_hard.pos.y = mouse.pos.y;
+	mouse_hard.event = TRUE;
+
+	legacy_usb.ms_acc_x = 0;
+	legacy_usb.ms_acc_y = 0;
+	legacy_usb.ms_acc_z = 0;
+	legacy_usb.ms_acc_b = b;
+	legacy_usb.ms_last_btn = b;
+}
+
+U0 XhmAbsBttns(I64 b)
+{
+	I64 l, r, last_b;
+
+	if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE))
+		return;
+	last_b = legacy_usb.ms_last_btn & 7;
+	if ((b & 7) == last_b)
+		return;
+
+	l = b & 1;
+	r = (b & 2) >> 1;
+	mouse.lb = l;
+	mouse.rb = r;
+	mouse.show = TRUE;
+	LBEqual(&kbd.scan_code, SCf_MS_L_DOWN, l);
+	LBEqual(&kbd.scan_code, SCf_MS_R_DOWN, r);
+
+	mouse_hard.timestamp = TSCGet;
+	mouse_hard.bttns[0] = l;
+	mouse_hard.bttns[1] = r;
+	mouse_hard.bttns[2] = (b & 4) != 0;
+	mouse_hard.event = TRUE;
+
+	legacy_usb.ms_acc_b = b;
+	legacy_usb.ms_last_btn = b;
+}
+
+U0 XhmRptAbs(U8 *rpt, I64 len)
+{
+	I64 off, b, x, y, sw, sh, npx, npy, adx, ady;
+
+	if (!XhmAbsRptOk(rpt, len, &off))
+		return;
+
+	b = rpt[off] & 7;
+	x = rpt[off + 1] | (rpt[off + 2] << 8);
+	y = rpt[off + 3] | (rpt[off + 4] << 8);
+	sw = sys_framebuffer_width;
+	sh = sys_framebuffer_height;
+	if (sw < 1)
+		sw = 640;
+	if (sh < 1)
+		sh = 480;
+	// QEMU legacy_usb-tablet: 0..32767 maps left->right, top->bottom.
+	if (sw > 1)
+		npx = x * (sw - 1) / 32767;
+	else
+		npx = 0;
+	if (sh > 1)
+		npy = y * (sh - 1) / 32767;
+	else
+		npy = 0;
+
+	adx = npx - legacy_usb.ms_last_abs_x;
+	if (adx < 0)
+		adx = -adx;
+	ady = npy - legacy_usb.ms_last_abs_y;
+	if (ady < 0)
+		ady = -ady;
+	legacy_usb.ms_last_abs_x = npx;
+	legacy_usb.ms_last_abs_y = npy;
+
+	// Boot mouse + tablet are both bound.  Stay in relative mode while the
+	// host is driving legacy_usb-mouse; only return to tablet after rel quiet and
+	// the tablet position actually moves (UTM cursor off).
+	if (XhmBootMsBound())
+	{
+		if (!legacy_usb.ms_use_tab)
+		{
+			if (tS - legacy_usb.ms_rel_last_t < 0.35)
+				return;
+			if (adx < 4 && ady < 4)
+				return;
+			legacy_usb.ms_use_tab = TRUE;
+		}
+	}
+	if (!legacy_usb.ms_use_tab)
+		return;
+
+	adx = npx - mouse.pos.x;
+	if (adx < 0)
+		adx = -adx;
+	ady = npy - mouse.pos.y;
+	if (ady < 0)
+		ady = -ady;
+
+	legacy_usb.ms_rel_idle = 0;
+	legacy_usb.ms_acc_x = 0;
+	legacy_usb.ms_acc_y = 0;
+	legacy_usb.ms_acc_z = 0;
+	legacy_usb.ms_abs_seen = TRUE;
+
+	// Wrong tablet coords on click used to yank the cursor; apply buttons only.
+	if ((b & 7) && (adx > 20 || ady > 20))
+	{
+		XhmAbsBttns(b);
+		return;
+	}
+	XhmAbsWarp(npx, npy, b);
+}
+
+U0 XhmRptRel(U8 *rpt, I64 len)
+{
+	I64 dx, dy, dz, b, off, b_idx, x_idx, y_idx, w_idx, wheel;
+
+	off = 0;
+	// Boot mouse reports are [buttons][X][Y][wheel?].  A pressed button
+	// makes byte 0 nonzero, so only treat byte 0 as a report ID when there
+	// is room for ID + at least a 4-byte mouse report.
+	if (len >= 5)
+	{
+		if (rpt[0] >= 1)
+		{
+			if (rpt[0] <= 15)
+				off = 1;
+		}
+	}
+	b_idx = off;
+	x_idx = off + 1;
+	y_idx = off + 2;
+	if (len <= y_idx)
+		return;
+
+	b = rpt[b_idx] & 7;
+	if (rpt[x_idx] & 0x80)
+		dx = rpt[x_idx] - 256;
+	else
+		dx = rpt[x_idx];
+	if (rpt[y_idx] & 0x80)
+		dy = rpt[y_idx] - 256;
+	else
+		dy = rpt[y_idx];
+
+	dz = 0;
+	w_idx = off + 3;
+	if (len > w_idx)
+	{
+		wheel = rpt[w_idx];
+		if (wheel & 0x80)
+			dz = wheel - 256;
+		else
+			dz = wheel;
+	}
+
+	if (dx || dy || dz)
+	{
+		legacy_usb.ms_use_tab = FALSE;
+		legacy_usb.ms_rel_idle = 0;
+		legacy_usb.ms_rel_last_t = tS;
+	}
+	else if ((b & 7) != (legacy_usb.ms_last_btn & 7))
+	{
+		if (XhmBootMsBound())
+		{
+			legacy_usb.ms_use_tab = FALSE;
+			legacy_usb.ms_rel_last_t = tS;
+		}
+	}
+	else if (!legacy_usb.ms_use_tab)
+		legacy_usb.ms_rel_idle++;
+
+	if (legacy_usb.ms_use_tab)
+		return;
+
+	legacy_usb.ms_acc_x += dx;
+	legacy_usb.ms_acc_y += dy;
+	legacy_usb.ms_acc_b = b;
+	legacy_usb.ms_acc_z += dz;
+}
+
+U0 XhmRptHandleMode(U8 *rpt, I64 len, Bool abs_mode)
+{
+	if (len < 3)
+		return;
+
+	XhmRptDbg(rpt, len);
+	if (abs_mode)
+		XhmRptAbs(rpt, len);
+	else
+		XhmRptRel(rpt, len);
+}
+
+U0 XhmRptHandle(U8 *rpt, I64 len)
+{
+	XhmRptHandleMode(rpt, len, legacy_usb.ms_abs);
+}
+
+U0 XhmAccFlush()
+{
+	I64 dx, dy, dz, b, ox, oy, oz;
+
+	if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE))
+		return;
+
+	PUSHFD
+	CLI
+	dx = legacy_usb.ms_acc_x;
+	dy = legacy_usb.ms_acc_y;
+	dz = legacy_usb.ms_acc_z;
+	b = legacy_usb.ms_acc_b;
+	ox = dx;
+	oy = dy;
+	oz = dz;
+	if (dx > 127)
+	{
+		legacy_usb.ms_acc_x = dx - 127;
+		dx = 127;
+	}
+	else if (dx < -127)
+	{
+		legacy_usb.ms_acc_x = dx + 127;
+		dx = -127;
+	}
+	else
+		legacy_usb.ms_acc_x = 0;
+	if (dy > 127)
+	{
+		legacy_usb.ms_acc_y = dy - 127;
+		dy = 127;
+	}
+	else if (dy < -127)
+	{
+		legacy_usb.ms_acc_y = dy + 127;
+		dy = -127;
+	}
+	else
+		legacy_usb.ms_acc_y = 0;
+	if (dz > 7)
+	{
+		legacy_usb.ms_acc_z = dz - 7;
+		dz = 7;
+	}
+	else if (dz < -7)
+	{
+		legacy_usb.ms_acc_z = dz + 7;
+		dz = -7;
+	}
+	else
+		legacy_usb.ms_acc_z = 0;
+	POPFD
+
+	if (!dx)
+	{
+		if (!dy)
+		{
+			if (!dz)
+			{
+				if (b == legacy_usb.ms_last_btn)
+				{
+					if (!ox)
+					{
+						if (!oy)
+						{
+							if (!oz)
+								return;
+						}
+					}
+				}
+			}
+		}
+	}
+	legacy_usb.ms_last_btn = b;
+	XhmPktIns(dx, dy, b, dz);
+}
+
+
+
+U0 XhmEvtHandle()
+{
+	U8 *buf;
+
+	PUSHFD
+	CLI
+	if (!legacy_usb.ms_pending)
+	{
+		POPFD
+		return;
+	}
+	if (!legacy_usb.ms_xfer_done)
+	{
+		POPFD
+		return;
+	}
+	if (!legacy_usb.ms_ring)
+	{
+		POPFD
+		return;
+	}
+	buf = legacy_usb.ctrl_buf + LEGACY_udma_ms;
+	if (legacy_usb.ms_xfer_len && XhcXferOk(legacy_usb.ms_xfer_code))
+		XhmRptHandle(buf, legacy_usb.ms_xfer_len);
+	legacy_usb.ms_pending = FALSE;
+	legacy_usb.ms_xfer_done = FALSE;
+	POPFD
+	XhmIntrSub;
+}

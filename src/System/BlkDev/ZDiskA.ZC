@@ -118,7 +118,8 @@ public Bool Move(U8 *f1, U8 *f2)
 	return FALSE;
 }
 
-I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir)
+#define COPY_TREE_BUF_BLKS	0x80
+I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U8 *copy_buf)
 {
 	U8 *st;
 	I64 res = 1;
@@ -131,10 +132,10 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir)
 		if (tmpde->attr & RS_ATTR_DIR)
 		{
 			DirMake(st, LinkedListCount(tmpde->sub));
-			res += CopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir);
+			res += CopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir, copy_buf);
 		}
 		else
-			if (CopySingle(tmpde->full_name, st))
+			if (CopySingleBuf(tmpde->full_name, st, copy_buf))
 				res++;
 		Free(st);
 		tmpde = tmpde->next;
@@ -148,7 +149,7 @@ public I64 CopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask, Bool no_ma
 	CDirContext	*dirc;
 	CDirEntry	*tmpde = NULL;
 	I64			 res = 0, i1, i2;
-	U8			*st1, *st2;
+	U8			*st1, *st2, *copy_buf;
 
 	st1 = DirNameAbs(src_files_find_mask);
 	st2 = DirNameAbs(dst_files_find_mask);
@@ -175,7 +176,9 @@ public I64 CopyTree(U8 *src_files_find_mask, U8 *dst_files_find_mask, Bool no_ma
 			i2 = StrLen(st2);
 			if (i2 == 3)
 				i2--;
-			res = CopyTree2(tmpde, i1, i2, st2);
+			copy_buf = MAlloc(COPY_TREE_BUF_BLKS << BLK_SIZE_BITS);
+			res = CopyTree2(tmpde, i1, i2, st2, copy_buf);
+			Free(copy_buf);
 			DirContextDel(dirc);
 			Free(st2);
 		}

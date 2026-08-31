@@ -1,0 +1,63 @@
+/* Select the frozen UTM UHCI/EHCI HID backend without ever probing xHCI.
+   Returning LEGACY_USB_INPUT_KBD/LEGACY_USB_INPUT_MOUSE makes the standard keyboard/mouse queues authoritative. */
+
+I64 LegacyUsbInputScore(I64 active)
+{
+	I64 score = 0;
+
+	if (active & LEGACY_USB_INPUT_KBD)
+		score += 2;
+	if (active & LEGACY_USB_INPUT_MOUSE)
+		score++;
+	return score;
+}
+
+public U0 LegacyUsbInputInit()
+{
+	I64 uhci_active, ehci_active, best_backend = -1, best_score = 0;
+
+	sys_usb_input_active = 0;
+	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
+	UhciCoreInit;
+	uhci_active = sys_usb_input_active;
+	if (LegacyUsbInputScore(uhci_active) > best_score)
+	{
+		best_score = LegacyUsbInputScore(uhci_active);
+		best_backend = 0;
+	}
+
+	sys_usb_input_active = 0;
+	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
+	EhciCoreInit;
+	ehci_active = sys_usb_input_active;
+	if (LegacyUsbInputScore(ehci_active) > best_score)
+	{
+		best_score = LegacyUsbInputScore(ehci_active);
+		best_backend = 1;
+	}
+
+	sys_usb_input_active = 0;
+	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
+	if (best_backend == 0)
+		UhciCoreInit;
+	else if (best_backend == 1)
+		EhciCoreInit;
+
+	if (sys_usb_input_active)
+		"USB legacy HID: backend=%s active=0x%X (UTM UHCI/EHCI compatibility).\n",
+			best_backend == 0 ? "UHCI" : "EHCI", sys_usb_input_active;
+}
+
+public U0 LegacyUsbInputPoll()
+{
+	if (legacy_usb.uhci_active)
+		UhciPollEvt;
+	else if (legacy_usb.ehci_active)
+		EhciPollEvt;
+	XhmAccFlush;
+}
+
+public Bool LegacyUsbInputPresent()
+{
+	return sys_usb_input_active != 0;
+}

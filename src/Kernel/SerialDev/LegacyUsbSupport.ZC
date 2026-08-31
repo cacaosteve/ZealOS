@@ -1,0 +1,90 @@
+/* Legacy UHCI/EHCI HID compatibility state.
+
+   This is deliberately separate from Kernel/Usb/KUsb: KUsb remains the sole
+   xHCI owner.  These globals and helpers support only the frozen
+   archive/utm-usb-ok UHCI/EHCI input path used by UTM's default USB UI
+   devices. */
+
+CLegacyUSBStateGlobals legacy_usb;
+public I64 sys_usb_input_active;
+public I64 usb_debug_stage;
+public I64 usb_debug_cfg_len;
+public I64 usb_debug_poll_count;
+
+public U0 EhciDebugSave()
+{
+}
+
+Bool XhcXferOk(I64 code)
+{
+	return code == LEGACY_XHCI_CC_SUCCESS || code == LEGACY_XHCI_CC_SHORT_PACKET;
+}
+
+/* The imported report handlers retain their frozen xHCI callbacks for source
+   fidelity.  Legacy compatibility never owns xHCI, so these are intentionally
+   inert; UHCI/EHCI invoke XhkRptHandle/XhmRptHandle directly. */
+U0 XHCIEventAdvance()
+{
+}
+
+U0 XhkIntrSub()
+{
+}
+
+U0 XhmIntrSub()
+{
+}
+
+I64 HidRptKind(U8 *rpt, I64 len)
+{
+	I64 i = 0, b, sz, typ, tag, val, page = 0, kind = LEGACY_UHID_KIND_NONE;
+
+	while (i < len)
+	{
+		b = rpt[i++];
+		if (b == 0xFE)
+		{
+			if (i >= len)
+				break;
+			sz = rpt[i++];
+			i++;
+			i += sz;
+		}
+		else
+		{
+			sz = b & 3;
+			if (sz == 3)
+				sz = 4;
+			typ = b >> 2 & 3;
+			tag = b >> 4 & 15;
+			if (i + sz > len)
+				break;
+			val = 0;
+			if (sz >= 1)
+				val |= rpt[i];
+			if (sz >= 2)
+				val |= rpt[i + 1] << 8;
+			if (sz >= 4)
+			{
+				val |= rpt[i + 2] << 16;
+				val |= rpt[i + 3] << 24;
+			}
+			if (typ == 1 && tag == 0)
+				page = val;
+			else if (typ == 2 && tag == 0)
+			{
+				if (page == 1)
+				{
+					if (val == 6)
+						return LEGACY_UHID_KIND_KBD;
+					if (val == 1 || val == 2)
+						kind = LEGACY_UHID_KIND_MOUSE;
+				}
+				else if (page == 0x0D && (val == 4 || val == 5))
+					kind = LEGACY_UHID_KIND_MOUSE;
+			}
+			i += sz;
+		}
+	}
+	return kind;
+}

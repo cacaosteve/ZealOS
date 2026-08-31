@@ -1,7 +1,7 @@
 //USB Mass Storage: Bulk-Only Transport + SCSI, mounted as BDT_USB block devices.
 
 #define USB_MSDS_MAX		4
-#define USB_MSD_CHUNK_BLKS	64	//32KB bounce per transfer
+#define USB_MSD_CHUNK_BLKS	128	//64KB: one maximum xHCI Normal TRB
 
 #define USB_MSD_CBW_SIG		0x43425355
 #define USB_MSD_CSW_SIG		0x53425355
@@ -363,7 +363,9 @@ U0 UsbMsdAttach(CUsbDev *dev, CUsbIf *uif)
 		bd->bd_signature	 = BD_SIGNATURE_VAL;
 		bd->blk_size		 = DVD_BLK_SIZE;
 		bd->flags			|= BDF_READ_ONLY;
-		bd->flags			&= ~BDF_READ_CACHE;
+		/* Keep BlkDevNextFreeSlot's read cache.  The YDE tree has over a
+		   thousand files; disabling this made every directory lookup reread
+		   USB ISO metadata and turned installation into an all-day copy. */
 		drive = DriveMakeFreeSlot(msd->first_drive_let);
 		drive->bd				= bd;
 		drive->drive_signature	= DRIVE_SIGNATURE_VAL;

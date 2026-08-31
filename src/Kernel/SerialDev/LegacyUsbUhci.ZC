@@ -1,0 +1,1262 @@
+// Minimal UHCI polling backend for QEMU/UTM UI HID devices on legacy_usb-bus.0.
+// UTM's "USB 3.0 (XHCI)" input setting still creates legacy_usb-kbd/mouse/tablet
+// on QEMU's legacy USB bus; this services that path without PS/2 fallback.
+
+#define LEGACY_UHCI_REG_USBCMD			0x00
+#define LEGACY_UHCI_REG_USBSTS			0x02
+#define LEGACY_UHCI_REG_USBINTR		0x04
+#define LEGACY_UHCI_REG_FRNUM			0x06
+#define LEGACY_UHCI_REG_FLBASEADD		0x08
+#define LEGACY_UHCI_REG_SOFMOD			0x0C
+#define LEGACY_UHCI_REG_PORTSC			0x10
+
+#define LEGACY_UHCI_CMD_RUN			0x0001
+#define LEGACY_UHCI_CMD_HCRESET		0x0002
+#define LEGACY_UHCI_CMD_CF				0x0040
+#define LEGACY_UHCI_CMD_MAXP			0x0080
+
+#define LEGACY_UHCI_STS_HALTED			0x0020
+#define LEGACY_UHCI_STS_CLEAR			0x003F
+
+#define LEGACY_UHCI_PORT_CCS			0x0001
+#define LEGACY_UHCI_PORT_PE			0x0004
+#define LEGACY_UHCI_PORT_W1C			0x000A
+#define LEGACY_UHCI_PORT_LSDA			0x0100
+#define LEGACY_UHCI_PORT_RESET			0x0200
+
+#define LEGACY_UHCI_LINK_T				1
+#define LEGACY_UHCI_LINK_QH			2
+#define LEGACY_UHCI_LINK_DEPTH			4
+
+#define LEGACY_UHCI_PID_OUT			0xE1
+#define LEGACY_UHCI_PID_IN				0x69
+#define LEGACY_UHCI_PID_SETUP			0x2D
+
+#define LEGACY_UHCI_QH_SIZE			16
+#define LEGACY_UHCI_TD_SIZE			16
+#define LEGACY_UHCI_TD_MAX				32
+#define LEGACY_UHCI_TD_ACTIVE			0x00800000
+#define LEGACY_UHCI_TD_IOC				0x01000000
+#define LEGACY_UHCI_TD_LOW_SPEED		0x04000000
+#define LEGACY_UHCI_TD_ERRCNT			0x18000000
+#define LEGACY_UHCI_TD_SPD				0x20000000
+#define LEGACY_UHCI_TD_ERR_MASK		0x007E0000
+
+U16 UhciIn16(I64 ctlr, I64 off)
+{
+	return InU16(legacy_usb.uhci_ios[ctlr] + off);
+}
+
+U32 UhciIn32(I64 ctlr, I64 off)
+{
+	return InU32(legacy_usb.uhci_ios[ctlr] + off);
+}
+
+U0 UhciOut8(I64 ctlr, I64 off, U8 val)
+{
+	OutU8(legacy_usb.uhci_ios[ctlr] + off, val);
+}
+
+U0 UhciOut16(I64 ctlr, I64 off, U16 val)
+{
+	OutU16(legacy_usb.uhci_ios[ctlr] + off, val);
+}
+
+U0 UhciOut32(I64 ctlr, I64 off, U32 val)
+{
+	OutU32(legacy_usb.uhci_ios[ctlr] + off, val);
+}
+
+U16 UhciPortRead(I64 ctlr, I64 port)
+{
+	return UhciIn16(ctlr, LEGACY_UHCI_REG_PORTSC + port * 2);
+}
+
+U0 UhciPortWrite(I64 ctlr, I64 port, U16 val)
+{
+	val &= ~LEGACY_UHCI_PORT_W1C;
+	UhciOut16(ctlr, LEGACY_UHCI_REG_PORTSC + port * 2, val);
+}
+
+U8 *UhciAlloc(I64 size, I64 align, U64 *_phys=NULL)
+{
+	U8 *p;
+
+	p = CAllocAligned(size, align, sys_task->code_heap);
+	if (_phys)
+		*_phys = p;
+	return p;
+}
+
+U8 *UhciTdPtr(I64 ctlr, I64 idx)
+{
+	return legacy_usb.uhci_td[ctlr] + idx * LEGACY_UHCI_TD_SIZE;
+}
+
+U64 UhciTdPhys(I64 ctlr, I64 idx)
+{
+	return legacy_usb.uhci_td_phys[ctlr] + idx * LEGACY_UHCI_TD_SIZE;
+}
+
+I64 UhciActualLen(U32 sts)
+{
+	I64 actual;
+
+	actual = sts & 0x7FF;
+	if (actual == 0x7FF)
+		return 0;
+	return actual + 1;
+}
+
+I64 UhciTokenLen(I64 len)
+{
+	if (len <= 0)
+		return 0x7FF;
+	if (len > 0x800)
+		len = 0x800;
+	return len - 1;
+}
+
+U0 UhciTdBuild(U8 *td_mem, U32 link, I64 pid, I64 addr, I64 ep, I64 toggle, I64 len, U8 *buf, Bool low, Bool spd)
+{
+	U32 *td;
+	U32 sts, token;
+
+	td = td_mem(U32 *);
+	MemSet(td, 0, LEGACY_UHCI_TD_SIZE);
+	td[0] = link;
+	sts = LEGACY_UHCI_TD_ACTIVE | LEGACY_UHCI_TD_ERRCNT;
+	if (low)
+		sts |= LEGACY_UHCI_TD_LOW_SPEED;
+	if (spd)
+		sts |= LEGACY_UHCI_TD_SPD;
+	td[1] = sts;
+	token = pid & 0xFF;
+	token |= (addr & 0x7F) << 8;
+	token |= (ep & 0xF) << 15;
+	if (toggle)
+		token |= 1 << 19;
+	token |= UhciTokenLen(len) << 21;
+	td[2] = token;
+	if (buf)
+		td[3] = buf;
+	else
+		td[3] = 0;
+}
+
+U0 UhciTdInit(I64 ctlr, I64 idx, U32 link, I64 pid, I64 addr, I64 ep, I64 toggle, I64 len, U8 *buf, Bool low, Bool spd)
+{
+	UhciTdBuild(UhciTdPtr(ctlr, idx), link, pid, addr, ep, toggle, len, buf, low, spd);
+}
+
+U0 UhciQhArm(I64 ctlr, U64 first_td_phys)
+{
+	U32 *qh;
+
+	qh = legacy_usb.uhci_qh[ctlr](U32 *);
+	qh[0] = LEGACY_UHCI_LINK_T;
+	if (first_td_phys)
+		qh[1] = first_td_phys;
+	else
+		qh[1] = LEGACY_UHCI_LINK_T;
+	qh[2] = 0;
+	qh[3] = 0;
+	UhciIn16(ctlr, LEGACY_UHCI_REG_USBSTS);
+}
+
+U0 UhciQhStop(I64 ctlr)
+{
+	U32 *qh;
+
+	qh = legacy_usb.uhci_qh[ctlr](U32 *);
+	qh[1] = LEGACY_UHCI_LINK_T;
+	UhciIn16(ctlr, LEGACY_UHCI_REG_USBSTS);
+}
+
+Bool UhciWaitTd(I64 ctlr, I64 idx, I64 timeout_ms)
+{
+	F64 deadline;
+	U32 *td;
+	U32 sts;
+
+	deadline = tS + timeout_ms / 1000.0;
+	td = UhciTdPtr(ctlr, idx)(U32 *);
+	while (tS < deadline)
+	{
+		sts = td[1];
+		if (!(sts & LEGACY_UHCI_TD_ACTIVE))
+		{
+			legacy_usb.uhci_debug_code = sts >> 16;
+			return TRUE;
+		}
+		Sleep(1);
+	}
+	legacy_usb.uhci_debug_code = 0x100;
+	return FALSE;
+}
+
+Bool UhciTdOk(I64 ctlr, I64 idx)
+{
+	U32 *td;
+	U32 sts;
+
+	td = UhciTdPtr(ctlr, idx)(U32 *);
+	sts = td[1];
+	legacy_usb.uhci_debug_code = sts >> 16;
+	if (sts & LEGACY_UHCI_TD_ACTIVE)
+		return FALSE;
+	if (sts & LEGACY_UHCI_TD_ERR_MASK)
+		return FALSE;
+	return TRUE;
+}
+
+Bool UhciCtrlXfer(I64 ctlr, I64 addr, I64 mps, Bool low, U8 req_type, U8 request, U16 value, U16 index, I64 len, U8 *buf, I64 timeout_ms)
+{
+	U8 *setup_buf, *data_buf;
+	I64 idx, data_idx, status_idx, off, chunk, data_pid, status_pid, toggle;
+	U64 next_phys;
+	Bool ok;
+
+	if (!legacy_usb.ctrl_buf)
+		return FALSE;
+	if (!mps)
+		mps = 8;
+	if (mps > 64)
+		mps = 64;
+	if (len > 1024)
+		return FALSE;
+	if (len < 0)
+		return FALSE;
+
+	setup_buf = legacy_usb.ctrl_buf;
+	data_buf = legacy_usb.ctrl_buf + LEGACY_udma_ehci_data;
+	*(setup_buf)(U64 *) = UcSetupPack(req_type, request, value, index, len);
+	if (len && !(req_type & LEGACY_USB_DIR_IN) && buf)
+		MemCopy(data_buf, buf, len);
+
+	idx = 0;
+	data_idx = 1;
+	next_phys = UhciTdPhys(ctlr, data_idx) | LEGACY_UHCI_LINK_DEPTH;
+	UhciTdInit(ctlr, idx, next_phys, LEGACY_UHCI_PID_SETUP, addr, 0, 0, 8, setup_buf, low, FALSE);
+
+	idx = data_idx;
+	off = 0;
+	toggle = 1;
+	if (req_type & LEGACY_USB_DIR_IN)
+		data_pid = LEGACY_UHCI_PID_IN;
+	else
+		data_pid = LEGACY_UHCI_PID_OUT;
+	while (off < len)
+	{
+		if (idx >= LEGACY_UHCI_TD_MAX - 1)
+		{
+			UhciQhStop(ctlr);
+			legacy_usb.uhci_debug_code = 0x101;
+			return FALSE;
+		}
+		chunk = len - off;
+		if (chunk > mps)
+			chunk = mps;
+		next_phys = UhciTdPhys(ctlr, idx + 1) | LEGACY_UHCI_LINK_DEPTH;
+		UhciTdInit(ctlr, idx, next_phys, data_pid, addr, 0, toggle, chunk, data_buf + off, low, TRUE);
+		off += chunk;
+		toggle = !toggle;
+		idx++;
+	}
+
+	status_idx = idx;
+	if (len && (req_type & LEGACY_USB_DIR_IN))
+		status_pid = LEGACY_UHCI_PID_OUT;
+	else
+		status_pid = LEGACY_UHCI_PID_IN;
+	UhciTdInit(ctlr, status_idx, LEGACY_UHCI_LINK_T, status_pid, addr, 0, 1, 0, NULL, low, FALSE);
+
+	UhciQhArm(ctlr, UhciTdPhys(ctlr, 0));
+	ok = UhciWaitTd(ctlr, status_idx, timeout_ms);
+	UhciQhStop(ctlr);
+	if (!ok)
+		return FALSE;
+
+	idx = 0;
+	while (idx <= status_idx)
+	{
+		if (!UhciTdOk(ctlr, idx))
+			return FALSE;
+		idx++;
+	}
+
+	if (len && (req_type & LEGACY_USB_DIR_IN) && buf)
+		MemCopy(buf, data_buf, len);
+	return TRUE;
+}
+
+Bool UhciIntrIn(I64 ctlr, I64 addr, I64 ep, I64 max_pkt, Bool low, I64 toggle, U8 *buf, I64 timeout_ms, I64 *actual_out, U32 *sts_out)
+{
+	U32 *td;
+	U32 sts;
+	Bool done;
+
+	if (!max_pkt)
+		max_pkt = 8;
+	if (max_pkt > 64)
+		max_pkt = 64;
+	MemSet(buf, 0, max_pkt);
+	UhciTdInit(ctlr, 0, LEGACY_UHCI_LINK_T, LEGACY_UHCI_PID_IN, addr, ep, toggle, max_pkt, buf, low, TRUE);
+	UhciQhArm(ctlr, UhciTdPhys(ctlr, 0));
+	done = UhciWaitTd(ctlr, 0, timeout_ms);
+	td = UhciTdPtr(ctlr, 0)(U32 *);
+	sts = td[1];
+	UhciQhStop(ctlr);
+	td[1] = 0;
+	if (sts_out)
+		*sts_out = sts;
+	if (actual_out)
+		*actual_out = 0;
+	if (!done)
+		return FALSE;
+	if (sts & LEGACY_UHCI_TD_ERR_MASK)
+		return FALSE;
+	if (actual_out)
+		*actual_out = UhciActualLen(sts);
+	return TRUE;
+}
+
+Bool UhciGetDesc(I64 ctlr, I64 addr, I64 mps, Bool low, U8 desc_type, U8 desc_index, I64 len, U8 *buf)
+{
+	return UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_IN | LEGACY_USB_TYPE_STANDARD | LEGACY_USB_RECIP_DEVICE,
+		LEGACY_USB_REQ_GET_DESCRIPTOR, desc_type << 8 | desc_index, 0, len, buf, 2000);
+}
+
+Bool UhciGetIfaceDesc(I64 ctlr, I64 addr, I64 mps, Bool low, U8 desc_type, U8 desc_index, I64 iface, I64 len, U8 *buf)
+{
+	return UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_IN | LEGACY_USB_TYPE_STANDARD | LEGACY_USB_RECIP_INTERFACE,
+		LEGACY_USB_REQ_GET_DESCRIPTOR, desc_type << 8 | desc_index, iface, len, buf, 2000);
+}
+
+Bool UhciSetAddress(I64 ctlr, I64 addr, Bool low)
+{
+	return UhciCtrlXfer(ctlr, 0, 8, low, LEGACY_USB_DIR_OUT | LEGACY_USB_TYPE_STANDARD | LEGACY_USB_RECIP_DEVICE,
+		LEGACY_USB_REQ_SET_ADDRESS, addr, 0, 0, NULL, 2000);
+}
+
+Bool UhciSetCfg(I64 ctlr, I64 addr, I64 mps, Bool low, I64 cfg)
+{
+	return UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_OUT | LEGACY_USB_TYPE_STANDARD | LEGACY_USB_RECIP_DEVICE,
+		LEGACY_USB_REQ_SET_CONFIGURATION, cfg, 0, 0, NULL, 2000);
+}
+
+Bool UhciProto(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 proto)
+{
+	return UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_OUT | LEGACY_USB_TYPE_CLASS | LEGACY_USB_RECIP_INTERFACE,
+		LEGACY_USB_REQ_SET_PROTOCOL, proto, iface, 0, NULL, 2000);
+}
+
+Bool UhciIdle(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface)
+{
+	return UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_OUT | LEGACY_USB_TYPE_CLASS | LEGACY_USB_RECIP_INTERFACE,
+		LEGACY_USB_REQ_SET_IDLE, 0, iface, 0, NULL, 2000);
+}
+
+I64 UhciHidRptKind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 rpt_len)
+{
+	U8 *buf;
+
+	if (rpt_len <= 0)
+		return LEGACY_UHID_KIND_NONE;
+	if (rpt_len > 512)
+		rpt_len = 512;
+	buf = legacy_usb.ctrl_buf + LEGACY_udma_hid_rpt;
+	MemSet(buf, 0, rpt_len);
+	if (!UhciGetIfaceDesc(ctlr, addr, mps, low, LEGACY_USB_DESC_REPORT, 0, iface, rpt_len, buf))
+		return LEGACY_UHID_KIND_NONE;
+	return HidRptKind(buf, rpt_len);
+}
+
+Bool UhciHidBind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 ep_addr, I64 max_pkt, Bool is_kbd, Bool is_boot)
+{
+	Bool want_abs;
+
+	if (!max_pkt)
+		max_pkt = 8;
+	max_pkt &= 0x7FF;
+	if (max_pkt > 64)
+		max_pkt = 64;
+
+	if (is_kbd)
+	{
+		if (sys_usb_input_active & LEGACY_USB_INPUT_KBD)
+			return FALSE;
+		if (is_boot)
+		{
+			UhciIdle(ctlr, addr, mps, low, iface);
+			UhciProto(ctlr, addr, mps, low, iface, 0);
+			UhciIdle(ctlr, addr, mps, low, iface);
+		}
+		legacy_usb.uhci_kbd_ctlr = ctlr;
+		legacy_usb.uhci_kbd_addr = addr;
+		legacy_usb.uhci_kbd_ep = ep_addr & 0xF;
+		legacy_usb.uhci_kbd_iface = iface;
+		legacy_usb.uhci_kbd_mps = mps;
+		legacy_usb.uhci_kbd_max_pkt = max_pkt;
+		legacy_usb.uhci_kbd_toggle = 0;
+		legacy_usb.uhci_kbd_low = low;
+		legacy_usb.uhci_kbd_qh = UhciAlloc(LEGACY_UHCI_QH_SIZE, 16, &legacy_usb.uhci_kbd_qh_phys);
+		legacy_usb.uhci_kbd_td = UhciAlloc(LEGACY_UHCI_TD_SIZE, 16, &legacy_usb.uhci_kbd_td_phys);
+		if (!legacy_usb.uhci_kbd_qh || !legacy_usb.uhci_kbd_td)
+		{
+			legacy_usb.uhci_debug_code = 0xA401;
+			return FALSE;
+		}
+		legacy_usb.uhci_kbd_pending = FALSE;
+		sys_usb_input_active |= LEGACY_USB_INPUT_KBD;
+		return TRUE;
+	}
+
+	want_abs = !is_boot && max_pkt >= 5;
+	if (want_abs)
+	{
+		// UTM legacy_usb-tablet: absolute pointer for uncaptured (host) mode.
+		if (legacy_usb.uhci_tab_addr)
+			return FALSE;
+		if (is_boot)
+			UhciProto(ctlr, addr, mps, low, iface, 0);
+		legacy_usb.uhci_tab_ctlr = ctlr;
+		legacy_usb.uhci_tab_addr = addr;
+		legacy_usb.uhci_tab_ep = ep_addr & 0xF;
+		legacy_usb.uhci_tab_iface = iface;
+		legacy_usb.uhci_tab_mps = mps;
+		legacy_usb.uhci_tab_max_pkt = max_pkt;
+		legacy_usb.uhci_tab_low = low;
+		legacy_usb.uhci_tab_last_poll = 0;
+		if (!legacy_usb.uhci_ms_addr)
+			legacy_usb.ms_abs = TRUE;
+		sys_usb_input_active |= LEGACY_USB_INPUT_MOUSE;
+		return TRUE;
+	}
+	if (legacy_usb.uhci_ms_addr)
+		return FALSE;
+	legacy_usb.ms_abs = FALSE;
+	legacy_usb.ms_abs_seen = FALSE;
+	if (is_boot)
+		UhciProto(ctlr, addr, mps, low, iface, 0);
+	legacy_usb.uhci_ms_ctlr = ctlr;
+	legacy_usb.uhci_ms_addr = addr;
+	legacy_usb.uhci_ms_ep = ep_addr & 0xF;
+	legacy_usb.uhci_ms_iface = iface;
+	legacy_usb.uhci_ms_mps = mps;
+	legacy_usb.uhci_ms_max_pkt = max_pkt;
+	legacy_usb.uhci_ms_toggle = 0;
+	legacy_usb.uhci_ms_low = low;
+	legacy_usb.uhci_ms_qh = UhciAlloc(LEGACY_UHCI_QH_SIZE, 16, &legacy_usb.uhci_ms_qh_phys);
+	legacy_usb.uhci_ms_td = UhciAlloc(LEGACY_UHCI_TD_SIZE, 16, &legacy_usb.uhci_ms_td_phys);
+	if (!legacy_usb.uhci_ms_qh || !legacy_usb.uhci_ms_td)
+	{
+		legacy_usb.uhci_debug_code = 0xA402;
+		return FALSE;
+	}
+	legacy_usb.uhci_ms_pending = FALSE;
+	sys_usb_input_active |= LEGACY_USB_INPUT_MOUSE;
+	return TRUE;
+}
+
+U0 UhciCfgParse(I64 ctlr, I64 addr, I64 mps, Bool low, U8 *cfg, I64 len)
+{
+	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, x;
+	I64 cls = 0, sub = 0, desc_len, rpt_len = 0, rpt_kind = LEGACY_UHID_KIND_NONE;
+	Bool try_kbd, try_mouse, boot_iface;
+
+	while (i < len)
+	{
+		desc_len = cfg[i];
+		if (!desc_len)
+			break;
+		if (i + desc_len > len)
+			break;
+		switch (cfg[i + 1])
+		{
+			case 4:
+				iface = cfg[i + 2];
+				cls = cfg[i + 5];
+				sub = cfg[i + 6];
+				proto = cfg[i + 7];
+				rpt_len = 0;
+				rpt_kind = LEGACY_UHID_KIND_NONE;
+				break;
+
+			case LEGACY_USB_DESC_HID:
+				if (desc_len >= 9)
+				{
+					if (cfg[i + 6] == LEGACY_USB_DESC_REPORT)
+					{
+						rpt_len = cfg[i + 8] << 8;
+						rpt_len |= cfg[i + 7];
+					}
+				}
+				break;
+
+			case 5:
+				if (iface < 0 || cls != LEGACY_USB_CLASS_HID)
+					break;
+				ep_addr = cfg[i + 2];
+				x = cfg[i + 3] & 3;
+				if (x != 3 || !(ep_addr & 0x80))
+					break;
+				max_pkt = cfg[i + 5] << 8;
+				max_pkt |= cfg[i + 4];
+				boot_iface = sub == LEGACY_USB_SUBCLASS_BOOT;
+				try_kbd = FALSE;
+				try_mouse = FALSE;
+				if (proto == LEGACY_USB_PROTO_KBD)
+					try_kbd = TRUE;
+				else if (proto == LEGACY_USB_PROTO_MOUSE)
+					try_mouse = TRUE;
+				else
+				{
+					if (rpt_len && rpt_kind == LEGACY_UHID_KIND_NONE)
+						rpt_kind = UhciHidRptKind(ctlr, addr, mps, low, iface, rpt_len);
+					if (rpt_kind == LEGACY_UHID_KIND_KBD)
+						try_kbd = TRUE;
+					else if (rpt_kind == LEGACY_UHID_KIND_MOUSE)
+						try_mouse = TRUE;
+				}
+				if (!try_kbd && !try_mouse && !sub && !proto && max_pkt >= 4 && max_pkt <= 16)
+					try_mouse = TRUE;
+				if (!try_kbd && !try_mouse && max_pkt >= 4)
+					try_mouse = TRUE;
+				if (try_kbd)
+					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, TRUE, boot_iface);
+				else if (try_mouse)
+					UhciHidBind(ctlr, addr, mps, low, iface, ep_addr, max_pkt, FALSE, boot_iface);
+				break;
+		}
+		i += desc_len;
+	}
+}
+
+U0 UhciDevEnum(I64 ctlr, I64 port, Bool low)
+{
+	U8 *buf;
+	I64 addr, len, mps;
+
+	buf = legacy_usb.ctrl_buf + 1024;
+	addr = legacy_usb.uhci_next_addr;
+	legacy_usb.uhci_next_addr++;
+	mps = 8;
+	MemSet(buf, 0, 18);
+	if (!UhciGetDesc(ctlr, 0, mps, low, LEGACY_USB_DESC_DEVICE, 0, 8, buf))
+	{
+		usb_debug_stage = 321;
+		return;
+	}
+	if (buf[7])
+		mps = buf[7];
+	if (mps > 64)
+		mps = 64;
+	if (!UhciSetAddress(ctlr, addr, low))
+	{
+		usb_debug_stage = 322;
+		return;
+	}
+	Sleep(20);
+	MemSet(buf, 0, 18);
+	UhciGetDesc(ctlr, addr, mps, low, LEGACY_USB_DESC_DEVICE, 0, 18, buf);
+	MemSet(buf, 0, 9);
+	if (!UhciGetDesc(ctlr, addr, mps, low, LEGACY_USB_DESC_CONFIG, 0, 9, buf))
+	{
+		usb_debug_stage = 323;
+		return;
+	}
+	len = buf[3] << 8;
+	len |= buf[2];
+	usb_debug_cfg_len = len;
+	if (len < 9 || len > 1024)
+	{
+		usb_debug_stage = 324;
+		return;
+	}
+	MemSet(buf, 0, len);
+	if (!UhciGetDesc(ctlr, addr, mps, low, LEGACY_USB_DESC_CONFIG, 0, len, buf))
+	{
+		usb_debug_stage = 323;
+		return;
+	}
+	if (!UhciSetCfg(ctlr, addr, mps, low, buf[5]))
+	{
+		usb_debug_stage = 325;
+		return;
+	}
+	legacy_usb.uhci_dev_port = port + 1;
+	UhciCfgParse(ctlr, addr, mps, low, buf, len);
+}
+
+Bool UhciPortReset(I64 ctlr, I64 port)
+{
+	U16 ps;
+
+	ps = UhciPortRead(ctlr, port);
+	legacy_usb.uhci_debug_ctlr = ctlr;
+	legacy_usb.uhci_debug_port = port;
+	legacy_usb.uhci_debug_portsc = ps;
+	if (!(ps & LEGACY_UHCI_PORT_CCS))
+		return FALSE;
+	UhciPortWrite(ctlr, port, ps | LEGACY_UHCI_PORT_RESET);
+	Sleep(50);
+	ps = UhciPortRead(ctlr, port);
+	UhciPortWrite(ctlr, port, ps & ~LEGACY_UHCI_PORT_RESET);
+	Sleep(20);
+	ps = UhciPortRead(ctlr, port);
+	UhciPortWrite(ctlr, port, ps | LEGACY_UHCI_PORT_PE);
+	Sleep(50);
+	ps = UhciPortRead(ctlr, port);
+	legacy_usb.uhci_debug_portsc = ps;
+	if (!(ps & LEGACY_UHCI_PORT_CCS))
+		return FALSE;
+	if (!(ps & LEGACY_UHCI_PORT_PE))
+		return FALSE;
+	if (ps & LEGACY_UHCI_PORT_LSDA)
+		legacy_usb.uhci_dev_low = TRUE;
+	else
+		legacy_usb.uhci_dev_low = FALSE;
+	return TRUE;
+}
+
+U0 UhciPortsScan(I64 ctlr)
+{
+	I64 port;
+	Bool low;
+
+	for (port = 0; port < 2; port++)
+	{
+		if (UhciPortReset(ctlr, port))
+		{
+			low = legacy_usb.uhci_dev_low;
+			UhciDevEnum(ctlr, port, low);
+		}
+	}
+}
+
+Bool UhciResetRun(I64 ctlr)
+{
+	I64 i;
+	U32 *frames;
+
+	UhciOut16(ctlr, LEGACY_UHCI_REG_USBCMD, 0);
+	for (i = 0; i < 1000; i++)
+	{
+		if (UhciIn16(ctlr, LEGACY_UHCI_REG_USBSTS) & LEGACY_UHCI_STS_HALTED)
+			break;
+		Sleep(1);
+	}
+	UhciOut16(ctlr, LEGACY_UHCI_REG_USBCMD, LEGACY_UHCI_CMD_HCRESET);
+	for (i = 0; i < 1000; i++)
+	{
+		if (!(UhciIn16(ctlr, LEGACY_UHCI_REG_USBCMD) & LEGACY_UHCI_CMD_HCRESET))
+			break;
+		Sleep(1);
+	}
+	if (UhciIn16(ctlr, LEGACY_UHCI_REG_USBCMD) & LEGACY_UHCI_CMD_HCRESET)
+		return FALSE;
+	UhciOut16(ctlr, LEGACY_UHCI_REG_USBSTS, LEGACY_UHCI_STS_CLEAR);
+	UhciOut16(ctlr, LEGACY_UHCI_REG_USBINTR, 0);
+	UhciOut16(ctlr, LEGACY_UHCI_REG_FRNUM, 0);
+	UhciOut32(ctlr, LEGACY_UHCI_REG_FLBASEADD, legacy_usb.uhci_frame_phys[ctlr]);
+	UhciOut8(ctlr, LEGACY_UHCI_REG_SOFMOD, 64);
+	frames = legacy_usb.uhci_frame[ctlr](U32 *);
+	for (i = 0; i < 1024; i++)
+		frames[i] = legacy_usb.uhci_qh_phys[ctlr] | LEGACY_UHCI_LINK_QH;
+	UhciQhStop(ctlr);
+	UhciOut16(ctlr, LEGACY_UHCI_REG_USBCMD, LEGACY_UHCI_CMD_RUN | LEGACY_UHCI_CMD_CF | LEGACY_UHCI_CMD_MAXP);
+	Sleep(20);
+	return !(UhciIn16(ctlr, LEGACY_UHCI_REG_USBSTS) & LEGACY_UHCI_STS_HALTED);
+}
+
+I64 UhciIoBar(I64 bdf)
+{
+	I64 bar, bar_reg, n;
+
+	bar = PCIReadU32(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_BASE4);
+	if (bar & 1)
+		return bar & ~0x1F;
+	for (n = 0; n < 6; n++)
+	{
+		bar_reg = PCIR_BASE0 + n * 4;
+		bar = PCIReadU32(bdf.u8[2], bdf.u8[1], bdf.u8[0], bar_reg);
+		if (bar & 1)
+			return bar & ~0x1F;
+	}
+	return 0;
+}
+
+Bool UhciControllerInitBdf(I64 bdf)
+{
+	I64 ctlr, io, cmd;
+
+	if (bdf == -1)
+		return FALSE;
+	ctlr = legacy_usb.uhci_ctlr_count;
+	if (ctlr >= LEGACY_UHCI_MAX_CTLRS)
+		return FALSE;
+	io = UhciIoBar(bdf);
+	if (!io)
+	{
+		legacy_usb.uhci_debug_code = 0xA101;
+		return FALSE;
+	}
+	cmd = PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_COMMAND);
+	PCIWriteU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_COMMAND, cmd | 5);
+
+	legacy_usb.uhci_bdfs[ctlr] = bdf;
+	legacy_usb.uhci_ios[ctlr] = io;
+	legacy_usb.uhci_cur_ctlr = ctlr;
+	if (!legacy_usb.ctrl_buf)
+		legacy_usb.ctrl_buf = UhciAlloc(LEGACY_USB_CTRL_BUF_SIZE, 4096, &legacy_usb.ctrl_buf_phys);
+	legacy_usb.uhci_frame[ctlr] = UhciAlloc(4096, 4096, &legacy_usb.uhci_frame_phys[ctlr]);
+	legacy_usb.uhci_qh[ctlr] = UhciAlloc(LEGACY_UHCI_QH_SIZE, 16, &legacy_usb.uhci_qh_phys[ctlr]);
+	legacy_usb.uhci_td[ctlr] = UhciAlloc(LEGACY_UHCI_TD_SIZE * LEGACY_UHCI_TD_MAX, 16, &legacy_usb.uhci_td_phys[ctlr]);
+	if (!legacy_usb.ctrl_buf || !legacy_usb.uhci_frame[ctlr] || !legacy_usb.uhci_qh[ctlr] || !legacy_usb.uhci_td[ctlr])
+	{
+		legacy_usb.uhci_debug_code = 0xA102;
+		return FALSE;
+	}
+	if (!UhciResetRun(ctlr))
+	{
+		legacy_usb.uhci_debug_code = 0xA103;
+		return FALSE;
+	}
+	legacy_usb.uhci_ctlr_count++;
+	legacy_usb.uhci_active = TRUE;
+	legacy_usb.active = TRUE;
+	UhciPortsScan(ctlr);
+	return TRUE;
+}
+
+I64 UhciFind(I64 n)
+{
+	I64 class_code;
+
+	class_code = PCIC_SERIAL << 16;
+	class_code |= PCISC_USB << 8;
+	class_code |= PCIP_USB_UHCI;
+	return PCIClassFind(class_code, n);
+}
+
+U0 UhciScheduleControlOnly()
+{
+	I64 ctlr, i;
+	U32 *frames;
+
+	for (ctlr = 0; ctlr < legacy_usb.uhci_ctlr_count; ctlr++)
+	{
+		frames = legacy_usb.uhci_frame[ctlr](U32 *);
+		for (i = 0; i < 1024; i++)
+			frames[i] = legacy_usb.uhci_qh_phys[ctlr] | LEGACY_UHCI_LINK_QH;
+	}
+}
+
+U0 UhciFinalizeInput()
+{
+	I64 sc;
+	U8 b;
+
+	if (sys_usb_input_active & LEGACY_USB_INPUT_KBD)
+	{
+		OutU8(PIC_1_DATA, InU8(PIC_1_DATA) | 2);
+		while (FifoI64Count(kbd.scan_code_fifo))
+			FifoI64Remove(kbd.scan_code_fifo, &sc);
+		while (FifoU8Count(kbd.fifo2))
+			FifoU8Remove(kbd.fifo2, &b);
+	}
+	if (sys_usb_input_active & LEGACY_USB_INPUT_MOUSE)
+	{
+		mouse_hard.installed = TRUE;
+		mouse_hard.pkt_size = 4;
+		mouse_hard.has_wheel = legacy_usb.uhci_ms_addr != 0;
+		mouse_hard.enabled = TRUE;
+		mouse_hard.irqs_working = FALSE;
+		mouse_hard.install_attempts = 1;
+		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
+		while (FifoU8Count(mouse_hard.fifo2))
+			FifoU8Remove(mouse_hard.fifo2, &b);
+		legacy_usb.ms_use_tab = legacy_usb.uhci_tab_addr != 0;
+		legacy_usb.ms_rel_idle = 0;
+	}
+	if (sys_usb_input_active)
+	{
+		legacy_usb.uhci_ctrl_poll = TRUE;
+		legacy_usb.uhci_debug_code = 0xA501;
+		UhciScheduleControlOnly;
+	}
+}
+
+U0 UhciIntrScheduleCtlr(I64 ctlr)
+{
+	I64 i;
+	U32 *frames;
+	U32 *kbd_q, *ms_q;
+	U64 first, tail;
+
+	frames = legacy_usb.uhci_frame[ctlr](U32 *);
+	first = 0;
+	tail = legacy_usb.uhci_qh_phys[ctlr] | LEGACY_UHCI_LINK_QH;
+	if (legacy_usb.uhci_kbd_qh && legacy_usb.uhci_kbd_ctlr == ctlr)
+		first = legacy_usb.uhci_kbd_qh_phys | LEGACY_UHCI_LINK_QH;
+	else if (legacy_usb.uhci_ms_qh && legacy_usb.uhci_ms_ctlr == ctlr)
+		first = legacy_usb.uhci_ms_qh_phys | LEGACY_UHCI_LINK_QH;
+	else
+		first = tail;
+
+	for (i = 0; i < 1024; i++)
+		frames[i] = first;
+
+	if (legacy_usb.uhci_kbd_qh && legacy_usb.uhci_kbd_ctlr == ctlr)
+	{
+		kbd_q = legacy_usb.uhci_kbd_qh(U32 *);
+		if (legacy_usb.uhci_ms_qh && legacy_usb.uhci_ms_ctlr == ctlr)
+			kbd_q[0] = legacy_usb.uhci_ms_qh_phys | LEGACY_UHCI_LINK_QH;
+		else
+			kbd_q[0] = tail;
+		kbd_q[1] = LEGACY_UHCI_LINK_T;
+		kbd_q[2] = 0;
+		kbd_q[3] = 0;
+	}
+	if (legacy_usb.uhci_ms_qh && legacy_usb.uhci_ms_ctlr == ctlr)
+	{
+		ms_q = legacy_usb.uhci_ms_qh(U32 *);
+		ms_q[0] = tail;
+		ms_q[1] = LEGACY_UHCI_LINK_T;
+		ms_q[2] = 0;
+		ms_q[3] = 0;
+	}
+}
+
+U0 UhciIntrScheduleLink()
+{
+	I64 ctlr;
+
+	for (ctlr = 0; ctlr < legacy_usb.uhci_ctlr_count; ctlr++)
+		UhciIntrScheduleCtlr(ctlr);
+}
+
+U0 UhciIntrSubmit(Bool is_kbd)
+{
+	I64 ctlr, addr, ep, max_pkt, toggle;
+	Bool low;
+	U8 *buf, *qh, *td;
+	U64 td_phys;
+	U32 *q;
+
+	if (is_kbd)
+	{
+		if (!(sys_usb_input_active & LEGACY_USB_INPUT_KBD) || legacy_usb.uhci_kbd_pending || !legacy_usb.uhci_kbd_qh || !legacy_usb.uhci_kbd_td)
+			return;
+		ctlr = legacy_usb.uhci_kbd_ctlr;
+		addr = legacy_usb.uhci_kbd_addr;
+		ep = legacy_usb.uhci_kbd_ep;
+		max_pkt = legacy_usb.uhci_kbd_max_pkt;
+		toggle = legacy_usb.uhci_kbd_toggle;
+		low = legacy_usb.uhci_kbd_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_kbd;
+		qh = legacy_usb.uhci_kbd_qh;
+		td = legacy_usb.uhci_kbd_td;
+		td_phys = legacy_usb.uhci_kbd_td_phys;
+	}
+	else
+	{
+		if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE) || legacy_usb.uhci_ms_pending || !legacy_usb.uhci_ms_qh || !legacy_usb.uhci_ms_td)
+			return;
+		ctlr = legacy_usb.uhci_ms_ctlr;
+		addr = legacy_usb.uhci_ms_addr;
+		ep = legacy_usb.uhci_ms_ep;
+		max_pkt = legacy_usb.uhci_ms_max_pkt;
+		toggle = legacy_usb.uhci_ms_toggle;
+		low = legacy_usb.uhci_ms_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_ms;
+		qh = legacy_usb.uhci_ms_qh;
+		td = legacy_usb.uhci_ms_td;
+		td_phys = legacy_usb.uhci_ms_td_phys;
+	}
+	if (!addr || !buf || !max_pkt)
+		return;
+	if (ctlr < 0 || ctlr >= legacy_usb.uhci_ctlr_count)
+		return;
+	if (max_pkt > 64)
+		max_pkt = 64;
+	MemSet(buf, 0, max_pkt);
+	UhciTdBuild(td, LEGACY_UHCI_LINK_T, LEGACY_UHCI_PID_IN, addr, ep, toggle, max_pkt, buf, low, TRUE);
+	q = qh(U32 *);
+	q[1] = td_phys;
+	if (is_kbd)
+	{
+		legacy_usb.uhci_kbd_pending = TRUE;
+		legacy_usb.uhci_kbd_submit_t = tS;
+	}
+	else
+	{
+		legacy_usb.uhci_ms_pending = TRUE;
+		legacy_usb.uhci_ms_submit_t = tS;
+	}
+}
+
+U0 UhciIntrDone(Bool is_kbd)
+{
+	I64 actual, max_pkt, next_toggle;
+	U8 *buf, *td;
+	U32 sts;
+
+	if (is_kbd)
+	{
+		if (!legacy_usb.uhci_kbd_pending || !legacy_usb.uhci_kbd_td)
+			return;
+		td = legacy_usb.uhci_kbd_td;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_kbd;
+		max_pkt = legacy_usb.uhci_kbd_max_pkt;
+	}
+	else
+	{
+		if (!legacy_usb.uhci_ms_pending || !legacy_usb.uhci_ms_td)
+			return;
+		td = legacy_usb.uhci_ms_td;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_ms;
+		max_pkt = legacy_usb.uhci_ms_max_pkt;
+	}
+	sts = *(td + 4)(U32 *);
+	if (sts & LEGACY_UHCI_TD_ACTIVE)
+		return;
+
+	if (is_kbd)
+	{
+		legacy_usb.uhci_kbd_pending = FALSE;
+		legacy_usb.uhci_kbd_last_sts = sts;
+		legacy_usb.uhci_kbd_done_count++;
+	}
+	else
+	{
+		legacy_usb.uhci_ms_pending = FALSE;
+		legacy_usb.uhci_ms_last_sts = sts;
+		legacy_usb.uhci_ms_done_count++;
+	}
+
+	if (sts & LEGACY_UHCI_TD_ERR_MASK)
+	{
+		if (is_kbd)
+			legacy_usb.uhci_kbd_err_count++;
+		else
+			legacy_usb.uhci_ms_err_count++;
+		UhciIntrSubmit(is_kbd);
+		return;
+	}
+
+	actual = UhciActualLen(sts);
+	if (actual > max_pkt)
+		actual = max_pkt;
+	if (is_kbd)
+	{
+		next_toggle = legacy_usb.uhci_kbd_toggle;
+		legacy_usb.uhci_kbd_toggle = !next_toggle;
+		if (actual)
+			XhkRptHandle(buf, actual);
+	}
+	else
+	{
+		next_toggle = legacy_usb.uhci_ms_toggle;
+		legacy_usb.uhci_ms_toggle = !next_toggle;
+		if (actual)
+			XhmRptHandle(buf, actual);
+	}
+	UhciIntrSubmit(is_kbd);
+}
+
+U0 UhciIntrCancel(Bool is_kbd)
+{
+	U32 *q;
+
+	if (is_kbd)
+	{
+		if (legacy_usb.uhci_kbd_qh)
+		{
+			q = legacy_usb.uhci_kbd_qh(U32 *);
+			q[1] = LEGACY_UHCI_LINK_T;
+		}
+		if (legacy_usb.uhci_kbd_td)
+			legacy_usb.uhci_kbd_last_sts = *(legacy_usb.uhci_kbd_td + 4)(U32 *);
+		legacy_usb.uhci_kbd_pending = FALSE;
+	}
+	else
+	{
+		if (legacy_usb.uhci_ms_qh)
+		{
+			q = legacy_usb.uhci_ms_qh(U32 *);
+			q[1] = LEGACY_UHCI_LINK_T;
+		}
+		if (legacy_usb.uhci_ms_td)
+			legacy_usb.uhci_ms_last_sts = *(legacy_usb.uhci_ms_td + 4)(U32 *);
+		legacy_usb.uhci_ms_pending = FALSE;
+	}
+}
+
+U0 UhciIntrWatchdog(Bool is_kbd)
+{
+	F64 submit_t;
+	Bool pending;
+	U8 *td;
+
+	if (is_kbd)
+	{
+		pending = legacy_usb.uhci_kbd_pending;
+		submit_t = legacy_usb.uhci_kbd_submit_t;
+		td = legacy_usb.uhci_kbd_td;
+	}
+	else
+	{
+		pending = legacy_usb.uhci_ms_pending;
+		submit_t = legacy_usb.uhci_ms_submit_t;
+		td = legacy_usb.uhci_ms_td;
+	}
+	if (!pending || !td)
+		return;
+	if (!(*(td + 4)(U32 *) & LEGACY_UHCI_TD_ACTIVE))
+		return;
+	if (tS - submit_t < 0.5)
+		return;
+	UhciIntrCancel(is_kbd);
+	legacy_usb.uhci_ctrl_poll = TRUE;
+	legacy_usb.uhci_debug_code = 0xA500;
+	UhciScheduleControlOnly;
+}
+
+U0 UhciMsCtrlPoll(Bool is_tab)
+{
+	I64 ctlr, addr, iface, max_pkt, mps, actual;
+	Bool low;
+	U8 *buf;
+	F64 *last_poll;
+
+	if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE))
+		return;
+	if (is_tab)
+	{
+		ctlr = legacy_usb.uhci_tab_ctlr;
+		addr = legacy_usb.uhci_tab_addr;
+		iface = legacy_usb.uhci_tab_iface;
+		max_pkt = legacy_usb.uhci_tab_max_pkt;
+		mps = legacy_usb.uhci_tab_mps;
+		low = legacy_usb.uhci_tab_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_tab;
+		last_poll = &legacy_usb.uhci_tab_last_poll;
+	}
+	else
+	{
+		ctlr = legacy_usb.uhci_ms_ctlr;
+		addr = legacy_usb.uhci_ms_addr;
+		iface = legacy_usb.uhci_ms_iface;
+		max_pkt = legacy_usb.uhci_ms_max_pkt;
+		mps = legacy_usb.uhci_ms_mps;
+		low = legacy_usb.uhci_ms_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_ms;
+		last_poll = &legacy_usb.uhci_ms_last_poll;
+	}
+	if (!addr || !buf || !max_pkt)
+		return;
+	if (ctlr < 0 || ctlr >= legacy_usb.uhci_ctlr_count)
+		return;
+	if (tS - *last_poll < 0.02)
+		return;
+	*last_poll = tS;
+	if (max_pkt > 64)
+		max_pkt = 64;
+	MemSet(buf, 0, max_pkt);
+	if (!UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_IN | LEGACY_USB_TYPE_CLASS | LEGACY_USB_RECIP_INTERFACE,
+			LEGACY_USB_REQ_GET_REPORT, 1 << 8, iface, max_pkt, buf, 10))
+	{
+		if (is_tab)
+			return;
+		legacy_usb.uhci_ms_err_count++;
+		return;
+	}
+	legacy_usb.uhci_ctrl_poll_count++;
+	actual = max_pkt;
+	legacy_usb.uhci_ms_last_sts = 0xC700;
+	legacy_usb.uhci_ms_done_count++;
+	XhmRptHandleMode(buf, actual, is_tab);
+}
+
+U0 UhciHidCtrlPoll(Bool is_kbd)
+{
+	I64 ctlr, addr, iface, max_pkt, mps, actual;
+	Bool low;
+	U8 *buf;
+	F64 *last_poll;
+
+	if (is_kbd)
+	{
+		if (!(sys_usb_input_active & LEGACY_USB_INPUT_KBD))
+			return;
+		ctlr = legacy_usb.uhci_kbd_ctlr;
+		addr = legacy_usb.uhci_kbd_addr;
+		iface = legacy_usb.uhci_kbd_iface;
+		max_pkt = legacy_usb.uhci_kbd_max_pkt;
+		mps = legacy_usb.uhci_kbd_mps;
+		low = legacy_usb.uhci_kbd_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_kbd;
+		last_poll = &legacy_usb.uhci_kbd_last_poll;
+	}
+	else
+		return;
+	if (!addr || !buf || !max_pkt)
+		return;
+	if (ctlr < 0 || ctlr >= legacy_usb.uhci_ctlr_count)
+		return;
+	if (tS - *last_poll < 0.02)
+		return;
+	*last_poll = tS;
+	if (max_pkt > 64)
+		max_pkt = 64;
+	MemSet(buf, 0, max_pkt);
+	if (!UhciCtrlXfer(ctlr, addr, mps, low, LEGACY_USB_DIR_IN | LEGACY_USB_TYPE_CLASS | LEGACY_USB_RECIP_INTERFACE,
+			LEGACY_USB_REQ_GET_REPORT, 1 << 8, iface, max_pkt, buf, 10))
+	{
+		if (is_kbd)
+			legacy_usb.uhci_kbd_err_count++;
+		else
+			legacy_usb.uhci_ms_err_count++;
+		return;
+	}
+	legacy_usb.uhci_ctrl_poll_count++;
+	actual = max_pkt;
+	if (is_kbd)
+	{
+		legacy_usb.uhci_kbd_last_sts = 0xC700;
+		legacy_usb.uhci_kbd_done_count++;
+		XhkRptHandle(buf, actual);
+	}
+}
+
+public U0 UhciCoreInit()
+{
+	I64 bdf, n;
+
+	sys_usb_input_active = 0;
+	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
+	usb_debug_stage = 315;
+	legacy_usb.uhci_debug_code = 0xA000;
+	legacy_usb.uhci_next_addr = 1;
+	for (n = 0; n < LEGACY_UHCI_MAX_CTLRS; n++)
+	{
+		bdf = UhciFind(n);
+		if (bdf == -1)
+		{
+			if (!n)
+				legacy_usb.uhci_debug_code = 0xA001;
+			break;
+		}
+		UhciControllerInitBdf(bdf);
+		if (sys_usb_input_active == (LEGACY_USB_INPUT_KBD | LEGACY_USB_INPUT_MOUSE))
+			break;
+	}
+	if (sys_usb_input_active)
+	{
+		usb_debug_stage = 330;
+		UhciFinalizeInput;
+	}
+}
+
+Bool UhciHidPoll(Bool is_kbd)
+{
+	I64 ctlr, addr, ep, max_pkt, actual, toggle, next_toggle, low;
+	U8 *buf;
+	U32 sts;
+	F64 *last_poll;
+
+	if (is_kbd)
+	{
+		if (!(sys_usb_input_active & LEGACY_USB_INPUT_KBD))
+			return FALSE;
+		ctlr = legacy_usb.uhci_kbd_ctlr;
+		addr = legacy_usb.uhci_kbd_addr;
+		ep = legacy_usb.uhci_kbd_ep;
+		max_pkt = legacy_usb.uhci_kbd_max_pkt;
+		toggle = legacy_usb.uhci_kbd_toggle;
+		low = legacy_usb.uhci_kbd_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_kbd;
+		last_poll = &legacy_usb.uhci_kbd_last_poll;
+	}
+	else
+	{
+		if (!(sys_usb_input_active & LEGACY_USB_INPUT_MOUSE))
+			return FALSE;
+		ctlr = legacy_usb.uhci_ms_ctlr;
+		addr = legacy_usb.uhci_ms_addr;
+		ep = legacy_usb.uhci_ms_ep;
+		max_pkt = legacy_usb.uhci_ms_max_pkt;
+		toggle = legacy_usb.uhci_ms_toggle;
+		low = legacy_usb.uhci_ms_low;
+		buf = legacy_usb.ctrl_buf + LEGACY_udma_ms;
+		last_poll = &legacy_usb.uhci_ms_last_poll;
+	}
+	if (!addr || !buf || !max_pkt)
+		return FALSE;
+	if (ctlr < 0 || ctlr >= legacy_usb.uhci_ctlr_count)
+		return FALSE;
+	if (tS - *last_poll < 0.004)
+		return FALSE;
+	*last_poll = tS;
+	actual = 0;
+	sts = 0;
+	if (!UhciIntrIn(ctlr, addr, ep, max_pkt, low, toggle, buf, 2, &actual, &sts))
+	{
+		if (!(sts & LEGACY_UHCI_TD_ACTIVE))
+		{
+			if (is_kbd)
+				legacy_usb.uhci_kbd_err_count++;
+			else
+				legacy_usb.uhci_ms_err_count++;
+		}
+		if (is_kbd)
+			legacy_usb.uhci_kbd_last_sts = sts;
+		else
+			legacy_usb.uhci_ms_last_sts = sts;
+		return FALSE;
+	}
+
+	if (is_kbd)
+	{
+		legacy_usb.uhci_kbd_last_sts = sts;
+		legacy_usb.uhci_kbd_done_count++;
+		next_toggle = legacy_usb.uhci_kbd_toggle;
+		legacy_usb.uhci_kbd_toggle = !next_toggle;
+		if (actual)
+			XhkRptHandle(buf, actual);
+	}
+	else
+	{
+		legacy_usb.uhci_ms_last_sts = sts;
+		legacy_usb.uhci_ms_done_count++;
+		next_toggle = legacy_usb.uhci_ms_toggle;
+		legacy_usb.uhci_ms_toggle = !next_toggle;
+		if (actual)
+			XhmRptHandle(buf, actual);
+	}
+	return TRUE;
+}
+
+public U0 UhciPollEvt()
+{
+	if (!legacy_usb.uhci_active)
+		return;
+	legacy_usb.uhci_poll_count++;
+	UhciIntrDone(TRUE);
+	UhciIntrDone(FALSE);
+	UhciIntrWatchdog(TRUE);
+	UhciIntrWatchdog(FALSE);
+	if (legacy_usb.uhci_ctrl_poll)
+	{
+		UhciHidCtrlPoll(TRUE);
+		UhciMsCtrlPoll(TRUE);
+		UhciMsCtrlPoll(FALSE);
+	}
+	else
+	{
+		UhciIntrSubmit(TRUE);
+		UhciIntrSubmit(FALSE);
+	}
+}
