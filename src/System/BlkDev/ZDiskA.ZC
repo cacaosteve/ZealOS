@@ -124,6 +124,11 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 	U8 *st;
 	I64 res = 1;
 
+	//Keep the shared-buffer parameter for the installed System API, but call the
+	//public two-argument ABI while AUTO.ISO's older Kernel is compiling this file.
+	//The unified Kernel's wrapper still performs 64 KB transfers.
+	no_warn copy_buf;
+
 	while (tmpde)
 	{
 		st = MAlloc(StrLen(tmpde->full_name) + dst_dir_len + 2);
@@ -135,7 +140,7 @@ I64 CopyTree2(CDirEntry *tmpde, I64 src_dir_len, I64 dst_dir_len, U8 *dst_dir, U
 			res += CopyTree2(tmpde->sub, src_dir_len, dst_dir_len, dst_dir, copy_buf);
 		}
 		else
-			if (CopySingleBuf(tmpde->full_name, st, copy_buf))
+			if (CopySingle(tmpde->full_name, st))
 				res++;
 		Free(st);
 		tmpde = tmpde->next;
