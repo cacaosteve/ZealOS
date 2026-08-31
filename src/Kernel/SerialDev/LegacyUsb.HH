@@ -43,6 +43,14 @@
 #define LEGACY_USB_RECIP_DEVICE	0x00
 #define LEGACY_USB_RECIP_INTERFACE	0x01
 
+//PCI class tuple used only to locate UHCI/EHCI controllers.  YDE's KUsb
+//removed the old global USB class macros when it became the xHCI owner, so
+//keep the frozen compatibility backend's values private as well.
+#define LEGACY_PCIC_SERIAL		0x0C
+#define LEGACY_PCISC_USB		0x03
+#define LEGACY_PCIP_USB_UHCI	0x00
+#define LEGACY_PCIP_USB_EHCI	0x20
+
 // xHCI capability / operational register offsets
 #define LEGACY_XHCI_CAP_CAPLENGTH	0
 #define LEGACY_XHCI_CAP_HCSPARAMS1	0x04

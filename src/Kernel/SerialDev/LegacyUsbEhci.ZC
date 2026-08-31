@@ -1104,9 +1104,9 @@ I64 EhciFindScan(I64 n)
 	I64 b, d, f, cur = 0, class_code, bdf, vendor, device, bus_limit;
 	I64 ehci_class;
 
-	ehci_class = PCIC_SERIAL << 16;
-	ehci_class |= PCISC_USB << 8;
-	ehci_class |= PCIP_USB_EHCI;
+	ehci_class = LEGACY_PCIC_SERIAL << 16;
+	ehci_class |= LEGACY_PCISC_USB << 8;
+	ehci_class |= LEGACY_PCIP_USB_EHCI;
 	bus_limit = sys_pci_buses;
 	if (!bus_limit)
 		bus_limit = 1;
@@ -1138,9 +1138,9 @@ I64 EhciFind(I64 n)
 {
 	I64 class_code, bdf;
 
-	class_code = PCIC_SERIAL << 16;
-	class_code |= PCISC_USB << 8;
-	class_code |= PCIP_USB_EHCI;
+	class_code = LEGACY_PCIC_SERIAL << 16;
+	class_code |= LEGACY_PCISC_USB << 8;
+	class_code |= LEGACY_PCIP_USB_EHCI;
 	bdf = EhciFindScan(n);
 	if (bdf != -1)
 		return bdf;

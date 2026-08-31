@@ -734,9 +734,9 @@ I64 UhciFind(I64 n)
 {
 	I64 class_code;
 
-	class_code = PCIC_SERIAL << 16;
-	class_code |= PCISC_USB << 8;
-	class_code |= PCIP_USB_UHCI;
+	class_code = LEGACY_PCIC_SERIAL << 16;
+	class_code |= LEGACY_PCISC_USB << 8;
+	class_code |= LEGACY_PCIP_USB_UHCI;
 	return PCIClassFind(class_code, n);
 }
 
