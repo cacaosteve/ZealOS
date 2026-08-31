@@ -294,7 +294,10 @@ U0 UsbTaskMain(I64 dummy=0)
 		/* The Mac mini is deliberately single-core until its AP/timer path is
 		   safe.  A 250Hz HID poll is still smoother than USB's traditional
 		   125Hz rate while leaving the desktop and compiler CPU time. */
-		Sleep(usb_macmini2014 ? 4 : 2);
+		if (usb_macmini2014)
+			Sleep(4);
+		else
+			Sleep(2);
 	}
 }
 
