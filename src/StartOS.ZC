@@ -75,20 +75,30 @@ I64 YDEFontHeightCfg()
 	return h;
 }
 
-if (YDEFontHeightCfg == 16)
-	FontSet(&sys_font16);
+I64 yde_font_width = KFONT_WIDTH, yde_font_height = KFONT_HEIGHT;
+
+//AUTO.ISO predates the dynamic-font kernel helpers.  Its build boot has no
+//YDE.CFG and compiles the distro at the normal 8x8 cell size; after the newly
+//built kernel boots, ordinary systems retain the configurable font path.
+if (!yde_boot_is_build)
+{
+	if (YDEFontHeightCfg == 16)
+		FontSet(&sys_font16);
+	yde_font_width = FontW;
+	yde_font_height = FontH;
+}
 
 //Cell size of the selected font, as compile-time constants for every file below.
 //The ";;" runs these during this file's compile: HashPublic needs a compiler
 //context, Fs->last_cc. Kernel code is AOT and calls FontW()/FontH().
 //_SHIFT is log2 of the size, for asm that divides by the cell.
-DefinePrint("FONT_WIDTH", "%d", FontW);;
+DefinePrint("FONT_WIDTH", "%d", yde_font_width);;
 HashPublic("FONT_WIDTH", HTT_DEFINE_STR);;
-DefinePrint("FONT_HEIGHT", "%d", FontH);;
+DefinePrint("FONT_HEIGHT", "%d", yde_font_height);;
 HashPublic("FONT_HEIGHT", HTT_DEFINE_STR);;
-DefinePrint("FONT_WIDTH_SHIFT", "%d", Bsf(FontW));;
+DefinePrint("FONT_WIDTH_SHIFT", "%d", Bsf(yde_font_width));;
 HashPublic("FONT_WIDTH_SHIFT", HTT_DEFINE_STR);;
-DefinePrint("FONT_HEIGHT_SHIFT", "%d", Bsf(FontH));;
+DefinePrint("FONT_HEIGHT_SHIFT", "%d", Bsf(yde_font_height));;
 HashPublic("FONT_HEIGHT_SHIFT", HTT_DEFINE_STR);;
 
 
