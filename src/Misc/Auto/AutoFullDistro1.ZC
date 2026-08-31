@@ -29,6 +29,10 @@ U0 Auto()
 	"Bootstrap compile preflight...\n";
 	MakeAll;
 	"Bootstrap compile preflight complete.\n";
+	//MakeAll above consumes one complete KConfig answer stream.  BootHDIns
+	//compiles again before installing the boot record, so queue the same
+	//answers for that second, intentional compile.
+	In(in_str);
 	BootHDIns;
 	OnceFlush;
 	Free(in_str);
