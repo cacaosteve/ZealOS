@@ -1,4 +1,6 @@
 U0 Auto()
 {
-	PopUp("#include \"/Misc/Auto/AutoFullDistro5\"");
+	CTask *task = User("#include \"/Misc/Auto/AutoFullDistro5\";\n");
+
+	TaskWait(task);
 }
