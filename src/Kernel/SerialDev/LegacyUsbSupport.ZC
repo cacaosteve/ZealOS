@@ -15,6 +15,22 @@ public U0 EhciDebugSave()
 {
 }
 
+U64 UcSetupPack(U8 req_type, U8 request, U16 value, U16 index, U16 len)
+{//USB setup packet shared by the isolated UHCI and EHCI control paths.
+	U64 res = 0;
+	U8 *p = &res;
+
+	p[0] = req_type;
+	p[1] = request;
+	p[2] = value;
+	p[3] = value >> 8;
+	p[4] = index;
+	p[5] = index >> 8;
+	p[6] = len;
+	p[7] = len >> 8;
+	return res;
+}
+
 Bool XhcXferOk(I64 code)
 {
 	return code == LEGACY_XHCI_CC_SUCCESS || code == LEGACY_XHCI_CC_SHORT_PACKET;
