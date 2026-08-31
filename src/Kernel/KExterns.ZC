@@ -108,6 +108,14 @@ extern U0 Message(I64 message_code, I64 arg1, I64 arg2, I64 flags=0);
 
 extern U0 Panic(U8 *message=NULL, I64 message_num=0, Bool panic=TRUE);
 
+//SerialDev is compiled before PCI.ZC.  Keep the legacy UHCI/EHCI input
+//backend on that established ordering while giving its AOT calls explicit
+//forward declarations.
+extern I64 PCIClassFind(I64 class_code, I64 n);
+extern U16 PCIReadU16(I64 bus, I64 dev, I64 fun, I64 rg);
+extern U32 PCIReadU32(I64 bus, I64 dev, I64 fun, I64 rg);
+extern U0  PCIWriteU16(I64 bus, I64 dev, I64 fun, I64 rg, I64 val);
+
 extern I64 PopUp(U8 *buf, CTask *parent=NULL, CTask **_pu_task=NULL);
 
 extern U0 Print(U8 *format, ...);
