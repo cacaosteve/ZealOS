@@ -30,18 +30,24 @@ public U0 LegacyUsbInputInit()
 	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
 	EhciCoreInit;
 	ehci_active = sys_usb_input_active;
-	if (LegacyUsbInputScore(ehci_active) > best_score)
+	//Restore archive/utm-usb-ok's EHCI preference on equal coverage.
+	//EHCI has already claimed the companion ports by this point. Choosing
+	//UHCI on a tie can strand UTM's USB keyboard/tablet on the other bus.
+	if (ehci_active && LegacyUsbInputScore(ehci_active) >= best_score)
 	{
 		best_score = LegacyUsbInputScore(ehci_active);
 		best_backend = 1;
 	}
 
-	sys_usb_input_active = 0;
-	MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
-	if (best_backend == 0)
-		UhciCoreInit;
-	else if (best_backend == 1)
-		EhciCoreInit;
+	//Keep the live EHCI queues when it wins; do not erase and enumerate
+	//the same controller a second time after successfully finding HID.
+	if (best_backend != 1)
+	{
+		sys_usb_input_active = 0;
+		MemSet(&legacy_usb, 0, sizeof(CLegacyUSBStateGlobals));
+		if (best_backend == 0)
+			UhciCoreInit;
+	}
 
 	if (sys_usb_input_active)
 	{

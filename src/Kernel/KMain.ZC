@@ -220,25 +220,13 @@ U0 KMain()
 	}
 	LBts(&sys_run_level, RLf_BLKDEV);
 
-	#exe
-	{
-		if (!kernel_config->opts[CONFIG_NO_MP])
-			StreamPrint("if (MacMini2014BCM57766Present) "
-						"\"\\nMacmini7,1 BCM57766: keeping auxiliary CPUs offline for USB/AHCI stability.\\n\\n\";"
-						"else {"
-						"\"\\nCore0StartMP;\\n\\n\";"
-						"Core0StartMP;"
-						"LBts(&sys_run_level, RLf_MP);"
-						"}");
-	};
-
 	"KbdMouseInit;\n";
 	KbdMouseInit;
 	"MouseInit;\n";
 	MouseInit;
 	"KbdInit;\n";
 	KbdInit;
-	if (sys_usb_hid_mouse)
+	if (UsbMouseOwnsInput)
 	{
 		mouse_hard.installed = TRUE;
 		mouse_hard.irqs_working = TRUE;
@@ -260,8 +248,28 @@ U0 KMain()
 
 	"Load(\"Compiler\");\n";
 	Cd("/Compiler");
-	Load("Compiler", LDF_SILENT);
+	if (!Load("Compiler", LDF_SILENT) ||
+		!HashFind("ExeFile", Fs->hash_table, HTT_EXPORT_SYS_SYM))
+	{
+		"Compiler load failed: ExeFile export missing; cannot start YDE.\n";
+		throw('Compiler');
+	}
 	LBts(&sys_run_level, RLf_COMPILER);
+
+	//Keep compiler linking on CPU0, as in the proven pre-YDE hardware work.
+	//This delays AP startup, not a global single-core policy. The native
+	//BCM57766 Mac mini safety guard remains until separately validated.
+	#exe
+	{
+		if (!kernel_config->opts[CONFIG_NO_MP])
+			StreamPrint("if (MacMini2014BCM57766Present) "
+						"\"\\nMacmini7,1 BCM57766: keeping auxiliary CPUs offline for USB/AHCI stability.\\n\\n\";"
+						"else {"
+						"\"\\nCore0StartMP;\\n\\n\";"
+						"Core0StartMP;"
+						"LBts(&sys_run_level, RLf_MP);"
+						"}");
+	};
 
 	DebugMode(OFF);
 	counts.time_stamp_freq_initial = TimeCal;

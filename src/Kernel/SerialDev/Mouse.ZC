@@ -507,6 +507,13 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 		return TRUE;
 	}
 
+	if (!KbdControllerPresent)
+	{
+		mouse_hard.install_attempts = 1;
+		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
+		return FALSE;
+	}
+
 	mouse_hard.install_in_progress = TRUE;
 	OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
 	mouse_hard.installed = mouse_hard.irqs_working = FALSE;

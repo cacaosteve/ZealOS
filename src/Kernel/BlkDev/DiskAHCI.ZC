@@ -1184,37 +1184,51 @@ Bool AHCIBootDVDProbeAll(CBlkDev *bd)
 
 Bool AHCIAtapiRBlks(CDrive *drive, U8 *buf, I64 blk, I64 count)
 {
-	CBlkDev	*bd			= drive->bd;
-	I64		 spc		= bd->blk_size >> BLK_SIZE_BITS, n, blk2,
-			 l2			= (bd->max_reads << 1) + (spc << 1);
-	U8		*dvd_buf;//	= MAlloc(l2 << BLK_SIZE_BITS);
+	CBlkDev *bd = drive->bd;
+	I64 spc = bd->blk_size >> BLK_SIZE_BITS, limit, first, span, skip, n;
+	U8 *dvd_buf;
 
-	if (bd->type == BDT_ATAPI)
-	{
-		dvd_buf	= MAlloc(l2 << BLK_SIZE_BITS);
-
-		if (blk <= bd->max_reads)
-			blk2 = 0;
-		else
-			blk2 = FloorU64(blk - bd->max_reads, spc);
-
-		if (blk2 + l2 > drive->size + drive->drv_offset)
-			l2 = drive->size + drive->drv_offset - blk2;
-
-		n = (l2 + spc - 1) / spc;
-
-//		"AHCIAtapiBlksRead(bd, dvd_buf, %d, %d);", blk2 / spc, n;
-		AHCIAtapiBlksRead(bd, dvd_buf, blk2 / spc, n);
-
-		if (bd->flags & BDF_READ_CACHE)
-			DiskCacheAdd(drive, dvd_buf, blk2, n * spc);
-
-		MemCopy(buf, dvd_buf + (blk - blk2) << BLK_SIZE_BITS, count << BLK_SIZE_BITS);
-		Free(dvd_buf);
-
-	}
-	else
+	if (bd->type != BDT_ATAPI)
 		return FALSE;
+	if (count <= 0)
+		return TRUE;
+	if (spc != DVD_BLK_SIZE / BLK_SIZE)
+		throw('ATAPI');
+
+	//BlkRead accepts arbitrarily large requests. max_reads bounds each DMA,
+	//not the caller's buffer. The old fixed read-ahead buffer was over-read
+	//when loading Compiler.ZXE after the 64 KiB cap was introduced.
+	limit = MinI64(bd->max_reads, 128);
+	limit = MaxI64(spc, limit / spc * spc);
+	dvd_buf = MAlloc(limit << BLK_SIZE_BITS);
+	try
+	{
+		while (count > 0)
+		{
+			first = blk / spc * spc;
+			skip = blk - first;
+			span = MinI64(limit, drive->drv_offset + drive->size - first);
+			span = span / spc * spc;
+			span = MinI64(span, CeilU64(skip + count, spc));
+			if (span <= skip)
+				throw('Drive');
+			n = MinI64(count, span - skip);
+			if (AHCIAtapiBlksRead(bd, dvd_buf, first / spc, span / spc) != span << BLK_SIZE_BITS)
+				throw('ATAPI');
+			if (bd->flags & BDF_READ_CACHE)
+				DiskCacheAdd(drive, dvd_buf, first, span);
+			MemCopy(buf, dvd_buf + (skip << BLK_SIZE_BITS), n << BLK_SIZE_BITS);
+			buf += n << BLK_SIZE_BITS;
+			blk += n;
+			count -= n;
+		}
+	}
+	catch
+	{
+		Free(dvd_buf);
+		//HolyC rethrows automatically when catch_except remains FALSE.
+	}
+	Free(dvd_buf);
 
 	return TRUE;
 }

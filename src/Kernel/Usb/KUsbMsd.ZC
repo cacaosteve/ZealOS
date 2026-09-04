@@ -27,7 +27,8 @@ class CUsbMsd
 	I64			 if_num,
 				 next_tag,
 				 max_lba, blk_size,
-				 lock;
+				 lock,
+				 data_residue;
 	U8			 first_drive_let;
 	CUsbMsdCBW	*cbw;
 	CUsbMsdCSW	*csw;
@@ -61,6 +62,7 @@ I64 UsbMsdCmd(CUsbMsd *msd, U8 *cb, I64 cb_len, U8 *data, I64 data_len, I64 dir_
 	I64		 code, i, residue;
 	CUsbEP	*data_ep;
 
+	msd->data_residue = data_len;
 	MemSet(msd->cbw, 0, sizeof(CUsbMsdCBW));
 	msd->cbw->sig	   = USB_MSD_CBW_SIG;
 	msd->next_tag++;
@@ -93,17 +95,21 @@ I64 UsbMsdCmd(CUsbMsd *msd, U8 *cb, I64 cb_len, U8 *data, I64 data_len, I64 dir_
 			UsbClearHalt(msd->dev, data_ep);
 		else if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PKT)
 			return -1;
+		else
+			msd->data_residue = residue;
 	}
 
 	MemSet(msd->csw, 0, sizeof(CUsbMsdCSW));
-	code = XhciBulkXfer(msd->dev, msd->bulk_in, msd->csw, sizeof(CUsbMsdCSW), 2.0);
+	code = XhciBulkXfer(msd->dev, msd->bulk_in, msd->csw, sizeof(CUsbMsdCSW), 2.0, &residue);
 	if (code == XHCI_CC_STALL)
 	{//Retry CSW once after clearing halt.
 		UsbClearHalt(msd->dev, msd->bulk_in);
-		code = XhciBulkXfer(msd->dev, msd->bulk_in, msd->csw, sizeof(CUsbMsdCSW), 2.0);
+		code = XhciBulkXfer(msd->dev, msd->bulk_in, msd->csw, sizeof(CUsbMsdCSW), 2.0, &residue);
 	}
 	if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PKT)
 		return -1;
+	if (residue)
+		return -1; //A truncated CSW must not look like a successful command.
 	if (msd->csw->sig != USB_MSD_CSW_SIG || msd->csw->tag != msd->cbw->tag)
 		return -1;
 	if (msd->csw->status == 2)
@@ -175,6 +181,9 @@ I64 UsbMsdRW10(CUsbMsd *msd, I64 write, I64 lba, I64 count, U8 *buf)
 	U8	cb[10];
 	I64	res, bytes = count * msd->blk_size;
 
+	if (count <= 0 || count > USB_MSD_CHUNK_BLKS ||
+		bytes <= 0 || bytes > USB_MSD_CHUNK_BLKS * BLK_SIZE)
+		return -1;
 	MemSet(cb, 0, 10);
 	if (write)
 	{
@@ -190,6 +199,8 @@ I64 UsbMsdRW10(CUsbMsd *msd, I64 write, I64 lba, I64 count, U8 *buf)
 	cb[7] = (count >> 8) & 0xFF;
 	cb[8] = count & 0xFF;
 	res = UsbMsdCmd(msd, cb, 10, msd->bounce, bytes, !write);
+	if (!res && (msd->data_residue || msd->csw->residue))
+		return -1; //Never copy stale bounce bytes or report a partial write as complete.
 	if (!res && !write)
 		MemCopy(buf, msd->bounce, bytes);
 
@@ -290,11 +301,13 @@ U0 UsbMsdAttach(CUsbDev *dev, CUsbIf *uif)
 		return;
 	}
 	if (!msd->cbw)
-		msd->cbw = CAlloc(sizeof(CUsbMsdCBW), sys_task->code_heap);
+		msd->cbw = CAllocAligned(sizeof(CUsbMsdCBW), 64, sys_task->code_heap);
 	if (!msd->csw)
-		msd->csw = CAlloc(sizeof(CUsbMsdCSW), sys_task->code_heap);
+		msd->csw = CAllocAligned(sizeof(CUsbMsdCSW), 64, sys_task->code_heap);
 	if (!msd->bounce)
-		msd->bounce = CAlloc(USB_MSD_CHUNK_BLKS * BLK_SIZE, sys_task->code_heap);
+		//A single Normal TRB must not cross a 64 KiB boundary, even when
+		//its length is at most 64 KiB. Keep the bounded DMA buffer aligned.
+		msd->bounce = CAllocAligned(USB_MSD_CHUNK_BLKS * BLK_SIZE, 0x10000, sys_task->code_heap);
 	msd->next_tag = 1;
 	msd->valid	  = TRUE;
 	dev->drv_data = msd;

@@ -198,6 +198,11 @@ echo "Setting up temp ISO directory contents for use with limine xorriso command
 # is correct, or the recursive read below hits the broken cluster chains.
 mdeltree -i "$IMG" ::/Tmp/OSBuild >/dev/null 2>&1 || true
 mcopy -s -Q -n -o -i "$IMG" "::/*" "$TMPISODIR/" < /dev/null
+#Unlike MakeMyISO's /Distro tree, this tree comes directly from the build
+#disk. Its Registry still contains OnceDrive(AutoFullDistro4). Never ship
+#that build-only startup queue: the live ISO must use the normal Once.ZC
+#install prompt after the YDE splash, not try to rebuild itself.
+rm -f "$TMPISODIR/Home/Registry.ZC"
 rm -f "$TMPISODIR/Tmp/MyDistro.ISO.C"
 rm -f "$TMPISODIR/Boot/OldMBR.BIN"
 rm -f "$TMPISODIR/Boot/BootMHD2.BIN"
