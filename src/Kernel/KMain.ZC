@@ -1,15 +1,3 @@
-Bool MacMini2014BCM57766Present()
-{//The Macmini7,1's APs fault in timer/USB/AHCI paths. Other YDE machines keep MP.
-	I64 bdf, n = 0;
-
-	while ((bdf = PCIClassFind(PCIC_NETWORK << 16 | PCISC_ETHERNET << 8, n++)) >= 0)
-		if (PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_VENDOR_ID) == 0x14E4 &&
-			PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_DEVICE_ID) == 0x1686)
-			return TRUE;
-
-	return FALSE;
-}
-
 U0 SysGlobalsInit()
 {
 	I64				i, j;
@@ -257,18 +245,14 @@ U0 KMain()
 	LBts(&sys_run_level, RLf_COMPILER);
 
 	//Keep compiler linking on CPU0, as in the proven pre-YDE hardware work.
-	//This delays AP startup, not a global single-core policy. The native
-	//BCM57766 Mac mini safety guard remains until separately validated.
+	//This delays AP startup, not a single-core policy. This experimental
+	//build intentionally enables native Mac mini APs at Steve's request.
 	#exe
 	{
 		if (!kernel_config->opts[CONFIG_NO_MP])
-			StreamPrint("if (MacMini2014BCM57766Present) "
-						"\"\\nMacmini7,1 BCM57766: keeping auxiliary CPUs offline for USB/AHCI stability.\\n\\n\";"
-						"else {"
-						"\"\\nCore0StartMP;\\n\\n\";"
+			StreamPrint("\"\\nCore0StartMP;\\n\\n\";"
 						"Core0StartMP;"
-						"LBts(&sys_run_level, RLf_MP);"
-						"}");
+						"LBts(&sys_run_level, RLf_MP);");
 	};
 
 	DebugMode(OFF);

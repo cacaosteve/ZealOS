@@ -291,9 +291,9 @@ U0 UsbTaskMain(I64 dummy=0)
 //Hub status-change endpoints are unclaimed; poll after boot-time USB reads.
 		if (!usb_macmini2014 && post_boot_started && tick & 0x7F == 0)
 			UsbHubScanAll;
-		/* The Mac mini is deliberately single-core until its AP/timer path is
-		   safe.  A 250Hz HID poll is still smoother than USB's traditional
-		   125Hz rate while leaving the desktop and compiler CPU time. */
+		/* Preserve the Mac mini's bounded HID polling cadence independently
+		   of CPU count. Native AP startup is enabled in the hardware4 test;
+		   that does not by itself justify changing device polling policy. */
 		if (usb_macmini2014)
 			Sleep(4);
 		else
@@ -312,8 +312,8 @@ I64 UsbBootInit()
 	LegacyUsbInputInit;
 	if (XhciInitAll)
 	{
-		/* UTM attaches its built-in UI HID devices to nec-usb-xhci.  That model
-		   reports the controller before its root ports have fully settled.  The
+		/* Some VMs attach HID to nec-usb-xhci; UTM can instead use the legacy
+		   companion bus handled above. Allow bounded root-port settling. The
 		   known-good UTM input path used a 300ms grace period and five bounded
 		   scans; retain that behavior in YDE's general xHCI owner. */
 		Sleep(300);

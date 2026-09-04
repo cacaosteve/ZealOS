@@ -31,9 +31,8 @@ Bool YDEMacMini2014BCM57766Present()
 	return FALSE;
 }
 
-//Mac mini7,1 stays single-core because starting its APs is not yet stable.
-//Audio probing is deferred, so the normal splash can yield to boot and USB.
-//Do not retry Core0StartMP here: it reintroduces the Mac mini timer/AP protection fault
+//KMain owns MP startup, including native Mac mini APs in the hardware4 experiment.
+//Keep audio/device quirks separate from CPU policy; do not start the APs twice.
 Bool yde_boot_macmini = YDEMacMini2014BCM57766Present;
 Bool yde_boot_is_build = FileFind("::/Tmp/OSBuild",, FUF_JUST_DIRS);
 Bool yde_boot_splash_enabled = ToBool(!YDE_BOOT_VERBOSE && !yde_boot_is_build);

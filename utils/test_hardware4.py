@@ -118,7 +118,8 @@ int main() {
         self.assertLess(main.index('if (!Load("Compiler"'), main.index('"Core0StartMP;"'))
         self.assertIn('HashFind("ExeFile", Fs->hash_table, HTT_EXPORT_SYS_SYM)', main)
         self.assertIn("if (UsbMouseOwnsInput)", main)
-        self.assertIn("if (MacMini2014BCM57766Present)", main)
+        self.assertNotIn("MacMini2014BCM57766Present", main)
+        self.assertNotIn("keeping auxiliary CPUs offline", main)
         for path in ("SerialDev/Keyboard.ZC", "SerialDev/Mouse.ZC"):
             self.assertIn("if (!KbdControllerPresent)", source(path))
 
