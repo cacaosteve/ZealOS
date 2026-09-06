@@ -379,8 +379,9 @@ U0 VMInstallDrive(CTask *task, U8 drv_let, I64 ata_port, I64 atapi_port)
 	XTalkWait(task, "BootHDIns('%C');\n\nB\n0x20000\n", drv_let);
 	if (ata_port > -1)
 		XTalkWait(task, "C\n%d\n", ata_port);
-	if (atapi_port > -1)
-		XTalkWait(task, "T%d\n", atapi_port);
+	//Do not bake the installation CD's port into the installed kernel.
+	//MountAHCIAuto discovers optical drives only when actually present.
+	//Keep the atapi_port argument for callers using the existing interface.
 	//Exit Drives, default Disk Cache, MountAHCIAuto on C and T.
 	XTalkWait(task, "\n\nMountAHCIAuto\nCT\n\n");
 }

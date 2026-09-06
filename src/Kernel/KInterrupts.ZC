@@ -2,15 +2,18 @@ asm {
 INT_MP_CRASH_ADDR:: //Forward reference to work around compiler
 		DU32	&IntMPCrash;
 
+		ALIGN	8, 0
+INT_LAPIC_EOI_ADDR::
+		DU64	0;
+//Filled by IntPICInit after UncachedAliasAlloc, before installing these IRQs.
+//Use an assembler-label memory reference here, not MOV EAX,&dev: the latter
+//has no absolute relocation in the hardware4 AOT kernel and reads low RAM.
+
 INT_WAKE::
-		PUSH	RDX
 		PUSH	RAX
-		MOV 	EAX, &dev
-		MOV 	EDX, U32 LAPIC_EOI
-		MOV 	RAX, U64 CDevGlobals.uncached_alias[RAX]
-		MOV 	U32 [RAX+RDX], 0
+		MOV 	RAX, U64 [INT_LAPIC_EOI_ADDR]
+		MOV 	U32 [RAX], 0
 		POP 	RAX
-		POP 	RDX
 		IRET
 
 IRQ_TIMER::  //I_TIMER
@@ -46,10 +49,8 @@ IRQ_TIMER::  //I_TIMER
 		TEST	RAX, RAX
 		JZ		@@20
 
-		MOV 	EAX, &dev
-		MOV 	EDX, U32 LAPIC_EOI
-		MOV 	RAX, U64 CDevGlobals.uncached_alias[RAX]
-		MOV 	U32 [RAX + RDX], 0
+		MOV 	RAX, U64 [INT_LAPIC_EOI_ADDR]
+		MOV 	U32 [RAX], 0
 		JMP 	@@25
 
 @@20: 	CALL	&IntCore0TimerHandler 	//Only Core 0 calls this.
@@ -148,6 +149,10 @@ I64 IntEntryAlloc()
 
 U0 IntPICInit()
 {//Init 8259
+	//All CPUs share this uncached LAPIC alias. Publish its runtime address
+	//before IntInit2 installs INT_WAKE/IRQ_TIMER and before starting APs.
+	*INT_LAPIC_EOI_ADDR(U64 *) = dev.uncached_alias + LAPIC_EOI;
+
 	OutU8(PIC_1, PIC_INIT); //IW (Initialization Word) 1
 	OutU8(PIC_2, PIC_INIT); //IW1
 

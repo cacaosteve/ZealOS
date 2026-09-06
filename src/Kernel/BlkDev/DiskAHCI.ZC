@@ -947,7 +947,13 @@ U0 AHCIPortInit(CBlkDev *bd, CAHCIPort *port, I64 port_num)
 	I64				 i;
 
 	if (!(port->signature == AHCI_PxSIG_ATAPI || port->signature == AHCI_PxSIG_ATA))
-		Debug("AHCI Port/BlkDev error: Invalid Port Signature");
+	{
+		//A saved mount list may name an optical drive that has been removed.
+		//Let the caller's mount-failure handling continue with available disks;
+		//do not trap an otherwise bootable installed system in the debugger.
+		"AHCI: port %d unavailable (signature 0x%X).\n", port_num, port->signature;
+		throw('NoAHCI');
+	}
 
 	if (Letter2BlkDevType(bd->first_drive_let) == BDT_ATA && port->signature == AHCI_PxSIG_ATAPI)
 		Debug("AHCI Port/BlkDev type mismatch: BlkDev ATA, Port ATAPI");

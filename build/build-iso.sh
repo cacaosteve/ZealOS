@@ -57,7 +57,7 @@ fi
 # Set this true if you want to test ISOs in QEMU after building.
 TESTING=false
 
-for tool in qemu-system-x86_64 qemu-img xorriso mcopy mmd mdel mdeltree git make tar
+for tool in qemu-system-x86_64 qemu-img xorriso mcopy mmd mdel mdeltree git make tar python3
 do
 	command -v "$tool" >/dev/null || { echo "ERROR: $tool not found in \$PATH."; exit 1; }
 done
@@ -198,6 +198,8 @@ echo "Setting up temp ISO directory contents for use with limine xorriso command
 # is correct, or the recursive read below hits the broken cluster chains.
 mdeltree -i "$IMG" ::/Tmp/OSBuild >/dev/null 2>&1 || true
 mcopy -s -Q -n -o -i "$IMG" "::/*" "$TMPISODIR/" < /dev/null
+echo "Checking installed build kernel IRQ EOI addressing ..."
+python3 ../utils/check_irq_eoi.py "$TMPISODIR/Boot/Kernel.ZXE"
 #Unlike MakeMyISO's /Distro tree, this tree comes directly from the build
 #disk. Its Registry still contains OnceDrive(AutoFullDistro4). Never ship
 #that build-only startup queue: the live ISO must use the normal Once.ZC
@@ -225,6 +227,8 @@ then
 	exit 1
 fi
 rm -f "$TMPISODIR/Tmp/DVDKernel.ZXE"
+echo "Checking live ISO kernel IRQ EOI addressing ..."
+python3 ../utils/check_irq_eoi.py "$TMPISODIR/Boot/Kernel.ZXE"
 
 truncate -s 32K bios_boot.img
 
